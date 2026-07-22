@@ -1,0 +1,22 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  /* Azul da marca: #009ace (escala derivada dele) */
+  --color-blue-50: #e5f6fc;
+  --color-blue-100: #cfeef9;
+  --color-blue-200: #a0def2;
+  --color-blue-500: #00ace6;
+  --color-blue-600: #009ace;
+  --color-blue-700: #007ea8;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 font-sans antialiased;
+}
+
+/* Valores monetários e datas alinham melhor com algarismos tabulares */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
