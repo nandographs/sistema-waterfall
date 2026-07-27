@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  agendamentos, clientes, equipamentos, vendas, produtos,
+  agendamentos, clientes, equipamentos, lancamentos, produtos,
   proximaTroca, formatBRL, formatData, FORMAS_PAGAMENTO, TIPOS_AGENDAMENTO,
 } from '../data/repository.js'
 import { Card, Badge, Empty, Button } from '../components/ui.jsx'
@@ -58,15 +58,26 @@ export default function Dashboard() {
     .filter(({ prevista }) => prevista && prevista <= mesAtual + '-31')
     .sort((a, b) => a.prevista.localeCompare(b.prevista))
 
-  // ---- Financeiro ----
-  const todasVendas = vendas.list()
-  const vendasDoMes = todasVendas.filter((v) => v.data?.startsWith(mesAtual))
-  const totalVendidoMes = vendasDoMes.reduce((s, v) => s + Number(v.valor || 0), 0)
-  const pendentes = todasVendas.filter((v) => v.status === 'pendente')
-  const totalAReceber = pendentes.reduce((s, v) => s + Number(v.valor || 0), 0)
+  // ---- Financeiro (tudo sai do caixa único: a tabela de lançamentos) ----
+  const todos = lancamentos.list()
+  const entradas = todos.filter((l) => l.tipo === 'entrada')
+  const saidas = todos.filter((l) => l.tipo === 'saida')
+
+  // "Vendido no mês" conta pela data de vencimento (quando o dinheiro é devido),
+  // não pela data em que o registro foi criado.
+  const entradasDoMes = entradas.filter((l) => l.vencimento?.startsWith(mesAtual))
+  const totalVendidoMes = entradasDoMes.reduce((s, l) => s + Number(l.valor || 0), 0)
+
+  const pendentes = entradas.filter((l) => l.status === 'previsto')
+  const totalAReceber = pendentes.reduce((s, l) => s + Number(l.valor || 0), 0)
+
+  const aPagar = saidas.filter((l) => l.status === 'previsto')
+  const totalAPagar = aPagar.reduce((s, l) => s + Number(l.valor || 0), 0)
+  const vencidasAPagar = aPagar.filter((l) => l.vencimento && l.vencimento < hoje)
+
   const aReceberPorForma = Object.keys(FORMAS_PAGAMENTO).map((forma) => ({
     forma,
-    total: pendentes.filter((v) => v.formaPagamento === forma).reduce((s, v) => s + Number(v.valor || 0), 0),
+    total: pendentes.filter((l) => l.formaPagamento === forma).reduce((s, l) => s + Number(l.valor || 0), 0),
   })).filter((f) => f.total > 0)
   const maiorForma = Math.max(1, ...aReceberPorForma.map((f) => f.total))
 
@@ -136,13 +147,13 @@ export default function Dashboard() {
       </div>
 
       {/* Indicadores */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         <Kpi
           icon={<IconWallet size={20} className="text-emerald-600" />}
           iconBg="bg-emerald-50"
           label="Vendido no mês"
           value={formatBRL(totalVendidoMes)}
-          hint={`${vendasDoMes.length} venda(s)`}
+          hint={`${entradasDoMes.length} lançamento(s)`}
         />
         <Kpi
           icon={<IconClock size={20} className="text-amber-600" />}
@@ -150,6 +161,17 @@ export default function Dashboard() {
           label="A receber"
           value={formatBRL(totalAReceber)}
           hint={`${pendentes.length} pagamento(s) pendente(s)`}
+        />
+        <Kpi
+          icon={<IconWallet size={20} className="text-red-600" />}
+          iconBg="bg-red-50"
+          label="A pagar"
+          value={formatBRL(totalAPagar)}
+          hint={
+            vencidasAPagar.length
+              ? `${vencidasAPagar.length} conta(s) vencida(s)`
+              : `${aPagar.length} conta(s) em aberto`
+          }
         />
         <Kpi
           icon={<IconCalendar size={20} className="text-blue-600" />}

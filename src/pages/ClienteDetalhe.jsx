@@ -1,13 +1,17 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
-  clientes, produtos, equipamentos, vendas, agendamentos, marcarVendaPaga, excluirVenda,
+  clientes, produtos, equipamentos, vendas, lancamentos, agendamentos,
+  salvarVenda, darBaixa, excluirVenda, itensDaVenda, agendarProximaTroca,
   definirFotoPerfil, removerFotoPerfil,
-  proximaTroca, formatBRL, formatData, enderecoCompleto, FORMAS_PAGAMENTO, TIPOS_AGENDAMENTO,
+  proximaTroca, formatBRL, formatData, enderecoCompleto,
+  FORMAS_PAGAMENTO, TIPOS_AGENDAMENTO, STATUS_VENDA,
 } from '../data/repository.js'
 import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge } from '../components/ui.jsx'
-import { IconPlus, IconFileText, IconChevronLeft, IconUser, IconTrash } from '../components/icons.jsx'
+import { IconPlus, IconFileText, IconChevronLeft, IconUser, IconTrash, IconEye } from '../components/icons.jsx'
 import OrdemServicoModal from '../components/OrdemServicoModal.jsx'
+import AgendamentoDetalheModal from '../components/AgendamentoDetalheModal.jsx'
+import PedidoModal from '../components/PedidoModal.jsx'
 import ClienteFormFields from '../components/ClienteFormFields.jsx'
 import FotosCliente from '../components/FotosCliente.jsx'
 import FotoUnica from '../components/FotoUnica.jsx'
@@ -33,7 +37,9 @@ export default function ClienteDetalhe() {
   const [editando, setEditando] = useState(null)
   const [vendaForm, setVendaForm] = useState(null)
   const [osAgendamento, setOsAgendamento] = useState(null)
+  const [agDetalhe, setAgDetalhe] = useState(null)
   const [vendaExcluir, setVendaExcluir] = useState(null)
+  const [pedidoVenda, setPedidoVenda] = useState(null)
   const [removerEquip, setRemoverEquip] = useState(false)
   const [excluindo, setExcluindo] = useState(false)
 
@@ -48,7 +54,15 @@ export default function ClienteDetalhe() {
 
   const hoje = new Date().toISOString().slice(0, 10)
   const meusEquipamentos = equipamentos.list().filter((e) => e.clienteId === id)
-  const minhasVendas = vendas.list().filter((v) => v.clienteId === id)
+  const minhasVendas = vendas
+    .list()
+    .filter((v) => v.clienteId === id)
+    .sort((a, b) => (b.data || '').localeCompare(a.data || ''))
+  // Contas a receber deste cliente, venham de venda ou de agendamento avulso.
+  const meusRecebimentos = lancamentos
+    .list()
+    .filter((l) => l.clienteId === id && l.tipo === 'entrada')
+    .sort((a, b) => (a.vencimento || '').localeCompare(b.vencimento || ''))
   const meusAgendamentos = agendamentos.list().filter((a) => a.clienteId === id)
   const historico = meusAgendamentos
     .filter((a) => a.status === 'concluido')
@@ -64,32 +78,61 @@ export default function ClienteDetalhe() {
     refresh()
   }
 
+  // Cadastro rápido: registra uma venda de um produto só, de algo que já foi
+  // entregue/instalado. Por isso não gera visita de instalação (agendarServicos:
+  // false) — o equipamento é criado aqui mesmo, e a troca do refil já fica
+  // programada a partir da data de instalação informada.
   async function registrarVenda(e) {
     e.preventDefault()
-    const venda = await vendas.create({
-      clienteId: id,
-      produtoId: vendaForm.produtoId,
-      valor: Number(vendaForm.valor || 0),
-      formaPagamento: vendaForm.formaPagamento,
-      parcelas: Number(vendaForm.parcelas || 1),
-      status: vendaForm.status,
-      data: vendaForm.data,
-    })
-    const produto = produtos.get(venda.produtoId)
-    if (produto?.tipo === 'aparelho') {
-      await equipamentos.create({
+    const produto = produtos.get(vendaForm.produtoId)
+    const parcelas = Math.max(1, Number(vendaForm.parcelas || 1))
+
+    const venda = await salvarVenda(
+      {
         clienteId: id,
-        produtoId: venda.produtoId,
+        data: vendaForm.data,
+        tipo: 'venda',
+        status: 'confirmada',
+        formaPagamento: vendaForm.formaPagamento,
+        condicao: parcelas > 1 ? 'parcelado' : 'a_vista',
+        parcelas,
+        primeiroVencimento: vendaForm.data,
+      },
+      [{
+        produtoId: vendaForm.produtoId,
+        descricao: produto?.nome || '',
+        quantidade: 1,
+        valorUnitario: Number(vendaForm.valor || 0),
+        desconto: 0,
+      }],
+      { agendarServicos: false },
+    )
+
+    if (vendaForm.status === 'pago') {
+      for (const l of lancamentos.list().filter((l) => l.vendaId === venda.id)) {
+        await darBaixa(l.id, vendaForm.data)
+      }
+    }
+
+    if (produto?.tipo === 'aparelho') {
+      const jaTem = equipamentos
+        .list()
+        .find((eq) => eq.clienteId === id && eq.produtoId === produto.id)
+      const equipamento = jaTem ?? await equipamentos.create({
+        clienteId: id,
+        produtoId: produto.id,
         dataInstalacao: vendaForm.dataInstalacao || vendaForm.data,
         dataUltimaTroca: '',
       })
+      await agendarProximaTroca(equipamento)
     }
+
     setVendaForm(null)
     refresh()
   }
 
-  async function marcarPago(vendaId) {
-    await marcarVendaPaga(vendaId)
+  async function receber(lancamentoId) {
+    await darBaixa(lancamentoId)
     refresh()
   }
 
@@ -101,9 +144,10 @@ export default function ClienteDetalhe() {
   async function confirmarExcluirVenda() {
     setExcluindo(true)
     try {
+      const itens = itensDaVenda(vendaExcluir.id)
       const equipamento = equipamentos
         .list()
-        .find((eq) => eq.clienteId === id && eq.produtoId === vendaExcluir.produtoId)
+        .find((eq) => eq.clienteId === id && itens.some((i) => i.produtoId === eq.produtoId))
       if (equipamento && removerEquip) {
         await equipamentos.remove(equipamento.id)
       }
@@ -185,7 +229,10 @@ export default function ClienteDetalhe() {
                   </div>
                   <Badge color="sky">Agendada</Badge>
                 </div>
-                <div className="mt-3 pt-3 border-t border-slate-100">
+                <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap gap-2">
+                  <Button variant="ghost" onClick={() => setAgDetalhe(proximaVisita)}>
+                    <IconEye size={15} /> Ver informações
+                  </Button>
                   <Button variant="ghost" onClick={() => setOsAgendamento(proximaVisita)}>
                     <IconFileText size={15} /> Gerar Ordem de Serviço
                   </Button>
@@ -208,28 +255,30 @@ export default function ClienteDetalhe() {
             {minhasVendas.length === 0 && <Empty>Nenhuma venda registrada para este cliente.</Empty>}
             <ul className="divide-y divide-slate-100">
               {minhasVendas.map((v) => {
-                const produto = produtos.get(v.produtoId)
-                const equipamento = meusEquipamentos.find((eq) => eq.produtoId === v.produtoId)
+                const itens = itensDaVenda(v.id)
+                const nomes = itens.map((i) => i.descricao).filter(Boolean).join(', ')
+                const equipamento = meusEquipamentos.find((eq) =>
+                  itens.some((i) => i.produtoId === eq.produtoId))
                 const troca = equipamento ? proximaTroca(equipamento) : null
                 return (
                   <li key={v.id} className="py-3 flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="font-medium">{produto?.nome ?? '(produto removido)'}</p>
+                    <div className="min-w-0">
+                      <p className="font-medium">{nomes || 'Venda sem itens'}</p>
                       <p className="text-xs text-slate-500">
-                        {formatData(v.data)} · {formatBRL(v.valor)} · {FORMAS_PAGAMENTO[v.formaPagamento]}
-                        {v.parcelas > 1 ? ` (${v.parcelas}x)` : ''}
+                        {formatData(v.data)} · {formatBRL(v.total)} · {FORMAS_PAGAMENTO[v.formaPagamento]}
+                        {Number(v.parcelas) > 1 ? ` (${v.parcelas}x)` : ''}
                         {troca ? ` · próxima troca de refil: ${formatData(troca)}` : ''}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      {v.status === 'pago' ? (
-                        <Badge color="green">Pago</Badge>
-                      ) : (
-                        <>
-                          <Badge color="amber">A receber</Badge>
-                          <Button variant="ghost" onClick={() => marcarPago(v.id)}>Marcar como pago</Button>
-                        </>
-                      )}
+                      <Badge color={
+                        v.status === 'confirmada' ? 'green' : (v.status === 'cancelada' ? 'red' : 'sky')
+                      }>
+                        {STATUS_VENDA[v.status] ?? v.status}
+                      </Badge>
+                      <Button variant="ghost" onClick={() => setPedidoVenda(v)} title="Gerar pedido">
+                        <IconFileText size={15} /> Pedido
+                      </Button>
                       <Button variant="danger" onClick={() => abrirExcluirVenda(v)} title="Excluir venda">
                         <IconTrash size={15} />
                       </Button>
@@ -237,6 +286,35 @@ export default function ClienteDetalhe() {
                   </li>
                 )
               })}
+            </ul>
+          </Card>
+
+          <Card title="Contas a receber">
+            {meusRecebimentos.length === 0 && <Empty>Nada a receber deste cliente.</Empty>}
+            <ul className="divide-y divide-slate-100">
+              {meusRecebimentos.map((l) => (
+                <li key={l.id} className="py-3 flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-slate-900">{l.descricao || 'Recebimento'}</p>
+                    <p className="text-xs text-slate-500">
+                      Vence em {formatData(l.vencimento)} · {FORMAS_PAGAMENTO[l.formaPagamento] ?? '—'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-slate-900 tnum">{formatBRL(l.valor)}</span>
+                    {l.status === 'realizado' ? (
+                      <Badge color="green">Recebido</Badge>
+                    ) : (
+                      <>
+                        <Badge color={l.vencimento && l.vencimento < hoje ? 'red' : 'amber'}>
+                          {l.vencimento && l.vencimento < hoje ? 'Vencido' : 'A receber'}
+                        </Badge>
+                        <Button variant="ghost" onClick={() => receber(l.id)}>Dar baixa</Button>
+                      </>
+                    )}
+                  </div>
+                </li>
+              ))}
             </ul>
           </Card>
 
@@ -252,6 +330,9 @@ export default function ClienteDetalhe() {
                   <div className="flex items-center gap-2">
                     {a.osNumero && <Badge color="slate">OS Nº {a.osNumero}</Badge>}
                     <Badge color="green">Concluído</Badge>
+                    <Button variant="ghost" onClick={() => setAgDetalhe(a)} title="Ver informações">
+                      <IconEye size={15} /> Ver
+                    </Button>
                     <Button variant="ghost" onClick={() => setOsAgendamento(a)}>
                       <IconFileText size={15} /> Gerar OS
                     </Button>
@@ -286,19 +367,36 @@ export default function ClienteDetalhe() {
         />
       )}
 
+      {agDetalhe && (
+        <AgendamentoDetalheModal
+          agendamento={agDetalhe}
+          onClose={() => setAgDetalhe(null)}
+        />
+      )}
+
+      {pedidoVenda && (
+        <PedidoModal
+          key={pedidoVenda.id}
+          venda={pedidoVenda}
+          onClose={() => setPedidoVenda(null)}
+          onGerado={refresh}
+        />
+      )}
+
       <Modal title="Excluir venda" open={!!vendaExcluir} onClose={() => setVendaExcluir(null)}>
         {vendaExcluir && (() => {
-          const produto = produtos.get(vendaExcluir.produtoId)
+          const itens = itensDaVenda(vendaExcluir.id)
+          const nomes = itens.map((i) => i.descricao).filter(Boolean).join(', ')
           const equipamento = equipamentos
             .list()
-            .find((eq) => eq.clienteId === id && eq.produtoId === vendaExcluir.produtoId)
+            .find((eq) => eq.clienteId === id && itens.some((i) => i.produtoId === eq.produtoId))
           return (
             <div className="space-y-4">
               <p className="text-sm text-slate-600">
                 Tem certeza que deseja excluir a venda de{' '}
-                <span className="font-semibold text-slate-900">{produto?.nome ?? 'produto removido'}</span>{' '}
-                no valor de <span className="font-semibold text-slate-900">{formatBRL(vendaExcluir.valor)}</span>?
-                Ela será removida também do financeiro. Essa ação não pode ser desfeita.
+                <span className="font-semibold text-slate-900">{nomes || 'sem itens'}</span>{' '}
+                no valor de <span className="font-semibold text-slate-900">{formatBRL(vendaExcluir.total)}</span>?
+                Os itens e as contas a receber dela saem junto. Essa ação não pode ser desfeita.
               </p>
               {equipamento && (
                 <label className="flex items-start gap-2 text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5">

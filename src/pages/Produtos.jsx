@@ -4,7 +4,13 @@ import { Card, Page, PageTitle, Button, Field, inputCls, Badge, Empty, Modal } f
 import { IconPlus, IconImage } from '../components/icons.jsx'
 import FotoUnica from '../components/FotoUnica.jsx'
 
-const FORM_VAZIO = { nome: '', tipo: 'aparelho', valor: '', intervaloTrocaMeses: '', aparelhoCompativelId: '' }
+const FORM_VAZIO = {
+  nome: '', codigo: '', tipo: 'aparelho', valor: '',
+  intervaloTrocaMeses: '', aparelhoCompativelId: '',
+  // Só do formulário: o vínculo mora no refil (aparelhoCompativelId), mas é
+  // prático poder escolhê-lo também pelo cadastro do aparelho.
+  refilVinculadoId: '',
+}
 
 export default function Produtos() {
   const [lista, setLista] = useState(produtos.list())
@@ -12,12 +18,37 @@ export default function Produtos() {
 
   const refresh = () => setLista(produtos.list())
   const aparelhos = lista.filter((p) => p.tipo === 'aparelho')
+  const refis = lista.filter((p) => p.tipo === 'refil')
+
+  const refilDoAparelho = (aparelhoId) =>
+    refis.find((r) => r.aparelhoCompativelId === aparelhoId) ?? null
+
+  function abrirEdicao(p) {
+    setForm({
+      ...FORM_VAZIO,
+      ...p,
+      refilVinculadoId: p.tipo === 'aparelho' ? (refilDoAparelho(p.id)?.id ?? '') : '',
+    })
+  }
 
   async function salvar(e) {
     e.preventDefault()
-    const dados = { ...form, valor: Number(form.valor || 0) }
-    if (form.id) await produtos.update(form.id, dados)
-    else await produtos.create(dados)
+    const { refilVinculadoId, ...campos } = form
+    const dados = { ...campos, valor: Number(form.valor || 0) }
+    const produto = form.id ? await produtos.update(form.id, dados) : await produtos.create(dados)
+
+    // Vínculo escolhido pelo lado do aparelho: como ele é gravado no refil,
+    // desfazemos o anterior antes de marcar o novo (um aparelho tem um refil).
+    if (produto.tipo === 'aparelho') {
+      const anterior = refilDoAparelho(produto.id)
+      if (anterior && anterior.id !== refilVinculadoId) {
+        await produtos.update(anterior.id, { aparelhoCompativelId: '' })
+      }
+      if (refilVinculadoId && refilVinculadoId !== anterior?.id) {
+        await produtos.update(refilVinculadoId, { aparelhoCompativelId: produto.id })
+      }
+    }
+
     setForm(null)
     refresh()
   }
@@ -48,6 +79,7 @@ export default function Produtos() {
               <thead>
                 <tr className="text-left text-xs text-slate-500 uppercase border-b border-slate-200">
                   <th className="py-2 pr-4">Produto</th>
+                  <th className="py-2 pr-4">Código</th>
                   <th className="py-2 pr-4">Tipo</th>
                   <th className="py-2 pr-4">Valor de venda</th>
                   <th className="py-2 pr-4">Troca a cada</th>
@@ -71,19 +103,33 @@ export default function Produtos() {
                       </div>
                     </td>
                     <td className="py-3 pr-4">
+                      {p.codigo
+                        ? <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-600 tnum">{p.codigo}</span>
+                        : <span className="text-slate-300">—</span>}
+                    </td>
+                    <td className="py-3 pr-4">
                       <Badge color={p.tipo === 'aparelho' ? 'sky' : 'green'}>
                         {p.tipo === 'aparelho' ? 'Aparelho' : 'Refil'}
                       </Badge>
                     </td>
                     <td className="py-3 pr-4">{formatBRL(p.valor)}</td>
                     <td className="py-3 pr-4">
-                      {p.tipo === 'refil' && p.intervaloTrocaMeses ? `${p.intervaloTrocaMeses} meses` : '—'}
+                      {/* No aparelho mostramos o intervalo do refil dele: é essa a
+                          periodicidade da manutenção daquele equipamento. */}
+                      {(() => {
+                        const meses = p.tipo === 'refil'
+                          ? p.intervaloTrocaMeses
+                          : refilDoAparelho(p.id)?.intervaloTrocaMeses
+                        return meses ? `${meses} meses` : <span className="text-slate-300">—</span>
+                      })()}
                     </td>
                     <td className="py-3 pr-4">
-                      {p.tipo === 'refil' ? (produtos.get(p.aparelhoCompativelId)?.nome ?? '—') : '—'}
+                      {p.tipo === 'refil'
+                        ? (produtos.get(p.aparelhoCompativelId)?.nome ?? <span className="text-slate-300">—</span>)
+                        : (refilDoAparelho(p.id)?.nome ?? <span className="text-slate-300">—</span>)}
                     </td>
                     <td className="py-3 text-right whitespace-nowrap">
-                      <Button variant="ghost" onClick={() => setForm({ ...FORM_VAZIO, ...p })}>Editar</Button>
+                      <Button variant="ghost" onClick={() => abrirEdicao(p)}>Editar</Button>
                       <Button variant="danger" onClick={() => excluir(p.id)}>Excluir</Button>
                     </td>
                   </tr>
@@ -113,9 +159,21 @@ export default function Produtos() {
                 A foto do produto pode ser adicionada após salvar, editando o produto.
               </p>
             )}
-            <Field label="Nome do produto">
-              <input className={inputCls} required value={form.nome} onChange={set('nome')} />
-            </Field>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="col-span-2">
+                <Field label="Nome do produto">
+                  <input className={inputCls} required value={form.nome} onChange={set('nome')} />
+                </Field>
+              </div>
+              <Field label="Código">
+                <input
+                  className={inputCls}
+                  placeholder="ex.: WF-100"
+                  value={form.codigo}
+                  onChange={set('codigo')}
+                />
+              </Field>
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Tipo">
                 <select className={inputCls} value={form.tipo} onChange={set('tipo')}>
@@ -128,18 +186,56 @@ export default function Produtos() {
               </Field>
             </div>
             {form.tipo === 'refil' && (
-              <div className="grid grid-cols-2 gap-4">
-                <Field label="Troca a cada (meses)">
-                  <input className={inputCls} type="number" min="1" required value={form.intervaloTrocaMeses} onChange={set('intervaloTrocaMeses')} />
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Troca a cada (meses)">
+                    <input className={inputCls} type="number" min="1" required value={form.intervaloTrocaMeses} onChange={set('intervaloTrocaMeses')} />
+                  </Field>
+                  <Field label="Aparelho compatível">
+                    <select className={inputCls} value={form.aparelhoCompativelId} onChange={set('aparelhoCompativelId')}>
+                      <option value="">Selecione…</option>
+                      {aparelhos.map((a) => (
+                        <option key={a.id} value={a.id}>{a.nome}</option>
+                      ))}
+                    </select>
+                  </Field>
+                </div>
+                <p className="text-xs text-slate-500">
+                  É esse intervalo que agenda as trocas sozinho: ao vender o aparelho, a
+                  primeira troca já entra na agenda, e cada troca concluída marca a seguinte.
+                </p>
+              </div>
+            )}
+
+            {form.tipo === 'aparelho' && (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
+                <Field label="Refil deste aparelho">
+                  {refis.length === 0 ? (
+                    <p className="text-xs text-slate-400">
+                      Nenhum refil cadastrado ainda. Cadastre o refil e informe o intervalo de troca.
+                    </p>
+                  ) : (
+                    <select
+                      className={inputCls}
+                      value={form.refilVinculadoId}
+                      onChange={set('refilVinculadoId')}
+                      disabled={!form.id}
+                    >
+                      <option value="">Nenhum</option>
+                      {refis.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.nome}
+                          {r.intervaloTrocaMeses ? ` — troca a cada ${r.intervaloTrocaMeses} meses` : ' — sem intervalo definido'}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </Field>
-                <Field label="Aparelho compatível">
-                  <select className={inputCls} value={form.aparelhoCompativelId} onChange={set('aparelhoCompativelId')}>
-                    <option value="">Selecione…</option>
-                    {aparelhos.map((a) => (
-                      <option key={a.id} value={a.id}>{a.nome}</option>
-                    ))}
-                  </select>
-                </Field>
+                <p className="text-xs text-slate-500">
+                  {form.id
+                    ? 'Vincular aqui é o mesmo que escolher este aparelho no cadastro do refil — é o que faz a troca ser agendada sozinha ao vender.'
+                    : 'Salve o aparelho primeiro; depois, editando, você poderá vincular o refil dele.'}
+                </p>
               </div>
             )}
             <div className="flex justify-end gap-2 pt-2">

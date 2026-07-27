@@ -6,6 +6,8 @@ import Clientes from './pages/Clientes.jsx'
 import ClienteDetalhe from './pages/ClienteDetalhe.jsx'
 import Produtos from './pages/Produtos.jsx'
 import Agendamentos from './pages/Agendamentos.jsx'
+import Vendas from './pages/Vendas.jsx'
+import Financeiro from './pages/Financeiro.jsx'
 import TopNav from './components/TopNav.jsx'
 import WallpaperPicker from './components/WallpaperPicker.jsx'
 import { lerWallpaper, salvarWallpaper, WALLPAPERS } from './data/wallpapers.js'
@@ -81,6 +83,8 @@ function AppLayout({ onSair }) {
           <Route path="/clientes/:id" element={<ClienteDetalhe />} />
           <Route path="/produtos" element={<Produtos />} />
           <Route path="/agendamentos" element={<Agendamentos />} />
+          <Route path="/vendas" element={<Vendas />} />
+          <Route path="/financeiro" element={<Financeiro />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

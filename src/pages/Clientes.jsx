@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  clientes, agendamentos, equipamentos, vendas, proximaTroca, formatData,
+  clientes, agendamentos, equipamentos, lancamentos, proximaTroca, formatData,
 } from '../data/repository.js'
 import { Card, Page, PageTitle, Button, inputCls, Empty, Modal, Badge } from '../components/ui.jsx'
 import { IconPlus, IconSearch, IconUser, IconFilter } from '../components/icons.jsx'
@@ -66,7 +66,9 @@ export default function Clientes() {
   }
 
   function temPagamentoPendente(clienteId) {
-    return vendas.list().some((v) => v.clienteId === clienteId && v.status === 'pendente')
+    return lancamentos
+      .list()
+      .some((l) => l.clienteId === clienteId && l.tipo === 'entrada' && l.status === 'previsto')
   }
 
   // Opções dos seletores, deduplicadas ignorando maiúsculas/espaços

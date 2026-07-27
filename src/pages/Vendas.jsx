@@ -1,0 +1,502 @@
+import { useState } from 'react'
+import { Link } from 'react-router-dom'
+import {
+  vendas, clientes, produtos, lancamentos,
+  salvarVenda, excluirVenda, itensDaVenda, lancamentosDaVenda, totaisDaVenda,
+  formatData, formatBRL, hojeISO,
+  FORMAS_PAGAMENTO, STATUS_VENDA, CANAIS_VENDA,
+} from '../data/repository.js'
+import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge } from '../components/ui.jsx'
+import { IconPlus, IconFileText, IconTrash, IconEye } from '../components/icons.jsx'
+import ClienteBusca from '../components/ClienteBusca.jsx'
+import ProdutoBusca from '../components/ProdutoBusca.jsx'
+import PedidoModal from '../components/PedidoModal.jsx'
+
+const ITEM_VAZIO = { produtoId: '', descricao: '', quantidade: 1, valorUnitario: '', desconto: '' }
+
+const FORM_VAZIO = {
+  clienteId: '', data: hojeISO(), tipo: 'venda', canal: '', status: 'proposta',
+  validadeDias: 15, numero: '',
+  desconto: '', frete: '',
+  formaPagamento: 'pix', condicao: 'a_vista', entrada: '', parcelas: 1, primeiroVencimento: '',
+  consultor: '', consultorTelefone: '', distribuidor: '', distribuidorTelefone: '',
+  entregaTipo: '', entregaEndereco: '', entregaPrevisao: '',
+  observacoes: '',
+}
+
+const STATUS_BADGE = {
+  proposta: 'sky',
+  confirmada: 'green',
+  cancelada: 'red',
+}
+
+export default function Vendas() {
+  const [, forceRender] = useState(0)
+  const refresh = () => forceRender((n) => n + 1)
+
+  const [form, setForm] = useState(null)
+  const [itens, setItens] = useState([])
+  const [filtro, setFiltro] = useState('todos')
+  const [pedidoVenda, setPedidoVenda] = useState(null)
+  const [detalhe, setDetalhe] = useState(null)
+  const [excluir, setExcluir] = useState(null)
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState('')
+
+  const listaProdutos = produtos.list()
+  const lista = vendas
+    .list()
+    .filter((v) => (filtro === 'todos' ? true : v.status === filtro))
+    .sort((a, b) => (b.data || '').localeCompare(a.data || ''))
+
+  // Totais recalculados a cada tecla, para o rodapé do formulário mostrar
+  // exatamente o que será gravado.
+  const { subtotal, total } = form
+    ? totaisDaVenda(itens, form.desconto, form.frete)
+    : { subtotal: 0, total: 0 }
+
+  function abrirNova() {
+    setErro('')
+    setForm({ ...FORM_VAZIO })
+    setItens([{ ...ITEM_VAZIO }])
+  }
+
+  function abrirEdicao(venda) {
+    setErro('')
+    setForm({ ...FORM_VAZIO, ...venda })
+    const existentes = itensDaVenda(venda.id)
+    setItens(existentes.length ? existentes.map((i) => ({ ...i })) : [{ ...ITEM_VAZIO }])
+  }
+
+  async function salvar(e) {
+    e.preventDefault()
+    setErro('')
+    setSalvando(true)
+    try {
+      await salvarVenda(form, itens)
+      setForm(null)
+      refresh()
+    } catch (ex) {
+      setErro(ex?.message || String(ex))
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  async function mudarStatus(venda, status) {
+    await salvarVenda({ ...venda, status }, itensDaVenda(venda.id))
+    refresh()
+  }
+
+  async function confirmarExcluir() {
+    await excluirVenda(excluir.id)
+    setExcluir(null)
+    refresh()
+  }
+
+  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
+
+  // Escolher o produto puxa nome e preço de tabela; ambos continuam editáveis.
+  function alterarItem(indice, campo, valor) {
+    setItens(itens.map((item, i) => {
+      if (i !== indice) return item
+      if (campo !== 'produtoId') return { ...item, [campo]: valor }
+      const produto = produtos.get(valor)
+      return {
+        ...item,
+        produtoId: valor,
+        descricao: produto?.nome || '',
+        valorUnitario: produto ? Number(produto.valor || 0) : item.valorUnitario,
+      }
+    }))
+  }
+
+  const totalDoItem = (item) =>
+    Math.max(0, Number(item.quantidade || 0) * Number(item.valorUnitario || 0) - Number(item.desconto || 0))
+
+  return (
+    <Page>
+      <PageTitle
+        subtitle="Pedidos, orçamentos e o que foi vendido"
+        action={<Button onClick={abrirNova}><IconPlus size={16} /> Nova venda</Button>}
+      >
+        Vendas
+      </PageTitle>
+
+      <div className="flex gap-2 mb-4 flex-wrap">
+        {[['todos', 'Todas'], ['proposta', 'Propostas'], ['confirmada', 'Confirmadas'], ['cancelada', 'Canceladas']].map(
+          ([valor, rotulo]) => (
+            <button
+              key={valor}
+              onClick={() => setFiltro(valor)}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium cursor-pointer ${
+                filtro === valor ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              {rotulo}
+            </button>
+          ),
+        )}
+      </div>
+
+      <Card>
+        {lista.length === 0 && <Empty>Nenhuma venda por aqui.</Empty>}
+        <ul className="divide-y divide-slate-100">
+          {lista.map((v) => {
+            const itensVenda = itensDaVenda(v.id)
+            const nomes = itensVenda.map((i) => i.descricao).filter(Boolean).join(', ')
+            const parcelas = lancamentosDaVenda(v.id)
+            const recebido = parcelas.filter((l) => l.status === 'realizado').length
+            return (
+              <li key={v.id} className="py-3 flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <Link to={`/clientes/${v.clienteId}`} className="text-sm font-medium text-slate-900 hover:text-blue-600">
+                    {clientes.get(v.clienteId)?.nome ?? '(cliente removido)'}
+                  </Link>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {formatData(v.data)}
+                    {v.numero ? ` · Nº ${v.numero}` : ''}
+                    {nomes ? ` · ${nomes}` : ''}
+                    {parcelas.length > 0 ? ` · ${recebido}/${parcelas.length} recebida(s)` : ''}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-semibold text-slate-900 tnum">{formatBRL(v.total)}</span>
+                  {v.tipo === 'orcamento' && <Badge color="slate">Orçamento</Badge>}
+                  {v.pedidoNumero && <Badge color="slate">Pedido Nº {v.pedidoNumero}</Badge>}
+                  <Badge color={STATUS_BADGE[v.status] ?? 'slate'}>{STATUS_VENDA[v.status] ?? v.status}</Badge>
+                  <Button variant="ghost" onClick={() => setDetalhe(v)} title="Ver informações">
+                    <IconEye size={16} /> Ver
+                  </Button>
+                  <Button variant="secondary" onClick={() => setPedidoVenda(v)}>
+                    <IconFileText size={16} /> Gerar pedido
+                  </Button>
+                  {v.status === 'proposta' && (
+                    <>
+                      <Button variant="ghost" onClick={() => abrirEdicao(v)}>Editar</Button>
+                      <Button variant="secondary" onClick={() => mudarStatus(v, 'confirmada')}>Confirmar</Button>
+                    </>
+                  )}
+                  {v.status === 'confirmada' && (
+                    <Button variant="danger" onClick={() => mudarStatus(v, 'cancelada')}>Cancelar</Button>
+                  )}
+                  <Button variant="danger" onClick={() => setExcluir(v)} title="Excluir venda">
+                    <IconTrash size={15} />
+                  </Button>
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      </Card>
+
+      {pedidoVenda && (
+        <PedidoModal
+          key={pedidoVenda.id}
+          venda={pedidoVenda}
+          onClose={() => setPedidoVenda(null)}
+          onGerado={refresh}
+        />
+      )}
+
+      {/* Detalhe: itens e situação de cada parcela */}
+      <Modal title="Detalhes da venda" open={!!detalhe} onClose={() => setDetalhe(null)} size="wide">
+        {detalhe && (
+          <div className="space-y-5 text-sm">
+            <div>
+              <p className="text-[13px] font-semibold text-slate-700 mb-2">Itens</p>
+              <ul className="divide-y divide-slate-100 border border-slate-200 rounded-lg">
+                {itensDaVenda(detalhe.id).map((i) => (
+                  <li key={i.id} className="flex justify-between gap-3 px-3 py-2">
+                    <span className="text-slate-700">
+                      {i.descricao} <span className="text-slate-400">× {Number(i.quantidade)}</span>
+                    </span>
+                    <span className="tnum text-slate-900">{formatBRL(i.valorTotal)}</span>
+                  </li>
+                ))}
+                {itensDaVenda(detalhe.id).length === 0 && (
+                  <li className="px-3 py-2 text-slate-400">Sem itens.</li>
+                )}
+              </ul>
+              <div className="flex justify-end gap-6 mt-2 text-xs text-slate-500">
+                <span>Subtotal: <span className="tnum">{formatBRL(detalhe.subtotal)}</span></span>
+                <span>Desconto: <span className="tnum">{formatBRL(detalhe.desconto)}</span></span>
+                <span>Frete: <span className="tnum">{formatBRL(detalhe.frete)}</span></span>
+                <span className="font-semibold text-slate-900">
+                  Total: <span className="tnum">{formatBRL(detalhe.total)}</span>
+                </span>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-[13px] font-semibold text-slate-700 mb-2">Contas a receber</p>
+              {lancamentosDaVenda(detalhe.id).length === 0 ? (
+                <p className="text-slate-400 text-xs">
+                  Nenhuma — só vendas confirmadas geram contas a receber.
+                </p>
+              ) : (
+                <ul className="divide-y divide-slate-100 border border-slate-200 rounded-lg">
+                  {lancamentosDaVenda(detalhe.id).map((l) => (
+                    <li key={l.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                      <span className="text-slate-700">{l.descricao}</span>
+                      <span className="flex items-center gap-2">
+                        <span className="text-xs text-slate-500">vence {formatData(l.vencimento)}</span>
+                        <span className="tnum text-slate-900">{formatBRL(l.valor)}</span>
+                        <Badge color={l.status === 'realizado' ? 'green' : 'amber'}>
+                          {l.status === 'realizado' ? 'Recebido' : 'A receber'}
+                        </Badge>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {detalhe.observacoes && (
+              <p className="text-slate-600">
+                <span className="font-medium text-slate-700">Observações:</span> {detalhe.observacoes}
+              </p>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      <Modal title="Excluir venda" open={!!excluir} onClose={() => setExcluir(null)}>
+        {excluir && (
+          <div className="space-y-4">
+            <p className="text-sm text-slate-600">
+              Excluir definitivamente esta venda de{' '}
+              <span className="font-semibold text-slate-900">
+                {clientes.get(excluir.clienteId)?.nome ?? 'cliente removido'}
+              </span>{' '}
+              ({formatBRL(excluir.total)})? Os itens e as contas a receber dela saem junto.
+              Essa ação não pode ser desfeita.
+            </p>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button type="button" variant="secondary" onClick={() => setExcluir(null)}>Cancelar</Button>
+              <Button type="button" variant="danger" onClick={confirmarExcluir}>Excluir venda</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal title={form?.id ? 'Editar venda' : 'Nova venda'} open={!!form} onClose={() => setForm(null)} size="wide">
+        {form && (
+          <form onSubmit={salvar} className="space-y-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field label="Cliente">
+                <ClienteBusca
+                  clientes={clientes.list()}
+                  value={form.clienteId}
+                  onChange={(id) => setForm({ ...form, clienteId: id })}
+                  required
+                />
+              </Field>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Data">
+                  <input className={inputCls} type="date" required value={form.data} onChange={set('data')} />
+                </Field>
+                <Field label="Nº do pedido">
+                  <input className={inputCls} placeholder="opcional" value={form.numero} onChange={set('numero')} />
+                </Field>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <Field label="Tipo">
+                <select className={inputCls} value={form.tipo} onChange={set('tipo')}>
+                  <option value="venda">Venda</option>
+                  <option value="orcamento">Orçamento</option>
+                </select>
+              </Field>
+              <Field label="Canal">
+                <select className={inputCls} value={form.canal} onChange={set('canal')}>
+                  <option value="">—</option>
+                  {Object.entries(CANAIS_VENDA).map(([v, r]) => <option key={v} value={v}>{r}</option>)}
+                </select>
+              </Field>
+              <Field label="Validade (dias)">
+                <input className={inputCls} type="number" min="0" value={form.validadeDias} onChange={set('validadeDias')} />
+              </Field>
+              <Field label="Situação">
+                <select className={inputCls} value={form.status} onChange={set('status')}>
+                  {Object.entries(STATUS_VENDA).map(([v, r]) => <option key={v} value={v}>{r}</option>)}
+                </select>
+              </Field>
+            </div>
+
+            {/* Itens */}
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
+              <p className="text-[13px] font-semibold text-slate-700">Itens da venda</p>
+              {itens.map((item, i) => (
+                <div key={i} className="grid grid-cols-2 sm:grid-cols-12 gap-2 items-end">
+                  <div className="sm:col-span-4">
+                    <Field label={i === 0 ? 'Produto' : ''}>
+                      <ProdutoBusca
+                        produtos={listaProdutos}
+                        value={item.produtoId}
+                        onChange={(id) => alterarItem(i, 'produtoId', id)}
+                        ocultarIds={itens.filter((_, idx) => idx !== i).map((it) => it.produtoId).filter(Boolean)}
+                      />
+                    </Field>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Field label={i === 0 ? 'Qtd.' : ''}>
+                      <input
+                        className={inputCls} type="number" min="1" step="1"
+                        value={item.quantidade}
+                        onChange={(e) => alterarItem(i, 'quantidade', e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Field label={i === 0 ? 'Valor un.' : ''}>
+                      <input
+                        className={inputCls} type="number" min="0" step="0.01"
+                        value={item.valorUnitario}
+                        onChange={(e) => alterarItem(i, 'valorUnitario', e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Field label={i === 0 ? 'Desconto' : ''}>
+                      <input
+                        className={inputCls} type="number" min="0" step="0.01"
+                        value={item.desconto}
+                        onChange={(e) => alterarItem(i, 'desconto', e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                  <div className="sm:col-span-2 flex items-center gap-2">
+                    <span className="text-sm tnum text-slate-700 flex-1 text-right">
+                      {formatBRL(totalDoItem(item))}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setItens(itens.filter((_, idx) => idx !== i))}
+                      className="text-red-500 hover:text-red-700 text-lg leading-none cursor-pointer px-1"
+                      title="Remover item"
+                    >
+                      ×
+                    </button>
+                  </div>
+                </div>
+              ))}
+              <Button type="button" variant="ghost" onClick={() => setItens([...itens, { ...ITEM_VAZIO }])}>
+                <IconPlus size={14} /> Adicionar item
+              </Button>
+            </div>
+
+            {/* Totais e pagamento */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="rounded-lg border border-slate-200 p-4 space-y-3">
+                <p className="text-[13px] font-semibold text-slate-700">Totais</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Desconto geral (R$)">
+                    <input className={inputCls} type="number" min="0" step="0.01" value={form.desconto} onChange={set('desconto')} />
+                  </Field>
+                  <Field label="Frete (R$)">
+                    <input className={inputCls} type="number" min="0" step="0.01" value={form.frete} onChange={set('frete')} />
+                  </Field>
+                </div>
+                <div className="flex justify-between text-sm pt-1 border-t border-slate-100">
+                  <span className="text-slate-500">Subtotal</span>
+                  <span className="tnum">{formatBRL(subtotal)}</span>
+                </div>
+                <div className="flex justify-between text-base font-semibold">
+                  <span>Total</span>
+                  <span className="tnum">{formatBRL(total)}</span>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 p-4 space-y-3">
+                <p className="text-[13px] font-semibold text-slate-700">Pagamento</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Forma">
+                    <select className={inputCls} value={form.formaPagamento} onChange={set('formaPagamento')}>
+                      {Object.entries(FORMAS_PAGAMENTO).map(([v, r]) => <option key={v} value={v}>{r}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="Condição">
+                    <select className={inputCls} value={form.condicao} onChange={set('condicao')}>
+                      <option value="a_vista">À vista</option>
+                      <option value="parcelado">Parcelado</option>
+                    </select>
+                  </Field>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <Field label="Entrada (R$)">
+                    <input className={inputCls} type="number" min="0" step="0.01" value={form.entrada} onChange={set('entrada')} />
+                  </Field>
+                  <Field label="Parcelas">
+                    <input
+                      className={inputCls} type="number" min="1"
+                      disabled={form.condicao !== 'parcelado'}
+                      value={form.parcelas}
+                      onChange={set('parcelas')}
+                    />
+                  </Field>
+                  <Field label="1º vencimento">
+                    <input className={inputCls} type="date" value={form.primeiroVencimento} onChange={set('primeiroVencimento')} />
+                  </Field>
+                </div>
+                <p className="text-xs text-slate-400">
+                  Ao confirmar a venda, cada parcela vira uma conta a receber com o seu vencimento.
+                </p>
+              </div>
+            </div>
+
+            {/* Atendimento e entrega */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <Field label="Consultor / Vendedor">
+                <input className={inputCls} value={form.consultor} onChange={set('consultor')} />
+              </Field>
+              <Field label="Telefone do consultor">
+                <input className={inputCls} value={form.consultorTelefone} onChange={set('consultorTelefone')} />
+              </Field>
+              <Field label="Entrega">
+                <select className={inputCls} value={form.entregaTipo} onChange={set('entregaTipo')}>
+                  <option value="">—</option>
+                  <option value="retirada">Retirada</option>
+                  <option value="endereco_cliente">Endereço do cliente</option>
+                  <option value="outro">Outro endereço</option>
+                </select>
+              </Field>
+              <Field label="Previsão de entrega">
+                <input className={inputCls} type="date" value={form.entregaPrevisao} onChange={set('entregaPrevisao')} />
+              </Field>
+            </div>
+
+            {form.entregaTipo === 'outro' && (
+              <Field label="Endereço de entrega">
+                <input className={inputCls} value={form.entregaEndereco} onChange={set('entregaEndereco')} />
+              </Field>
+            )}
+
+            <Field label="Observações">
+              <textarea className={inputCls} rows="2" value={form.observacoes} onChange={set('observacoes')} />
+            </Field>
+
+            {form.status === 'confirmada' && (
+              <p className="text-xs text-slate-500 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+                Confirmar gera as contas a receber e já deixa o serviço na agenda
+                (instalação, se houver aparelho; troca, se for só refil).
+              </p>
+            )}
+
+            {erro && (
+              <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{erro}</p>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <Button type="button" variant="secondary" onClick={() => setForm(null)} disabled={salvando}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar venda'}</Button>
+            </div>
+          </form>
+        )}
+      </Modal>
+    </Page>
+  )
+}

@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import {
   IconImage, IconLogOut, IconDashboard, IconUsers, IconDroplet, IconCalendar, IconUser,
+  IconFileText, IconWallet,
 } from './icons.jsx'
 import { usuarioAtual } from '../lib/auth.js'
 import logo from '../assets/logo.svg'
@@ -10,6 +11,8 @@ const links = [
   { to: '/clientes', label: 'Clientes', Icon: IconUsers },
   { to: '/produtos', label: 'Produtos', Icon: IconDroplet },
   { to: '/agendamentos', label: 'Agendamentos', Icon: IconCalendar },
+  { to: '/vendas', label: 'Vendas', Icon: IconFileText },
+  { to: '/financeiro', label: 'Financeiro', Icon: IconWallet },
 ]
 
 // Menu horizontal no topo (pílula central), com as ações à direita.

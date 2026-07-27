@@ -6,15 +6,25 @@
 
 import { supabase } from '../lib/supabaseClient.js'
 import { BUCKET, comprimir, assinarUrl, assinarVarias } from '../lib/imagem.js'
+import { somarMeses, hojeISO, planoDeParcelas, totaisDaVenda } from './financeiro.js'
 
-const TABELAS = ['clientes', 'produtos', 'equipamentos', 'vendas', 'agendamentos']
+// Reexportados: as telas importam tudo do repositório.
+export { somarMeses, hojeISO, planoDeParcelas, totaisDaVenda }
+export { resumoDoMes, variacao, somarMesesNoMes, mesDe } from './financeiro.js'
+
+const TABELAS = [
+  'clientes', 'produtos', 'equipamentos', 'agendamentos',
+  'vendas', 'venda_itens', 'lancamentos',
+]
 
 const cache = {
   clientes: [],
   produtos: [],
   equipamentos: [],
-  vendas: [],
   agendamentos: [],
+  vendas: [],
+  venda_itens: [],
+  lancamentos: [],
 }
 
 function camelParaSnake(s) {
@@ -46,14 +56,30 @@ function paraApp(linha) {
   return item
 }
 
-// Busca as 5 tabelas no Supabase e popula o cache em memória.
+// Busca as tabelas no Supabase e popula o cache em memória.
 // Deve ser chamada uma vez após o login, antes de renderizar as telas.
 export async function carregarDados() {
   const respostas = await Promise.all(
     TABELAS.map((tabela) => supabase.from(tabela).select('*').order('criado_em', { ascending: true })),
   )
   respostas.forEach((resposta, i) => {
-    if (resposta.error) throw resposta.error
+    if (resposta.error) {
+      // Tabela não encontrada. São dois casos com a mesma cara:
+      //   42P01   — o Postgres não tem a tabela: a migração não rodou.
+      //   PGRST205 — a tabela existe, mas o cache de schema do PostgREST está
+      //              velho e a API ainda não a enxerga.
+      // O erro cru não ajuda em nada, então apontamos a saída de cada um.
+      const naoEncontrada = resposta.error.code === '42P01' || resposta.error.code === 'PGRST205'
+      if (naoEncontrada) {
+        throw new Error(
+          `A tabela "${TABELAS[i]}" não foi encontrada. ` +
+          'Se você ainda não rodou a migração, rode sql/001_vendas_financeiro.sql no ' +
+          'SQL Editor do Supabase. Se já rodou, o cache da API está desatualizado: ' +
+          "execute NOTIFY pgrst, 'reload schema'; e recarregue esta página.",
+        )
+      }
+      throw resposta.error
+    }
     cache[TABELAS[i]] = resposta.data.map(paraApp)
   })
 
@@ -63,6 +89,13 @@ export async function carregarDados() {
   cache.clientes = cache.clientes.map((c) => ({ ...c, fotoPerfilUrl: urlsClientes[c.fotoPerfil] || '' }))
   const urlsProdutos = await assinarVarias(cache.produtos.map((p) => p.foto))
   cache.produtos = cache.produtos.map((p) => ({ ...p, fotoUrl: urlsProdutos[p.foto] || '' }))
+}
+
+// Descarta do cache em memória o que o banco já apagou por cascata (ex.: os
+// itens e lançamentos de uma venda excluída), para as telas não exibirem
+// registros órfãos até o próximo carregamento.
+function removerDoCache(tabela, condicao) {
+  cache[tabela] = cache[tabela].filter((item) => !condicao(item))
 }
 
 function makeStore(tabela) {
@@ -98,24 +131,42 @@ function makeStore(tabela) {
 //            criadoPor (nome de usuário de quem cadastrou; ver lib/auth.js) }
 export const clientes = makeStore('clientes')
 
-// Produto: { nome, tipo: 'aparelho' | 'refil', valor,
+// Produto: { nome, codigo (SKU/referência, opcional — usado na busca),
+//            tipo: 'aparelho' | 'refil', valor,
 //            intervaloTrocaMeses (refil), aparelhoCompativelId (refil) }
 export const produtos = makeStore('produtos')
 
 // Equipamento do cliente: { clienteId, produtoId, dataInstalacao, dataUltimaTroca }
 export const equipamentos = makeStore('equipamentos')
 
-// Venda (registro financeiro): { clienteId, produtoId, valor,
-//          formaPagamento: 'dinheiro'|'pix'|'cartao'|'boleto', parcelas,
-//          status: 'pago'|'pendente', data, agendamentoId (origem, se veio de um agendamento) }
+// Venda (documento comercial): { numero, clienteId, data, validadeDias,
+//          tipo: 'venda'|'orcamento', canal, status: 'proposta'|'confirmada'|'cancelada',
+//          subtotal, desconto, frete, total,
+//          formaPagamento, condicao: 'a_vista'|'parcelado', entrada, parcelas, primeiroVencimento,
+//          consultor, consultorTelefone, distribuidor, distribuidorTelefone,
+//          entregaTipo, entregaEndereco, entregaPrevisao, observacoes,
+//          pedidoNumero, pedidoEmitidoEm (rastreabilidade do documento gerado) }
 export const vendas = makeStore('vendas')
+
+// Item da venda: { vendaId, produtoId, descricao, quantidade, valorUnitario,
+//                  desconto, valorTotal, ordem }
+export const vendaItens = makeStore('venda_itens')
+
+// Lançamento (o caixa único): { tipo: 'entrada'|'saida', status: 'previsto'|'realizado',
+//          descricao, categoria, valor, vencimento, dataPagamento, formaPagamento,
+//          parcela, parcelas, origem: 'venda'|'agendamento'|'manual',
+//          clienteId, vendaId, agendamentoId, observacoes }
+// Toda cobrança do sistema — venda ou agendamento avulso — vira lançamento aqui.
+// Uma venda em 3x gera 3 lançamentos, cada um com seu vencimento.
+export const lancamentos = makeStore('lancamentos')
 
 // Agendamento: { clienteId, data, tipo: 'instalacao'|'troca_refil'|'manutencao'|'visita',
 //                status: 'agendado'|'concluido'|'cancelado', observacoes,
 //                produtoIds (lista de produtos do serviço; uuid[]),
 //                produtoId (1º produto — mantido p/ financeiro e Ordem de Serviço),
 //                valor, formaPagamento, parcelas,
-//                statusPagamento: 'pago'|'pendente', vendaId (registro financeiro vinculado),
+//                statusPagamento: 'pago'|'pendente', lancamentoId (1º lançamento vinculado),
+//                vendaOrigemId (venda que gerou este agendamento, se houver),
 //                osNumero, osEmitidaEm (rastreabilidade da Ordem de Serviço gerada) }
 export const agendamentos = makeStore('agendamentos')
 
@@ -135,6 +186,31 @@ export const TIPOS_AGENDAMENTO = {
   visita: 'Visita',
 }
 
+export const STATUS_VENDA = {
+  proposta: 'Proposta',
+  confirmada: 'Confirmada',
+  cancelada: 'Cancelada',
+}
+
+export const CANAIS_VENDA = {
+  loja: 'Loja',
+  whatsapp: 'WhatsApp',
+  telefone: 'Telefone',
+  externo: 'Externo',
+}
+
+// Categorias das saídas (contas a pagar). As entradas usam 'venda' ou 'servico'.
+export const CATEGORIAS_SAIDA = {
+  fornecedor: 'Fornecedor',
+  estoque: 'Compra de estoque',
+  salario: 'Salários e pró-labore',
+  imposto: 'Impostos e taxas',
+  aluguel: 'Aluguel',
+  veiculo: 'Veículo e combustível',
+  marketing: 'Marketing',
+  outros: 'Outros',
+}
+
 export function formatBRL(valor) {
   return Number(valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
@@ -144,6 +220,7 @@ export function formatData(iso) {
   const [y, m, d] = iso.slice(0, 10).split('-')
   return `${d}/${m}/${y}`
 }
+
 
 // Monta a linha de endereço completa do cliente para exibição
 export function enderecoCompleto(cliente) {
@@ -158,8 +235,242 @@ export function enderecoCompleto(cliente) {
   return partes.join(' — ')
 }
 
-// Salva um agendamento e mantém o registro financeiro (venda) vinculado em sincronia.
-// Um agendamento com valor > 0 gera exatamente uma venda; cancelar ou zerar o valor a remove.
+// ---- Caixa: sincronia ----
+
+// Reconcilia os lançamentos de uma origem (venda ou agendamento) com o plano
+// recalculado. Casa parcela a parcela para PRESERVAR as baixas já dadas — quem
+// já pagou continua pago mesmo se o valor ou a data mudarem depois.
+async function sincronizarLancamentos(vinculo, plano) {
+  const chave = 'vendaId' in vinculo ? 'vendaId' : 'agendamentoId'
+  const alvo = vinculo[chave]
+
+  const atuais = lancamentos
+    .list()
+    .filter((l) => l[chave] === alvo)
+    .sort((a, b) => Number(a.parcela || 0) - Number(b.parcela || 0))
+
+  const total = Math.max(atuais.length, plano.length)
+  for (let i = 0; i < total; i++) {
+    const existente = atuais[i]
+    const novo = plano[i]
+
+    if (existente && novo) {
+      const dados = { ...novo }
+      if (existente.status === 'realizado') {
+        dados.status = 'realizado'
+        dados.dataPagamento = existente.dataPagamento
+      }
+      await lancamentos.update(existente.id, dados)
+    } else if (novo) {
+      await lancamentos.create({ ...novo, ...vinculo })
+    } else {
+      await lancamentos.remove(existente.id)
+    }
+  }
+
+  return lancamentos.list().filter((l) => l[chave] === alvo)
+}
+
+// ---- Vendas ----
+
+// Grava a venda, seus itens e o financeiro correspondente.
+//
+// Só venda CONFIRMADA vira dinheiro no caixa: uma proposta ainda não é receita,
+// e cancelar limpa os lançamentos previstos (os já pagos são preservados pela
+// sincronização, para não sumir com dinheiro que de fato entrou).
+// `opcoes.agendarServicos = false` para quando a tela já cuida do serviço por
+// conta própria (ex.: o cadastro rápido do cliente, que registra um aparelho
+// que JÁ está instalado e portanto não precisa de visita de instalação).
+export async function salvarVenda(form, itensForm, opcoes = {}) {
+  const itens = (itensForm || []).filter((item) => item.produtoId || String(item.descricao || '').trim())
+  const { subtotal, total } = totaisDaVenda(itens, form.desconto, form.frete)
+
+  const dados = {
+    ...form,
+    subtotal,
+    total,
+    desconto: Number(form.desconto || 0),
+    frete: Number(form.frete || 0),
+    entrada: Number(form.entrada || 0),
+    parcelas: Math.max(1, Number(form.parcelas || 1)),
+    validadeDias: form.validadeDias === '' ? '' : Number(form.validadeDias),
+  }
+  delete dados.itens
+
+  const venda = form.id ? await vendas.update(form.id, dados) : await vendas.create(dados)
+
+  // Itens não têm estado próprio (nada de pagamento neles), então regravar é
+  // mais simples e seguro do que reconciliar linha a linha.
+  for (const antigo of vendaItens.list().filter((i) => i.vendaId === venda.id)) {
+    await vendaItens.remove(antigo.id)
+  }
+  let ordem = 0
+  for (const item of itens) {
+    const bruto = Number(item.quantidade || 0) * Number(item.valorUnitario || 0)
+    await vendaItens.create({
+      vendaId: venda.id,
+      produtoId: item.produtoId || '',
+      descricao: item.descricao || produtos.get(item.produtoId)?.nome || '',
+      quantidade: Number(item.quantidade || 1),
+      valorUnitario: Number(item.valorUnitario || 0),
+      desconto: Number(item.desconto || 0),
+      valorTotal: Math.max(0, bruto - Number(item.desconto || 0)),
+      ordem: ordem++,
+    })
+  }
+
+  const plano = venda.status === 'confirmada'
+    ? planoDeParcelas({
+        descricao: `Venda ${venda.numero || ''}`.trim(),
+        clienteId: venda.clienteId,
+        total: venda.total,
+        entrada: venda.entrada,
+        parcelas: venda.condicao === 'parcelado' ? venda.parcelas : 1,
+        primeiroVencimento: venda.primeiroVencimento,
+        data: venda.data,
+        formaPagamento: venda.formaPagamento,
+        origem: 'venda',
+      })
+    : []
+  await sincronizarLancamentos({ vendaId: venda.id }, plano)
+
+  if (venda.status === 'confirmada' && opcoes.agendarServicos !== false) {
+    await agendarServicosDaVenda(venda)
+  }
+
+  return venda
+}
+
+// Confirmar uma venda já deixa o serviço na agenda: aparelho vendido vira uma
+// instalação; refil vendido sozinho vira uma troca.
+//
+// O agendamento nasce com valor ZERO de propósito — quem cobra é a venda. Se
+// ele tivesse valor, geraria lançamentos próprios e o mesmo dinheiro apareceria
+// duas vezes no caixa.
+export async function agendarServicosDaVenda(venda) {
+  const jaAgendado = agendamentos.list().some((a) => a.vendaOrigemId === venda.id)
+  if (jaAgendado) return []
+
+  const itens = itensDaVenda(venda.id)
+  const produtosVendidos = itens.map((i) => produtos.get(i.produtoId)).filter(Boolean)
+  const aparelhos = produtosVendidos.filter((p) => p.tipo === 'aparelho')
+  const refis = produtosVendidos.filter((p) => p.tipo === 'refil')
+
+  // A data de referência é quando o produto chega ao cliente.
+  const dataBase = venda.entregaPrevisao || venda.data || hojeISO()
+  const criados = []
+
+  // Aparelho na venda: instala tudo numa visita só. Sem aparelho, mas com
+  // refil: é uma troca.
+  const alvo = aparelhos.length
+    ? { tipo: 'instalacao', produtos: [...aparelhos, ...refis] }
+    : (refis.length ? { tipo: 'troca_refil', produtos: refis } : null)
+  if (!alvo) return []
+
+  criados.push(await agendamentos.create({
+    clienteId: venda.clienteId,
+    data: dataBase,
+    tipo: alvo.tipo,
+    status: 'agendado',
+    observacoes: `Gerado pela venda ${venda.numero || ''}`.trim(),
+    produtoIds: alvo.produtos.map((p) => p.id),
+    produtoId: alvo.produtos[0].id,
+    valor: 0,
+    formaPagamento: venda.formaPagamento || 'pix',
+    parcelas: 1,
+    statusPagamento: 'pendente',
+    vendaOrigemId: venda.id,
+  }))
+
+  // Vender o aparelho já deixa a primeira troca de refil na agenda, contada a
+  // partir da entrega — sem esperar a instalação ser concluída. Se a instalação
+  // atrasar, é só remarcar; concluí-la não duplica, porque já existe uma aberta.
+  for (const aparelho of aparelhos) {
+    const troca = await agendarTrocaDeRefil({
+      clienteId: venda.clienteId,
+      refil: refilDoAparelho(aparelho),
+      dataBase,
+      observacoes: `1ª troca de refil do ${aparelho.nome}.`,
+    })
+    if (troca) criados.push(troca)
+  }
+
+  return criados
+}
+
+export function itensDaVenda(vendaId) {
+  return vendaItens
+    .list()
+    .filter((i) => i.vendaId === vendaId)
+    .sort((a, b) => Number(a.ordem || 0) - Number(b.ordem || 0))
+}
+
+export function lancamentosDaVenda(vendaId) {
+  return lancamentos
+    .list()
+    .filter((l) => l.vendaId === vendaId)
+    .sort((a, b) => Number(a.parcela || 0) - Number(b.parcela || 0))
+}
+
+// Exclui a venda inteira. No banco os itens e os lançamentos caem por cascata
+// (ver a migração); aqui limpamos o cache em memória para as telas acompanharem.
+export async function excluirVenda(vendaId) {
+  await vendas.remove(vendaId)
+  removerDoCache('venda_itens', (i) => i.vendaId === vendaId)
+  removerDoCache('lancamentos', (l) => l.vendaId === vendaId)
+}
+
+// ---- Lançamentos (caixa) ----
+
+// Marca um lançamento como recebido/pago. Reflete no agendamento de origem para
+// o rótulo "Pago / A receber" da tela de agendamentos continuar coerente.
+export async function darBaixa(lancamentoId, dataPagamento) {
+  const lancamento = await lancamentos.update(lancamentoId, {
+    status: 'realizado',
+    dataPagamento: dataPagamento || hojeISO(),
+  })
+  await refletirPagamentoNoAgendamento(lancamento)
+  return lancamento
+}
+
+// Desfaz a baixa (voltou a ser previsto).
+export async function estornarLancamento(lancamentoId) {
+  const lancamento = await lancamentos.update(lancamentoId, {
+    status: 'previsto',
+    dataPagamento: '',
+  })
+  await refletirPagamentoNoAgendamento(lancamento)
+  return lancamento
+}
+
+async function refletirPagamentoNoAgendamento(lancamento) {
+  if (!lancamento?.agendamentoId || !agendamentos.get(lancamento.agendamentoId)) return
+  const doAgendamento = lancamentos.list().filter((l) => l.agendamentoId === lancamento.agendamentoId)
+  const tudoPago = doAgendamento.length > 0 && doAgendamento.every((l) => l.status === 'realizado')
+  await agendamentos.update(lancamento.agendamentoId, {
+    statusPagamento: tudoPago ? 'pago' : 'pendente',
+  })
+}
+
+// Lançamento avulso (conta a pagar, despesa, entrada manual).
+export async function salvarLancamento(form) {
+  const dados = {
+    ...form,
+    valor: Number(form.valor || 0),
+    parcela: Number(form.parcela || 1),
+    parcelas: Number(form.parcelas || 1),
+    origem: form.origem || 'manual',
+  }
+  return form.id ? lancamentos.update(form.id, dados) : lancamentos.create(dados)
+}
+
+export async function excluirLancamento(id) {
+  await lancamentos.remove(id)
+}
+
+// Salva um agendamento e mantém o financeiro vinculado em sincronia.
+// Um agendamento com valor > 0 gera lançamentos a receber; cancelar ou zerar o
+// valor os remove.
 export async function salvarAgendamento(form) {
   // produtoIds é a fonte de verdade (lista); produtoId espelha o 1º, para o
   // financeiro (venda) e a Ordem de Serviço, que trabalham com um produto só.
@@ -177,101 +488,182 @@ export async function salvarAgendamento(form) {
   return sincronizarFinanceiro(ag)
 }
 
-export async function mudarStatusAgendamento(id, status) {
-  let ag = await agendamentos.update(id, { status })
+// `dataConclusao` permite registrar um serviço feito em outro dia; sem ela,
+// vale hoje. É essa data — e não a data em que o serviço estava marcado — que
+// inicia a contagem do próximo refil.
+export async function mudarStatusAgendamento(id, status, dataConclusao) {
+  const extra = status === 'concluido' ? { concluidoEm: dataConclusao || hojeISO() } : {}
+  let ag = await agendamentos.update(id, { status, ...extra })
   ag = await sincronizarFinanceiro(ag)
   if (status === 'concluido') await aplicarEfeitosConclusao(ag)
   return ag
 }
 
+// Um agendamento com valor vira lançamentos a receber (um por parcela).
+// Cancelar ou zerar o valor os remove; baixas já dadas são preservadas pela
+// sincronização.
 async function sincronizarFinanceiro(ag) {
   const contabiliza = Number(ag.valor) > 0 && ag.status !== 'cancelado'
-  if (contabiliza) {
-    const dadosVenda = {
-      clienteId: ag.clienteId,
-      produtoId: ag.produtoId || '',
-      valor: Number(ag.valor),
-      formaPagamento: ag.formaPagamento || 'pix',
-      parcelas: Number(ag.parcelas || 1),
-      status: ag.statusPagamento || 'pendente',
-      data: ag.data,
-      agendamentoId: ag.id,
+
+  const plano = contabiliza
+    ? planoDeParcelas({
+        descricao: TIPOS_AGENDAMENTO[ag.tipo] ?? 'Serviço',
+        clienteId: ag.clienteId,
+        total: ag.valor,
+        parcelas: ag.parcelas,
+        primeiroVencimento: ag.data,
+        data: ag.data,
+        formaPagamento: ag.formaPagamento,
+        origem: 'agendamento',
+        categoria: 'servico',
+      })
+    : []
+
+  // O agendamento tem um único interruptor "Pago / A receber"; quando marcado
+  // como pago, todas as parcelas já nascem baixadas.
+  if (contabiliza && ag.statusPagamento === 'pago') {
+    for (const linha of plano) {
+      linha.status = 'realizado'
+      linha.dataPagamento = ag.data || hojeISO()
     }
-    if (ag.vendaId && vendas.get(ag.vendaId)) {
-      await vendas.update(ag.vendaId, dadosVenda)
-      return ag
-    }
-    const venda = await vendas.create(dadosVenda)
-    return agendamentos.update(ag.id, { vendaId: venda.id })
   }
-  if (ag.vendaId) {
-    await vendas.remove(ag.vendaId)
-    return agendamentos.update(ag.id, { vendaId: '' })
+
+  const gerados = await sincronizarLancamentos({ agendamentoId: ag.id }, plano)
+  const primeiro = gerados[0]?.id || ''
+  if ((ag.lancamentoId || '') !== primeiro) {
+    return agendamentos.update(ag.id, { lancamentoId: primeiro })
   }
   return ag
 }
 
-// Concluir uma instalação cria o equipamento do cliente; concluir uma troca
-// de refil atualiza a data da última troca do equipamento correspondente.
+// Concluir uma instalação cria o equipamento do cliente; concluir uma troca de
+// refil atualiza a data da última troca. Nos dois casos, a PRÓXIMA troca já sai
+// agendada — é o ciclo que faz o cliente nunca ficar sem refil.
+//
+// A contagem parte de `concluidoEm` (quando o serviço aconteceu de verdade) e
+// não da data em que ele estava marcado: a vida do filtro começa quando ele é
+// instalado, não quando foi agendado.
 async function aplicarEfeitosConclusao(ag) {
+  const base = ag.concluidoEm || ag.data
   const ids = ag.produtoIds?.length ? ag.produtoIds : (ag.produtoId ? [ag.produtoId] : [])
+
   for (const pid of ids) {
     const produto = produtos.get(pid)
     if (!produto) continue
+
     if (produto.tipo === 'aparelho') {
-      const jaExiste = equipamentos
+      const jaTem = equipamentos
         .list()
-        .some((e) => e.clienteId === ag.clienteId && e.produtoId === produto.id)
-      if (!jaExiste) {
+        .find((e) => e.clienteId === ag.clienteId && e.produtoId === produto.id)
+      if (!jaTem) {
         await equipamentos.create({
           clienteId: ag.clienteId,
           produtoId: produto.id,
-          dataInstalacao: ag.data,
+          dataInstalacao: base,
           dataUltimaTroca: '',
         })
       }
+      const refil = refilDoAparelho(produto)
+      await realinharTrocaComAInstalacao(ag, refil, base)
+      await agendarTrocaDeRefil({ clienteId: ag.clienteId, refil, dataBase: base })
     } else if (produto.tipo === 'refil') {
       const eq = equipamentos
         .list()
         .find((e) => e.clienteId === ag.clienteId && e.produtoId === produto.aparelhoCompativelId)
-      if (eq) await equipamentos.update(eq.id, { dataUltimaTroca: ag.data })
+      if (eq) await equipamentos.update(eq.id, { dataUltimaTroca: base })
+      // A próxima troca é agendada mesmo sem equipamento cadastrado: o que
+      // determina o ciclo é o refil e a data em que ele foi trocado.
+      await agendarTrocaDeRefil({ clienteId: ag.clienteId, refil: produto, dataBase: base })
     }
   }
 }
 
-// Marca uma venda como paga (e reflete no agendamento de origem, se houver)
-export async function marcarVendaPaga(vendaId) {
-  const venda = await vendas.update(vendaId, { status: 'pago' })
-  if (venda?.agendamentoId && agendamentos.get(venda.agendamentoId)) {
-    await agendamentos.update(venda.agendamentoId, { statusPagamento: 'pago' })
-  }
+// A primeira troca é agendada já na venda, contando a partir da data prevista
+// de entrega. Se a instalação acabou acontecendo em outro dia, essa data ficou
+// desatualizada — o filtro começou a viver depois.
+//
+// Só reajusta se a data ainda for exatamente a calculada na venda, ou seja, se
+// ninguém a moveu à mão. Uma troca que você adiantou continua onde você pôs.
+async function realinharTrocaComAInstalacao(agendamentoInstalacao, refil, dataConclusao) {
+  if (!refil?.intervaloTrocaMeses || !agendamentoInstalacao.data) return
+  if (agendamentoInstalacao.data === dataConclusao) return
+
+  const meses = Number(refil.intervaloTrocaMeses)
+  const comoFoiCalculada = somarMeses(agendamentoInstalacao.data, meses)
+
+  const aberta = agendamentos.list().find((a) =>
+    a.clienteId === agendamentoInstalacao.clienteId &&
+    a.status === 'agendado' &&
+    a.tipo === 'troca_refil' &&
+    (a.produtoIds || []).includes(refil.id),
+  )
+  if (!aberta || aberta.data !== comoFoiCalculada) return
+
+  await agendamentos.update(aberta.id, { data: somarMeses(dataConclusao, meses) })
 }
 
-// Exclui uma venda (registro financeiro). Se ela veio de um agendamento, apenas
-// desvincula: o agendamento continua no histórico, mas deixa de contar dinheiro.
-// O equipamento eventualmente gerado pela venda não é tocado aqui (a tela decide).
-export async function excluirVenda(vendaId) {
-  const venda = vendas.get(vendaId)
-  if (!venda) return
-  // Desvincula o agendamento ANTES de apagar a venda: se houver referência
-  // (FK) do agendamento para a venda, apagar primeiro violaria a restrição.
-  if (venda.agendamentoId && agendamentos.get(venda.agendamentoId)) {
-    await agendamentos.update(venda.agendamentoId, { vendaId: '' })
-  }
-  await vendas.remove(vendaId)
+// O refil cadastrado como compatível com um aparelho.
+export function refilDoAparelho(aparelho) {
+  if (!aparelho || aparelho.tipo !== 'aparelho') return null
+  return produtos.list().find((p) => p.tipo === 'refil' && p.aparelhoCompativelId === aparelho.id) ?? null
+}
+
+// Agenda a próxima troca de um refil: `dataBase` + o intervalo cadastrado.
+//
+// Não duplica: se o cliente já tem uma troca EM ABERTO daquele refil, nada é
+// criado — assim o agendamento que você adiantou ou remarcou à mão continua
+// valendo. Um agendamento cancelado não conta como aberto, então cancelar
+// encerra o ciclo (é exatamente o que se espera de um cancelamento).
+export async function agendarTrocaDeRefil({ clienteId, refil, dataBase, observacoes }) {
+  if (!clienteId || !refil?.intervaloTrocaMeses || !dataBase) return null
+
+  const jaEmAberto = agendamentos.list().some((a) =>
+    a.clienteId === clienteId &&
+    a.status === 'agendado' &&
+    a.tipo === 'troca_refil' &&
+    (a.produtoIds || []).includes(refil.id),
+  )
+  if (jaEmAberto) return null
+
+  return agendamentos.create({
+    clienteId,
+    data: somarMeses(dataBase, Number(refil.intervaloTrocaMeses)),
+    tipo: 'troca_refil',
+    status: 'agendado',
+    observacoes: observacoes || 'Troca programada automaticamente.',
+    produtoIds: [refil.id],
+    produtoId: refil.id,
+    // Sem valor de propósito: o serviço ainda não foi feito, e lançar dinheiro
+    // aqui encheria o "A receber" de receita que ninguém deve ainda. O valor é
+    // preenchido quando a troca for realizada.
+    valor: 0,
+    formaPagamento: 'pix',
+    parcelas: 1,
+    statusPagamento: 'pendente',
+  })
+}
+
+// Mantida para quem chama a partir de um equipamento (ex.: cadastro rápido de
+// venda na ficha do cliente).
+export async function agendarProximaTroca(equipamento) {
+  return agendarTrocaDeRefil({
+    clienteId: equipamento?.clienteId,
+    refil: refilDoEquipamento(equipamento),
+    dataBase: equipamento?.dataUltimaTroca || equipamento?.dataInstalacao,
+  })
 }
 
 // Exclui uma ordem de serviço (agendamento). Só é permitido para as canceladas.
-// Por segurança, remove antes qualquer venda ainda vinculada (uma OS cancelada
-// normalmente já não tem venda, pois o cancelamento a removeu do financeiro).
+// Os lançamentos vinculados são removidos junto (uma OS cancelada normalmente
+// já não tem nenhum, pois o cancelamento os tirou do caixa).
 export async function excluirAgendamento(id) {
   const ag = agendamentos.get(id)
   if (!ag) return
   if (ag.status !== 'cancelado') {
     throw new Error('Só é possível excluir ordens de serviço canceladas.')
   }
-  if (ag.vendaId && vendas.get(ag.vendaId)) {
-    await vendas.remove(ag.vendaId)
+  for (const l of lancamentos.list().filter((l) => l.agendamentoId === id)) {
+    await lancamentos.remove(l.id)
   }
   await agendamentos.remove(id)
 }
@@ -318,15 +710,19 @@ export async function removerFotoProduto(produtoId) {
   cache.produtos = cache.produtos.map((p) => (p.id === produtoId ? { ...p, fotoUrl: '' } : p))
 }
 
+// O refil que serve um equipamento: o próprio produto, se já for um refil, ou
+// o refil cadastrado como compatível com aquele aparelho.
+export function refilDoEquipamento(equipamento) {
+  const produto = produtos.get(equipamento?.produtoId)
+  if (!produto) return null
+  if (produto.tipo === 'refil') return produto
+  return produtos.list().find((p) => p.tipo === 'refil' && p.aparelhoCompativelId === produto.id) ?? null
+}
+
 // Data prevista da próxima troca de refil de um equipamento do cliente
 export function proximaTroca(equipamento) {
-  const produto = produtos.get(equipamento.produtoId)
-  const base = equipamento.dataUltimaTroca || equipamento.dataInstalacao
-  const refil = produto?.tipo === 'refil'
-    ? produto
-    : produtos.list().find((p) => p.tipo === 'refil' && p.aparelhoCompativelId === produto?.id)
+  const base = equipamento?.dataUltimaTroca || equipamento?.dataInstalacao
+  const refil = refilDoEquipamento(equipamento)
   if (!base || !refil?.intervaloTrocaMeses) return null
-  const dt = new Date(base + 'T12:00:00')
-  dt.setMonth(dt.getMonth() + Number(refil.intervaloTrocaMeses))
-  return dt.toISOString().slice(0, 10)
+  return somarMeses(base, Number(refil.intervaloTrocaMeses))
 }

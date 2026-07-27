@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  clientes, produtos, vendas, agendamentos,
+  clientes, produtos, agendamentos,
   formatBRL, formatData,
 } from '../data/repository.js'
 import { gerarOrdemServico } from '../os/gerar.js'
@@ -35,9 +35,10 @@ function brl(valor) {
 function montarInicial(agendamento) {
   const cliente = clientes.get(agendamento.clienteId) ?? {}
   const produto = produtos.get(agendamento.produtoId)
-  const venda = agendamento.vendaId ? vendas.get(agendamento.vendaId) : null
-  const valor = Number(venda?.valor ?? agendamento.valor ?? 0)
-  const parcelas = Number(venda?.parcelas ?? agendamento.parcelas ?? 1)
+  // O próprio agendamento é a fonte do financeiro do serviço; os lançamentos
+  // no caixa são derivados dele.
+  const valor = Number(agendamento.valor ?? 0)
+  const parcelas = Number(agendamento.parcelas ?? 1)
 
   return {
     os_numero: agendamento.osNumero || proximoNumeroOS(),
@@ -77,7 +78,7 @@ function montarInicial(agendamento) {
     total_ordem: brl(valor),
     aplicarPagamento: valor > 0,
     pagamento: {
-      forma: FORMA_OS[venda?.formaPagamento ?? agendamento.formaPagamento] ?? '',
+      forma: FORMA_OS[agendamento.formaPagamento] ?? '',
       condicao: parcelas > 1 ? 'parcelado' : 'a vista',
       parcelas: parcelas > 1 ? String(parcelas) : '',
       primeiro_vencimento: '',

@@ -7,9 +7,16 @@
 // células mapeadas é alterado.
 //
 // O modelo tem 7 tabelas de nível superior e nenhuma tabela aninhada nem
-// vMerge (verificado), então a varredura por spans de <w:tbl>/<w:tr>/<w:tc>
-// é segura. Células mescladas horizontalmente usam gridSpan, e a indexação
-// de colunas replica o comportamento do python-docx (expansão pela grade).
+// vMerge (verificado). A varredura do XML e a construção dos parágrafos ficam
+// em ../documentos/docx.js, compartilhadas com o Pedido de Venda.
+
+import {
+  checked, criarEditor, labeled, multiline, plain,
+  formatDate, nomeArquivoDocumento, checarCamposObrigatorios,
+} from '../documentos/docx.js'
+
+// Reexportado: gerarPdf.js e os testes importam formatDate daqui.
+export { formatDate }
 
 export const TOP_LEVEL_FIELDS = [
   'os_numero', 'data', 'hora', 'status', 'tipo_atendimento', 'cliente',
@@ -28,76 +35,18 @@ export const PAYMENT_FIELDS = [
   'comprovante_id', 'responsavel',
 ]
 
-// ---------------------------------------------------------------- utilidades
-
-function normalize(value) {
-  return String(value ?? '')
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-}
-
-export function formatDate(value) {
-  const raw = String(value ?? '').trim()
-  const patterns = [
-    [/^(\d{2})\/(\d{2})\/(\d{4})$/, (m) => [m[3], m[2], m[1]]],
-    [/^(\d{2})-(\d{2})-(\d{4})$/, (m) => [m[3], m[2], m[1]]],
-    [/^(\d{4})-(\d{2})-(\d{2})$/, (m) => [m[1], m[2], m[3]]],
-  ]
-  for (const [re, pick] of patterns) {
-    const m = raw.match(re)
-    if (!m) continue
-    const [y, mo, d] = pick(m)
-    const dt = new Date(Number(y), Number(mo) - 1, Number(d))
-    if (dt.getFullYear() === Number(y) && dt.getMonth() === Number(mo) - 1 && dt.getDate() === Number(d)) {
-      return { display: `${d}/${mo}/${y}`, filename: `${d}-${mo}-${y}` }
-    }
-  }
-  throw new Error('data deve estar em DD/MM/AAAA, DD-MM-AAAA ou AAAA-MM-DD')
-}
-
-function safeFilenamePart(value) {
-  const cleaned = String(value).trim()
-    .replace(/[<>:"/\\|?*]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .replace(/^[ .]+|[ .]+$/g, '')
-  if (!cleaned) throw new Error('cliente não pode resultar em nome de arquivo vazio')
-  return cleaned
-}
-
 export function nomeArquivo(data, ext = 'docx') {
-  const filenameDate = data.data === null || data.data === undefined || data.data === ''
-    ? hojeNomeArquivo()
-    : formatDate(data.data).filename
-  const client = safeFilenamePart(data.cliente || 'sem cliente')
-  return `ordem ${client} ${filenameDate}.${ext}`
-}
-
-function hojeNomeArquivo() {
-  const now = new Date()
-  const p = (n) => String(n).padStart(2, '0')
-  return `${p(now.getDate())}-${p(now.getMonth() + 1)}-${now.getFullYear()}`
-}
-
-function checked(selected, option) {
-  return normalize(selected) === normalize(option) ? '[X]' : '[ ]'
+  return nomeArquivoDocumento('ordem', data.data, data.cliente, ext)
 }
 
 // ---------------------------------------------------------------- validação
 
 export function validate(data) {
-  const errors = []
   if (typeof data !== 'object' || data === null || Array.isArray(data)) {
     throw new Error('os dados precisam ser um objeto JSON')
   }
 
-  const missing = TOP_LEVEL_FIELDS.filter((f) => !(f in data))
-  const unanswered = TOP_LEVEL_FIELDS.filter(
-    (f) => f in data && typeof data[f] === 'string' && !data[f].trim(),
-  )
-  if (missing.length) errors.push('campos sem resposta: ' + missing.join(', '))
-  if (unanswered.length) errors.push('campos vazios sem confirmação de não se aplica: ' + unanswered.join(', '))
+  const errors = checarCamposObrigatorios(data, TOP_LEVEL_FIELDS)
 
   const itemsValue = data.itens
   if (itemsValue !== null && itemsValue !== undefined) {
@@ -114,12 +63,7 @@ export function validate(data) {
         errors.push(`item ${n} deve ser um objeto`)
         return
       }
-      const itemMissing = ITEM_FIELDS.filter((f) => !(f in item))
-      const itemUnanswered = ITEM_FIELDS.filter(
-        (f) => f in item && typeof item[f] === 'string' && !item[f].trim(),
-      )
-      if (itemMissing.length) errors.push(`item ${n} sem resposta: ` + itemMissing.join(', '))
-      if (itemUnanswered.length) errors.push(`item ${n} vazio sem não se aplica: ` + itemUnanswered.join(', '))
+      errors.push(...checarCamposObrigatorios(item, ITEM_FIELDS, `item ${n}: `))
       if (String(item.descricao ?? '').length > 70) errors.push(`descrição do item ${n} excede 70 caracteres`)
     })
   }
@@ -129,14 +73,7 @@ export function validate(data) {
     if (typeof payment !== 'object' || Array.isArray(payment)) {
       errors.push('pagamento deve ser um objeto completo ou null para não se aplica')
     } else {
-      const payMissing = PAYMENT_FIELDS.filter((f) => !(f in payment))
-      const payUnanswered = PAYMENT_FIELDS.filter(
-        (f) => f in payment && typeof payment[f] === 'string' && !payment[f].trim(),
-      )
-      if (payMissing.length) errors.push('pagamento sem resposta: ' + payMissing.join(', '))
-      if (payUnanswered.length) {
-        errors.push('pagamento vazio sem confirmação de não se aplica: ' + payUnanswered.join(', '))
-      }
+      errors.push(...checarCamposObrigatorios(payment, PAYMENT_FIELDS, 'pagamento: '))
     }
   }
 
@@ -152,114 +89,14 @@ export function validate(data) {
   if (errors.length) throw new Error(errors.join('; '))
 }
 
-// ------------------------------------------------- varredura de spans no XML
-
-function findSpans(xml, tag, from = 0, to = xml.length) {
-  // Encontra spans <tag ...>...</tag> de nível superior no trecho dado.
-  // Sem aninhamento do mesmo tag (garantido pela estrutura do modelo).
-  const spans = []
-  const open = new RegExp(`<${tag}(?=[\\s>])`, 'g')
-  open.lastIndex = from
-  let m
-  while ((m = open.exec(xml)) && m.index < to) {
-    const closeTag = `</${tag}>`
-    const end = xml.indexOf(closeTag, m.index)
-    if (end === -1 || end > to) break
-    spans.push({ start: m.index, end: end + closeTag.length })
-    open.lastIndex = end + closeTag.length
-  }
-  return spans
-}
-
-function cellGrid(xml, rowSpan) {
-  // Retorna células da linha indexadas pela grade (expandindo gridSpan),
-  // replicando table.cell(r, c) do python-docx.
-  const cells = findSpans(xml, 'w:tc', rowSpan.start, rowSpan.end)
-  const grid = []
-  for (const cell of cells) {
-    const content = xml.slice(cell.start, cell.end)
-    const spanMatch = content.match(/<w:gridSpan w:val="(\d+)"\/>/)
-    const span = spanMatch ? Number(spanMatch[1]) : 1
-    for (let i = 0; i < span; i++) grid.push(cell)
-  }
-  return grid
-}
-
-function rebuildCell(xml, cellSpan, paragraphsXml) {
-  // Mantém <w:tcPr> e substitui todo o conteúdo da célula.
-  const content = xml.slice(cellSpan.start, cellSpan.end)
-  const tcPrMatch = content.match(/<w:tcPr>[\s\S]*?<\/w:tcPr>/)
-  const tcPr = tcPrMatch ? tcPrMatch[0] : ''
-  return `<w:tc>${tcPr}${paragraphsXml}</w:tc>`
-}
-
-// ------------------------------------------------------ construção de runs
-
-const escapeXml = (s) => String(s)
-  .replace(/&/g, '&amp;')
-  .replace(/</g, '&lt;')
-  .replace(/>/g, '&gt;')
-
-function runXml(text, size, bold) {
-  const sz = Math.round(size * 2)
-  const b = bold ? '<w:b/>' : '<w:b w:val="0"/>'
-  return (
-    `<w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/>${b}` +
-    `<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/></w:rPr>` +
-    `<w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r>`
-  )
-}
-
-function paragraphXml(runsXml, align) {
-  const jc = align ? `<w:jc w:val="${align}"/>` : ''
-  return (
-    `<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/>${jc}</w:pPr>` +
-    runsXml + '</w:p>'
-  )
-}
-
-function labeled(label, value, size, valueSize) {
-  let runs = runXml(label, size, true)
-  if (value) runs += runXml(` ${value}`, valueSize || size, false)
-  return paragraphXml(runs)
-}
-
-function multiline(entries, bodySize = 7.4) {
-  let runs = ''
-  entries.forEach(([label, value], index) => {
-    if (index) runs += '<w:r><w:br/></w:r>'
-    runs += runXml(label, 7.5, true)
-    if (value) runs += runXml(` ${value}`, bodySize, false)
-  })
-  return paragraphXml(runs)
-}
-
-function plain(value, size, align) {
-  return paragraphXml(runXml(String(value ?? ''), size, false), align)
-}
-
 // -------------------------------------------------------------- preenchimento
 
 export function fillDocumentXml(xml, data) {
   validate(data)
 
   const displayDate = data.data == null ? '' : formatDate(data.data).display
-
-  const tables = findSpans(xml, 'w:tbl')
-  if (tables.length !== 7) {
-    throw new Error('o modelo retido não possui a estrutura esperada de 7 tabelas')
-  }
-
-  // Cada edição é registrada como {span, xml} e aplicada em ordem reversa
-  // para não invalidar os índices.
-  const edits = []
-  const setCell = (tableIndex, row, col, paragraphs) => {
-    const rows = findSpans(xml, 'w:tr', tables[tableIndex].start, tables[tableIndex].end)
-    const grid = cellGrid(xml, rows[row])
-    const cell = grid[col]
-    if (!cell) throw new Error(`célula (${row},${col}) não encontrada na tabela ${tableIndex}`)
-    edits.push({ span: cell, xml: rebuildCell(xml, cell, paragraphs) })
-  }
+  const editor = criarEditor(xml, 7)
+  const setCell = (...args) => editor.setCell(...args)
 
   // Tabela 1 — identificação
   setCell(1, 0, 0, labeled('OS Nº:', data.os_numero, 7.9))
@@ -348,16 +185,5 @@ export function fillDocumentXml(xml, data) {
   setCell(5, 3, 0, labeled('Comprovante / NSU / ID da transação:', payment.comprovante_id, 7.1))
   setCell(5, 3, 3, labeled('Responsável pelo pagamento:', payment.responsavel, 7.0))
 
-  // Aplicar edições da última para a primeira (índices permanecem válidos).
-  // Células repetidas na grade (gridSpan) podem gerar edições duplicadas do
-  // mesmo span; deduplicar pelo início.
-  const unique = new Map()
-  for (const edit of edits) unique.set(edit.span.start, edit)
-  const ordered = [...unique.values()].sort((a, b) => b.span.start - a.span.start)
-
-  let result = xml
-  for (const { span, xml: cellXml } of ordered) {
-    result = result.slice(0, span.start) + cellXml + result.slice(span.end)
-  }
-  return result
+  return editor.aplicar()
 }

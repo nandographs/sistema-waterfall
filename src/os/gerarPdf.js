@@ -7,61 +7,11 @@
 // com null para "não se aplica", itens[] e pagamento{}), então DOCX e PDF saem
 // idênticos em conteúdo.
 
-import html2canvas from 'html2canvas'
-import { jsPDF } from 'jspdf'
 import { validate, formatDate, nomeArquivo } from './fill.js'
-import logoUrl from './logo-os.png?url'
-
-// --- helpers de exibição (espelham fill.js) ---
-
-function normalize(value) {
-  return String(value ?? '')
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-}
-
-function checked(selected, option) {
-  return normalize(selected) === normalize(option) ? '[X]' : '[ ]'
-}
-
-const esc = (s) => String(s ?? '')
-  .replace(/&/g, '&amp;')
-  .replace(/</g, '&lt;')
-  .replace(/>/g, '&gt;')
-
-// Rótulo em negrito seguido do valor (ou vazio). O valor é texto do usuário,
-// então é escapado.
-function campo(label, value) {
-  const v = value == null || value === '' ? '' : ` ${esc(value)}`
-  return `<span class="lbl">${esc(label)}</span>${v}`
-}
-
-// Rótulo em negrito seguido de HTML já pronto e seguro (grupos de opção).
-// Só o rótulo é escapado; o html é inserido como está (não pode conter dados
-// do usuário sem escape).
-function campoHtml(label, html) {
-  return `<span class="lbl">${esc(label)}</span> ${html}`
-}
-
-// Grupo de opções (checkboxes). Cada item já é texto estático seguro
-// ("[X] PIX" etc.); o espaçamento entre eles vem do CSS (.opt), não de &nbsp;.
-function grupo(items) {
-  return items.map((t) => `<span class="opt">${t}</span>`).join('')
-}
-
-// Converte a URL do logo (asset do Vite) em data URI, para não haver corrida de
-// carregamento durante a rasterização do PDF.
-async function logoDataUri() {
-  const resp = await fetch(logoUrl)
-  const blob = await resp.blob()
-  return await new Promise((resolve) => {
-    const fr = new FileReader()
-    fr.onload = () => resolve(fr.result)
-    fr.readAsDataURL(blob)
-  })
-}
+import { checked } from '../documentos/docx.js'
+import {
+  esc, campo, campoHtml, grupo, logoDataUri, cssDocumento, gerarPdfDeHtml,
+} from '../documentos/pdf.js'
 
 // --- montagem do HTML do documento ---
 
@@ -206,99 +156,23 @@ export function montarHtmlOS(data, logo) {
   </div>`
 }
 
-export const CSS = `
-  .os { width: 210mm; box-sizing: border-box; padding: 8mm 11.5mm 7mm;
-        background: #fff; color: #000; font-family: Arial, Helvetica, sans-serif;
-        font-size: 8pt; line-height: 1.3; }
-  .os * { box-sizing: border-box; }
-  .os .cab { border: 1px solid #000; text-align: center; padding: 6px 6px 7px; margin-bottom: 6px; }
-  .os .cab img { height: 14mm; width: auto; margin-bottom: 4px; }
-  .os .cab .end { font-size: 7.5pt; line-height: 1.45; }
-  .os table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 6px; }
-  .os td { border: 1px solid #000; padding: 4px 6px; vertical-align: middle;
-           word-wrap: break-word; overflow-wrap: break-word; }
-  .os .lbl { font-weight: bold; }
-  .os .opt { display: inline-block; margin-right: 16px; white-space: nowrap; }
-  .os .w25 { width: 25%; }
-  .os .banda { background: #E8E8E8; border: 1px solid #000; border-bottom: none;
-               font-weight: bold; font-size: 8pt; padding: 4px 7px; margin-top: 2px; }
-  .os .banda + table { margin-top: 0; }
-  .os .ident td { height: 24px; }
-  .os .grade4 td { height: 24px; }
+export const CSS = cssDocumento('.os') + `
   .os .grade2 td { height: 46px; vertical-align: top; }
-  .os .itens .cab-itens td { background: #F4F4F4; font-weight: bold; text-align: center; height: 22px; }
-  .os .itens td { height: 24px; }
-  .os .itens .l { text-align: left; }
-  .os .itens .c { text-align: center; }
-  .os .itens .total-lbl { text-align: right; font-weight: bold; }
   .os .aceite { border: 1px solid #000; padding: 8px 10px; }
   .os .aceite p { margin: 0 0 14px; text-align: justify; line-height: 1.45; }
   .os .assin { display: flex; gap: 20px; margin-top: 4px; }
   .os .assin > div { flex: 1; line-height: 1.95; }
 `
 
-// Renderiza o HTML num iframe ISOLADO e gera o PDF (A4, 1 página).
-// O iframe é essencial: o html2canvas não entende as cores oklch() que o
-// Tailwind injeta globalmente na página; num documento próprio, sem esse CSS,
-// ele só enxerga o nosso estilo (cores em hex).
 export async function gerarOrdemServicoPdf(data) {
   validate(data)
   const logo = await logoDataUri()
-
-  const iframe = document.createElement('iframe')
-  iframe.style.position = 'fixed'
-  iframe.style.left = '-10000px'
-  iframe.style.top = '0'
-  iframe.style.width = '210mm'
-  iframe.style.height = '300mm'
-  iframe.style.border = '0'
-  document.body.appendChild(iframe)
-
-  const doc = iframe.contentDocument
-  doc.open()
-  doc.write(
-    `<!doctype html><html><head><meta charset="utf-8">` +
-    `<style>*{margin:0;padding:0}html,body{background:#fff}${CSS}</style></head>` +
-    `<body>${montarHtmlOS(data, logo)}</body></html>`,
-  )
-  doc.close()
-
-  // Garante que o logo (data URI) terminou de carregar antes de rasterizar.
-  const img = doc.querySelector('.os .cab img')
-  if (img && !img.complete) {
-    await new Promise((res) => { img.onload = res; img.onerror = res })
-  }
-
-  const nome = nomeArquivo(data, 'pdf')
-  try {
-    // html2canvas clona o documento do próprio elemento (o iframe limpo),
-    // então não vê as cores oklch do Tailwind e rasteriza sem erro.
-    const canvas = await html2canvas(doc.querySelector('.os'), {
-      scale: 3,
-      useCORS: true,
-      backgroundColor: '#ffffff',
-    })
-
-    const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
-    const larguraPagina = pdf.internal.pageSize.getWidth() // 210 mm
-    const alturaPagina = pdf.internal.pageSize.getHeight() // 297 mm
-
-    // Encaixa em UMA página: normalmente usa a largura toda; se o conteúdo ficar
-    // mais alto que a página (OS muito cheia), reduz proporcionalmente para não
-    // cortar o rodapé, centralizando na horizontal.
-    let larguraImg = larguraPagina
-    let alturaImg = (canvas.height * larguraPagina) / canvas.width
-    if (alturaImg > alturaPagina) {
-      alturaImg = alturaPagina
-      larguraImg = (canvas.width * alturaPagina) / canvas.height
-    }
-    const x = (larguraPagina - larguraImg) / 2
-    pdf.addImage(canvas.toDataURL('image/jpeg', 0.98), 'JPEG', x, 0, larguraImg, alturaImg)
-    pdf.save(nome)
-  } finally {
-    document.body.removeChild(iframe)
-  }
-  return nome
+  return gerarPdfDeHtml({
+    html: montarHtmlOS(data, logo),
+    css: CSS,
+    seletor: '.os',
+    nome: nomeArquivo(data, 'pdf'),
+  })
 }
 
 // Exposto no modo dev para testes no navegador

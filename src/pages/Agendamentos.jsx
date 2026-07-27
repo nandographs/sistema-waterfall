@@ -5,8 +5,11 @@ import {
   formatData, formatBRL, TIPOS_AGENDAMENTO, FORMAS_PAGAMENTO,
 } from '../data/repository.js'
 import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge } from '../components/ui.jsx'
-import { IconPlus, IconFileText, IconTrash } from '../components/icons.jsx'
+import { IconPlus, IconFileText, IconTrash, IconEye } from '../components/icons.jsx'
 import OrdemServicoModal from '../components/OrdemServicoModal.jsx'
+import AgendamentoDetalheModal from '../components/AgendamentoDetalheModal.jsx'
+import ClienteBusca from '../components/ClienteBusca.jsx'
+import ProdutoBusca from '../components/ProdutoBusca.jsx'
 
 const FORM_VAZIO = {
   clienteId: '', data: '', tipo: 'visita', observacoes: '', status: 'agendado',
@@ -24,6 +27,7 @@ export default function Agendamentos() {
   const [form, setForm] = useState(null)
   const [filtro, setFiltro] = useState('agendado')
   const [osAgendamento, setOsAgendamento] = useState(null)
+  const [agDetalhe, setAgDetalhe] = useState(null)
   const [agExcluir, setAgExcluir] = useState(null)
   const [excluindo, setExcluindo] = useState(false)
 
@@ -128,6 +132,9 @@ export default function Agendamentos() {
                   )}
                   {a.osNumero && <Badge color="slate">OS Nº {a.osNumero}</Badge>}
                   <Badge color={cor}>{rotulo}</Badge>
+                  <Button variant="ghost" onClick={() => setAgDetalhe(a)} title="Ver informações">
+                    <IconEye size={16} /> Ver
+                  </Button>
                   {a.status !== 'cancelado' && (
                     <Button variant="secondary" onClick={() => setOsAgendamento(a)}>
                       <IconFileText size={16} /> Gerar OS
@@ -161,6 +168,14 @@ export default function Agendamentos() {
         />
       )}
 
+      {agDetalhe && (
+        <AgendamentoDetalheModal
+          agendamento={agDetalhe}
+          onClose={() => setAgDetalhe(null)}
+          onEditar={(a) => { setAgDetalhe(null); setForm({ ...FORM_VAZIO, ...a }) }}
+        />
+      )}
+
       <Modal title="Excluir ordem de serviço" open={!!agExcluir} onClose={() => setAgExcluir(null)}>
         {agExcluir && (
           <div className="space-y-4">
@@ -188,12 +203,12 @@ export default function Agendamentos() {
         {form && (
           <form onSubmit={salvar} className="space-y-4">
             <Field label="Cliente">
-              <select className={inputCls} required value={form.clienteId} onChange={set('clienteId')}>
-                <option value="">Selecione…</option>
-                {listaClientes.map((c) => (
-                  <option key={c.id} value={c.id}>{c.nome}</option>
-                ))}
-              </select>
+              <ClienteBusca
+                clientes={listaClientes}
+                value={form.clienteId}
+                onChange={(id) => setForm({ ...form, clienteId: id })}
+                required
+              />
             </Field>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Data">
@@ -214,20 +229,48 @@ export default function Agendamentos() {
                 {listaProdutos.length === 0 ? (
                   <p className="text-xs text-slate-400">Nenhum produto cadastrado.</p>
                 ) : (
-                  <div className="max-h-44 overflow-y-auto rounded-lg border border-slate-200 bg-white divide-y divide-slate-100">
-                    {listaProdutos.map((p) => {
-                      const marcado = (form.produtoIds || []).includes(p.id)
-                      return (
-                        <label key={p.id} className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-slate-50">
-                          <input type="checkbox" checked={marcado} onChange={() => alternarProduto(p.id)} />
-                          <span className="text-sm text-slate-700 flex-1">{p.nome}</span>
-                          <span className="text-xs text-slate-400">{formatBRL(p.valor)}</span>
-                        </label>
-                      )
-                    })}
-                  </div>
+                  <>
+                    <ProdutoBusca
+                      produtos={listaProdutos}
+                      onChange={alternarProduto}
+                      ocultarIds={form.produtoIds || []}
+                      limparAoSelecionar
+                      placeholder="Busque por nome ou código e tecle Enter…"
+                    />
+                    {(form.produtoIds || []).length > 0 && (
+                      <ul className="mt-2 rounded-lg border border-slate-200 bg-white divide-y divide-slate-100">
+                        {(form.produtoIds || []).map((id) => {
+                          const p = produtos.get(id)
+                          return (
+                            <li key={id} className="flex items-center gap-2.5 px-3 py-2">
+                              {p?.codigo && (
+                                <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-500 tnum">
+                                  {p.codigo}
+                                </span>
+                              )}
+                              <span className="text-sm text-slate-700 flex-1 truncate">
+                                {p?.nome ?? '(produto removido)'}
+                              </span>
+                              <span className="text-xs text-slate-400 tnum">{formatBRL(p?.valor)}</span>
+                              <button
+                                type="button"
+                                onClick={() => alternarProduto(id)}
+                                className="text-red-500 hover:text-red-700 text-lg leading-none cursor-pointer px-1"
+                                title="Remover produto"
+                                aria-label={`Remover ${p?.nome ?? 'produto'}`}
+                              >
+                                ×
+                              </button>
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    )}
+                  </>
                 )}
-                <p className="text-xs text-slate-400 mt-1">Deixe tudo desmarcado para uma visita sem produto.</p>
+                <p className="text-xs text-slate-400 mt-1">
+                  Deixe a lista vazia para uma visita sem produto.
+                </p>
               </Field>
               <div className="grid grid-cols-2 gap-4">
                 <Field label="Valor do serviço (R$)">
