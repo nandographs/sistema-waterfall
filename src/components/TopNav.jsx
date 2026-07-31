@@ -1,16 +1,21 @@
 import { NavLink } from 'react-router-dom'
 import {
   IconImage, IconLogOut, IconDashboard, IconUsers, IconDroplet, IconCalendar, IconUser,
-  IconFileText, IconWallet,
+  IconFileText, IconWallet, IconCheckSquare,
 } from './icons.jsx'
 import { usuarioAtual } from '../lib/auth.js'
 import logo from '../assets/logo.svg'
 
+// "Agenda" é o seu dia (contatos, tarefas, o calendário); "Serviços" são as
+// ordens de serviço em campo — o que antes se chamava "Agendamentos". Os dois
+// nomes juntos no menu confundiriam, e "Serviços" descreve melhor o que a
+// tela sempre foi. Rota e tabela seguem com o nome antigo.
 const links = [
   { to: '/', label: 'Dashboard', Icon: IconDashboard },
+  { to: '/agenda', label: 'Agenda', Icon: IconCalendar },
   { to: '/clientes', label: 'Clientes', Icon: IconUsers },
   { to: '/produtos', label: 'Produtos', Icon: IconDroplet },
-  { to: '/agendamentos', label: 'Agendamentos', Icon: IconCalendar },
+  { to: '/agendamentos', label: 'Serviços', Icon: IconCheckSquare },
   { to: '/vendas', label: 'Vendas', Icon: IconFileText },
   { to: '/financeiro', label: 'Financeiro', Icon: IconWallet },
 ]

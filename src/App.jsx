@@ -6,6 +6,7 @@ import Clientes from './pages/Clientes.jsx'
 import ClienteDetalhe from './pages/ClienteDetalhe.jsx'
 import Produtos from './pages/Produtos.jsx'
 import Agendamentos from './pages/Agendamentos.jsx'
+import Agenda from './pages/Agenda.jsx'
 import Vendas from './pages/Vendas.jsx'
 import Financeiro from './pages/Financeiro.jsx'
 import TopNav from './components/TopNav.jsx'
@@ -82,6 +83,7 @@ function AppLayout({ onSair }) {
           <Route path="/clientes" element={<Clientes />} />
           <Route path="/clientes/:id" element={<ClienteDetalhe />} />
           <Route path="/produtos" element={<Produtos />} />
+          <Route path="/agenda" element={<Agenda />} />
           <Route path="/agendamentos" element={<Agendamentos />} />
           <Route path="/vendas" element={<Vendas />} />
           <Route path="/financeiro" element={<Financeiro />} />

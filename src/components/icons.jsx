@@ -180,3 +180,53 @@ export const IconTrash = (p) => (
     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
   </Icon>
 )
+
+// ---- Agenda ----
+
+export const IconPhone = (p) => (
+  <Icon {...p}>
+    <path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.4-1.2a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2Z" />
+  </Icon>
+)
+
+export const IconMessage = (p) => (
+  <Icon {...p}>
+    <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.5 8.5 0 0 1-3.8-.9L3 20.5l1.5-5.2A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4Z" />
+  </Icon>
+)
+
+export const IconMail = (p) => (
+  <Icon {...p}>
+    <rect x="2" y="4" width="20" height="16" rx="2" />
+    <path d="m2 7 10 6 10-6" />
+  </Icon>
+)
+
+export const IconCheckSquare = (p) => (
+  <Icon {...p}>
+    <polyline points="9 11 12 14 20 6" />
+    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+  </Icon>
+)
+
+export const IconNote = (p) => (
+  <Icon {...p}>
+    <path d="M12 20h9" />
+    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+  </Icon>
+)
+
+// Seta "cotovelo" — usada para indicar de onde um registro veio.
+export const IconOrigem = (p) => (
+  <Icon {...p}>
+    <polyline points="15 10 20 15 15 20" />
+    <path d="M4 4v7a4 4 0 0 0 4 4h12" />
+  </Icon>
+)
+
+export const IconUsersRound = (p) => (
+  <Icon {...p}>
+    <circle cx="12" cy="8" r="4" />
+    <path d="M4 21a8 8 0 0 1 16 0" />
+  </Icon>
+)

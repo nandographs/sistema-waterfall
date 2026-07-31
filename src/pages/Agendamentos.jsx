@@ -1,18 +1,19 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   agendamentos, clientes, produtos, salvarAgendamento, mudarStatusAgendamento, excluirAgendamento,
   formatData, formatBRL, TIPOS_AGENDAMENTO, FORMAS_PAGAMENTO,
 } from '../data/repository.js'
+import { formatHora } from '../lib/datas.js'
 import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge } from '../components/ui.jsx'
-import { IconPlus, IconFileText, IconTrash, IconEye } from '../components/icons.jsx'
+import { IconPlus, IconFileText, IconTrash, IconEye, IconSearch, IconFilter } from '../components/icons.jsx'
 import OrdemServicoModal from '../components/OrdemServicoModal.jsx'
 import AgendamentoDetalheModal from '../components/AgendamentoDetalheModal.jsx'
 import ClienteBusca from '../components/ClienteBusca.jsx'
 import ProdutoBusca from '../components/ProdutoBusca.jsx'
 
 const FORM_VAZIO = {
-  clienteId: '', data: '', tipo: 'visita', observacoes: '', status: 'agendado',
+  clienteId: '', data: '', hora: '', tipo: 'visita', observacoes: '', status: 'agendado',
   produtoIds: [], valor: '', formaPagamento: 'pix', parcelas: 1, statusPagamento: 'pendente',
 }
 
@@ -26,17 +27,44 @@ export default function Agendamentos() {
   const [lista, setLista] = useState(agendamentos.list())
   const [form, setForm] = useState(null)
   const [filtro, setFiltro] = useState('agendado')
+  const [busca, setBusca] = useState('')
+  const [dataDe, setDataDe] = useState('')
+  const [dataAte, setDataAte] = useState('')
   const [osAgendamento, setOsAgendamento] = useState(null)
   const [agDetalhe, setAgDetalhe] = useState(null)
   const [agExcluir, setAgExcluir] = useState(null)
   const [excluindo, setExcluindo] = useState(false)
 
+  // Painel "Filtrar por" (abre/fecha; fecha ao clicar fora) — mesmo padrão da
+  // tela de Clientes.
+  const [painelAberto, setPainelAberto] = useState(false)
+  const painelRef = useRef(null)
+  useEffect(() => {
+    if (!painelAberto) return
+    function aoClicarFora(e) {
+      if (painelRef.current && !painelRef.current.contains(e.target)) setPainelAberto(false)
+    }
+    document.addEventListener('mousedown', aoClicarFora)
+    return () => document.removeEventListener('mousedown', aoClicarFora)
+  }, [painelAberto])
+
   const refresh = () => setLista(agendamentos.list())
   const listaClientes = clientes.list()
   const listaProdutos = produtos.list()
 
+  const qtdFiltros = [dataDe, dataAte].filter(Boolean).length
+  const filtrosAtivos = qtdFiltros > 0
+  const limparFiltros = () => { setDataDe(''); setDataAte('') }
+
   const filtrados = lista
     .filter((a) => (filtro === 'todos' ? true : a.status === filtro))
+    .filter((a) => {
+      const q = busca.trim().toLowerCase()
+      if (!q) return true
+      return (clientes.get(a.clienteId)?.nome ?? '').toLowerCase().includes(q)
+    })
+    .filter((a) => !dataDe || (a.data || '') >= dataDe)
+    .filter((a) => !dataAte || (a.data || '') <= dataAte)
     .sort((a, b) => (a.data || '').localeCompare(b.data || ''))
 
   async function salvar(e) {
@@ -78,13 +106,13 @@ export default function Agendamentos() {
   return (
     <Page>
       <PageTitle
-        subtitle="Visitas, instalações e trocas de refil"
+        subtitle="Visitas, instalações e trocas de refil — o serviço em campo"
         action={<Button onClick={() => setForm({ ...FORM_VAZIO })}><IconPlus size={16} /> Novo agendamento</Button>}
       >
-        Agendamentos
+        Serviços
       </PageTitle>
 
-      <div className="flex gap-2 mb-4">
+      <div className="flex flex-wrap items-center gap-2 mb-4">
         {[['agendado', 'Agendados'], ['concluido', 'Concluídos'], ['cancelado', 'Cancelados'], ['todos', 'Todos']].map(
           ([valor, rotulo]) => (
             <button
@@ -100,8 +128,67 @@ export default function Agendamentos() {
         )}
       </div>
 
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <div className="relative flex-1 min-w-[220px] max-w-sm">
+          <IconSearch size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            className={inputCls + ' pl-9'}
+            placeholder="Buscar por cliente…"
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+          />
+        </div>
+
+        <div className="relative" ref={painelRef}>
+          <Button variant="secondary" onClick={() => setPainelAberto((v) => !v)}>
+            <IconFilter size={16} /> Filtrar por
+            {qtdFiltros > 0 && (
+              <span className="ml-1 inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full bg-blue-600 text-white text-xs font-semibold">
+                {qtdFiltros}
+              </span>
+            )}
+          </Button>
+
+          {painelAberto && (
+            <div className="absolute right-0 z-20 mt-2 w-72 max-w-[calc(100vw-3rem)] bg-white rounded-xl border border-slate-200 shadow-lg p-4 space-y-4">
+              <div>
+                <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Data — de</label>
+                <input
+                  className={inputCls}
+                  type="date"
+                  value={dataDe}
+                  onChange={(e) => setDataDe(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Data — até</label>
+                <input
+                  className={inputCls}
+                  type="date"
+                  value={dataAte}
+                  onChange={(e) => setDataAte(e.target.value)}
+                />
+              </div>
+              {filtrosAtivos && (
+                <button
+                  className="w-full text-sm font-medium text-slate-500 hover:text-slate-700 cursor-pointer pt-1 border-t border-slate-100"
+                  onClick={limparFiltros}
+                >
+                  Limpar filtros
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
       <Card>
-        {filtrados.length === 0 && <Empty>Nenhum agendamento aqui.</Empty>}
+        <p className="text-xs text-slate-400 mb-3">
+          {filtrados.length} agendamento{filtrados.length === 1 ? '' : 's'}
+        </p>
+        {filtrados.length === 0 && (
+          <Empty>{busca || filtrosAtivos ? 'Nenhum agendamento encontrado.' : 'Nenhum agendamento aqui.'}</Empty>
+        )}
         <ul className="divide-y divide-slate-100">
           {filtrados.map((a) => {
             const [cor, rotulo] = STATUS_BADGE[a.status] ?? ['slate', a.status]
@@ -114,7 +201,7 @@ export default function Agendamentos() {
                     {clientes.get(a.clienteId)?.nome ?? '(cliente removido)'}
                   </Link>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    {formatData(a.data)} · {TIPOS_AGENDAMENTO[a.tipo] ?? a.tipo}
+                    {formatData(a.data)}{formatHora(a.hora) ? ` às ${formatHora(a.hora)}` : ''} · {TIPOS_AGENDAMENTO[a.tipo] ?? a.tipo}
                     {nomesProdutos ? ` · ${nomesProdutos}` : ''}
                     {a.observacoes ? ` · ${a.observacoes}` : ''}
                   </p>
@@ -210,9 +297,12 @@ export default function Agendamentos() {
                 required
               />
             </Field>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <Field label="Data">
                 <input className={inputCls} type="date" required value={form.data} onChange={set('data')} />
+              </Field>
+              <Field label="Hora">
+                <input className={inputCls} type="time" value={form.hora} onChange={set('hora')} />
               </Field>
               <Field label="Tipo de serviço">
                 <select className={inputCls} value={form.tipo} onChange={set('tipo')}>

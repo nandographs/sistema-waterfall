@@ -4,11 +4,15 @@ import {
   clientes, produtos, equipamentos, vendas, lancamentos, agendamentos,
   salvarVenda, darBaixa, excluirVenda, itensDaVenda, agendarProximaTroca,
   definirFotoPerfil, removerFotoPerfil,
+  proximoPasso, linhaDoTempoDoCliente,
   proximaTroca, formatBRL, formatData, enderecoCompleto,
-  FORMAS_PAGAMENTO, TIPOS_AGENDAMENTO, STATUS_VENDA,
+  FORMAS_PAGAMENTO, STATUS_VENDA, RESULTADOS_ATIVIDADE,
 } from '../data/repository.js'
+import { hojeISO, formatHora, diaCurto } from '../lib/datas.js'
 import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge } from '../components/ui.jsx'
-import { IconPlus, IconFileText, IconChevronLeft, IconUser, IconTrash, IconEye } from '../components/icons.jsx'
+import { IconPlus, IconFileText, IconChevronLeft, IconUser, IconTrash, IconEye, IconAlert } from '../components/icons.jsx'
+import { IconeDoEvento, estiloDoEvento } from '../components/evento.jsx'
+import AtividadeModal, { atividadeNova } from '../components/AtividadeModal.jsx'
 import OrdemServicoModal from '../components/OrdemServicoModal.jsx'
 import AgendamentoDetalheModal from '../components/AgendamentoDetalheModal.jsx'
 import PedidoModal from '../components/PedidoModal.jsx'
@@ -24,7 +28,7 @@ const CLIENTE_VAZIO = {
 
 const VENDA_VAZIA = {
   produtoId: '', valor: '', formaPagamento: 'pix', parcelas: 1,
-  status: 'pago', data: new Date().toISOString().slice(0, 10), dataInstalacao: '',
+  status: 'pago', data: hojeISO(), dataInstalacao: '',
 }
 
 export default function ClienteDetalhe() {
@@ -42,6 +46,7 @@ export default function ClienteDetalhe() {
   const [pedidoVenda, setPedidoVenda] = useState(null)
   const [removerEquip, setRemoverEquip] = useState(false)
   const [excluindo, setExcluindo] = useState(false)
+  const [atividadeForm, setAtividadeForm] = useState(null)
 
   if (!cliente) {
     return (
@@ -52,7 +57,7 @@ export default function ClienteDetalhe() {
     )
   }
 
-  const hoje = new Date().toISOString().slice(0, 10)
+  const hoje = hojeISO()
   const meusEquipamentos = equipamentos.list().filter((e) => e.clienteId === id)
   const minhasVendas = vendas
     .list()
@@ -64,12 +69,10 @@ export default function ClienteDetalhe() {
     .filter((l) => l.clienteId === id && l.tipo === 'entrada')
     .sort((a, b) => (a.vencimento || '').localeCompare(b.vencimento || ''))
   const meusAgendamentos = agendamentos.list().filter((a) => a.clienteId === id)
-  const historico = meusAgendamentos
-    .filter((a) => a.status === 'concluido')
-    .sort((a, b) => (b.data || '').localeCompare(a.data || ''))
-  const proximaVisita = meusAgendamentos
-    .filter((a) => a.status === 'agendado' && a.data >= hoje)
-    .sort((a, b) => a.data.localeCompare(b.data))[0]
+
+  // A próxima coisa marcada para este cliente, seja contato ou serviço.
+  const passo = proximoPasso(id)
+  const historicoCompleto = linhaDoTempoDoCliente(id)
 
   async function salvarEdicao(e) {
     e.preventDefault()
@@ -219,32 +222,62 @@ export default function ClienteDetalhe() {
             </dl>
           </Card>
 
-          <Card title="Próxima visita">
-            {proximaVisita ? (
+          {/* Um cliente sem próximo passo é um cliente que você vai esquecer.
+              A ficha diz isso em voz alta em vez de deixar a ausência passar. */}
+          <Card title="Próximo passo">
+            {passo ? (
               <div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-semibold">{formatData(proximaVisita.data)}</p>
-                    <p className="text-xs text-slate-500">{TIPOS_AGENDAMENTO[proximaVisita.tipo]}</p>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex items-start gap-2">
+                    <IconeDoEvento evento={passo} className={`mt-0.5 shrink-0 ${estiloDoEvento(passo).icone}`} />
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-900">{passo.titulo}</p>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {formatData(passo.data)}
+                        {formatHora(passo.hora) ? ` às ${formatHora(passo.hora)}` : ''}
+                      </p>
+                    </div>
                   </div>
-                  <Badge color="sky">Agendada</Badge>
+                  <Badge color={passo.atrasado ? 'red' : 'sky'}>
+                    {passo.atrasado ? 'Atrasado' : 'Marcado'}
+                  </Badge>
                 </div>
                 <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap gap-2">
-                  <Button variant="ghost" onClick={() => setAgDetalhe(proximaVisita)}>
-                    <IconEye size={15} /> Ver informações
-                  </Button>
-                  <Button variant="ghost" onClick={() => setOsAgendamento(proximaVisita)}>
-                    <IconFileText size={15} /> Gerar Ordem de Serviço
-                  </Button>
+                  {passo.fonte === 'atividade' ? (
+                    <Button variant="ghost" onClick={() => setAtividadeForm(passo.registro)}>
+                      <IconEye size={15} /> Abrir
+                    </Button>
+                  ) : (
+                    <>
+                      <Button variant="ghost" onClick={() => setAgDetalhe(passo.registro)}>
+                        <IconEye size={15} /> Ver informações
+                      </Button>
+                      <Button variant="ghost" onClick={() => setOsAgendamento(passo.registro)}>
+                        <IconFileText size={15} /> Gerar Ordem de Serviço
+                      </Button>
+                    </>
+                  )}
                 </div>
               </div>
             ) : (
               <div>
-                <Empty>Nenhuma visita marcada.</Empty>
-                <Link to="/agendamentos"><Button variant="ghost">+ Agendar visita</Button></Link>
+                <p className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
+                  <IconAlert size={16} className="shrink-0" />
+                  Sem próximo passo definido.
+                </p>
+                <div className="flex flex-wrap gap-2 mt-3">
+                  <Button
+                    variant="ghost"
+                    onClick={() => setAtividadeForm(atividadeNova({ clienteId: id }))}
+                  >
+                    <IconPlus size={15} /> Marcar contato
+                  </Button>
+                  <Link to="/agendamentos"><Button variant="ghost">+ Agendar visita</Button></Link>
+                </div>
               </div>
             )}
           </Card>
+
         </div>
 
         <div className="lg:col-span-2 space-y-6">
@@ -318,24 +351,71 @@ export default function ClienteDetalhe() {
             </ul>
           </Card>
 
-          <Card title="Histórico de serviços">
-            {historico.length === 0 && <Empty>Nenhum serviço concluído ainda.</Empty>}
+          {/* Linha do tempo: contatos, serviços, vendas e pagamentos numa
+              ordem só. É aqui que "o cliente falou tal coisa" fica consultável
+              — antes de ligar você lê os últimos itens e sabe onde parou. */}
+          <Card
+            title="Linha do tempo"
+            action={
+              <button
+                type="button"
+                onClick={() => setAtividadeForm(atividadeNova({ clienteId: id }))}
+                className="text-xs font-medium text-blue-600 hover:underline cursor-pointer"
+              >
+                + Registrar contato
+              </button>
+            }
+          >
+            {historicoCompleto.length === 0 && <Empty>Nada registrado para este cliente ainda.</Empty>}
             <ul className="divide-y divide-slate-100">
-              {historico.map((a) => (
-                <li key={a.id} className="py-3 flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="font-medium">{TIPOS_AGENDAMENTO[a.tipo] ?? a.tipo}</p>
-                    <p className="text-xs text-slate-500">{formatData(a.data)}{a.observacoes ? ` · ${a.observacoes}` : ''}</p>
+              {historicoCompleto.map((item) => (
+                <li key={item.id} className="py-3 flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 flex items-start gap-2.5">
+                    <span className="w-11 shrink-0 text-xs text-slate-400 tnum pt-0.5">
+                      {diaCurto(item.quando)}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-slate-900">{item.titulo}</p>
+                      {item.detalhe && (
+                        <p className="text-xs text-slate-500 mt-0.5">{item.detalhe}</p>
+                      )}
+                      {item.categoria === 'atividade' && item.registro.resultado && (
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          {RESULTADOS_ATIVIDADE[item.registro.resultado]}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    {a.osNumero && <Badge color="slate">OS Nº {a.osNumero}</Badge>}
-                    <Badge color="green">Concluído</Badge>
-                    <Button variant="ghost" onClick={() => setAgDetalhe(a)} title="Ver informações">
-                      <IconEye size={15} /> Ver
-                    </Button>
-                    <Button variant="ghost" onClick={() => setOsAgendamento(a)}>
-                      <IconFileText size={15} /> Gerar OS
-                    </Button>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    {item.categoria === 'atividade' && (
+                      <>
+                        {item.registro.status === 'pendente' && <Badge color="amber">Em aberto</Badge>}
+                        <Button variant="ghost" onClick={() => setAtividadeForm(item.registro)} title="Abrir">
+                          <IconEye size={15} /> Ver
+                        </Button>
+                      </>
+                    )}
+                    {item.categoria === 'agendamento' && (
+                      <>
+                        {item.registro.osNumero && <Badge color="slate">OS Nº {item.registro.osNumero}</Badge>}
+                        <Badge color={item.registro.status === 'concluido' ? 'green' : item.registro.status === 'cancelado' ? 'red' : 'sky'}>
+                          {item.registro.status === 'concluido' ? 'Concluído' : item.registro.status === 'cancelado' ? 'Cancelado' : 'Agendado'}
+                        </Badge>
+                        <Button variant="ghost" onClick={() => setAgDetalhe(item.registro)} title="Ver informações">
+                          <IconEye size={15} /> Ver
+                        </Button>
+                        <Button variant="ghost" onClick={() => setOsAgendamento(item.registro)}>
+                          <IconFileText size={15} /> OS
+                        </Button>
+                      </>
+                    )}
+                    {item.categoria === 'venda' && (
+                      <Badge color="sky">{formatBRL(item.registro.total)}</Badge>
+                    )}
+                    {item.categoria === 'pagamento' && (
+                      <Badge color="green">{formatBRL(item.registro.valor)}</Badge>
+                    )}
                   </div>
                 </li>
               ))}
@@ -371,8 +451,22 @@ export default function ClienteDetalhe() {
         <AgendamentoDetalheModal
           agendamento={agDetalhe}
           onClose={() => setAgDetalhe(null)}
+          onCriarTarefa={(ag) => {
+            setAgDetalhe(null)
+            setAtividadeForm(atividadeNova({ clienteId: id, tipo: 'tarefa', agendamentoId: ag.id }))
+          }}
         />
       )}
+
+      {atividadeForm && (
+        <AtividadeModal
+          key={atividadeForm.id || 'nova-atividade'}
+          atividade={atividadeForm}
+          onFechar={() => setAtividadeForm(null)}
+          onSalvo={refresh}
+        />
+      )}
+
 
       {pedidoVenda && (
         <PedidoModal

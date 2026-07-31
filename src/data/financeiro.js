@@ -1,8 +1,16 @@
 // Regras de dinheiro do sistema, isoladas de banco e de tela.
 //
 // Ficam aqui as contas que precisam estar certas ao centavo: soma de itens,
-// divisão em parcelas e cálculo de vencimentos. Sem dependências, para poderem
-// ser testadas direto no Node (ver scripts/testar-financeiro.mjs).
+// divisão em parcelas e cálculo de vencimentos. Depende apenas de lib/datas.js
+// (que também é JavaScript puro), para poderem ser testadas direto no Node
+// (ver scripts/testar-financeiro.mjs).
+
+import { hojeISO, mesDe } from '../lib/datas.js'
+
+// Reexportados: metade do sistema importa `hojeISO`/`mesDe` do repositório, que
+// por sua vez importa daqui. A implementação vive em lib/datas.js porque é
+// aritmética de calendário, não de dinheiro.
+export { hojeISO, mesDe }
 
 // Soma meses a uma data ISO sem o overflow do Date.setMonth: 31/01 + 1 mês vira
 // 28/02 (e não 03/03, como o JS faria sozinho).
@@ -15,8 +23,6 @@ export function somarMeses(iso, meses) {
   const p = (n) => String(n).padStart(2, '0')
   return `${alvo.getFullYear()}-${p(alvo.getMonth() + 1)}-${p(alvo.getDate())}`
 }
-
-export const hojeISO = () => new Date().toISOString().slice(0, 10)
 
 // Divide um valor em N parcelas SEM perder centavos: o resto da divisão é
 // distribuído um centavo por vez nas primeiras parcelas, então a soma das
@@ -39,8 +45,7 @@ export function totaisDaVenda(itens, descontoGeral = 0, frete = 0) {
 
 // ---------------------------------------------------------------- relatório
 
-// Mês de uma data ISO ('2026-07-25' -> '2026-07') e o mês vizinho.
-export const mesDe = (iso) => String(iso || '').slice(0, 7)
+// O mês vizinho a um mês 'AAAA-MM' (o `mesDe` vem de lib/datas.js, acima).
 export const somarMesesNoMes = (mes, n) => somarMeses(`${mes}-01`, n).slice(0, 7)
 
 const somar = (lista) => lista.reduce((s, l) => s + Number(l.valor || 0), 0)

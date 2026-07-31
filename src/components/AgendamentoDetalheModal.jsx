@@ -3,8 +3,10 @@ import {
   clientes, produtos,
   formatData, formatBRL, TIPOS_AGENDAMENTO, FORMAS_PAGAMENTO,
 } from '../data/repository.js'
+import { formatHora } from '../lib/datas.js'
 import { Modal, Button, Badge } from './ui.jsx'
-import { IconUser } from './icons.jsx'
+import { IconUser, IconPlus } from './icons.jsx'
+import TrilhaOrigem from './TrilhaOrigem.jsx'
 
 const STATUS_BADGE = {
   agendado: ['sky', 'Agendado'],
@@ -23,9 +25,10 @@ function Linha({ rotulo, children }) {
 }
 
 // Pop-up somente leitura com os dados de um agendamento. Reutilizado na página
-// de Agendamentos e no perfil do cliente. Passe `onEditar` para exibir o atalho
-// de edição (só faz sentido onde existe o formulário de agendamento).
-export default function AgendamentoDetalheModal({ agendamento, onClose, onEditar }) {
+// de Serviços, na agenda e no perfil do cliente. Passe `onEditar` para exibir o
+// atalho de edição (só faz sentido onde existe o formulário de agendamento) e
+// `onCriarTarefa` para o atalho de lembrete (ex.: "confirmar na véspera").
+export default function AgendamentoDetalheModal({ agendamento, onClose, onEditar, onCriarTarefa }) {
   if (!agendamento) return null
   const a = agendamento
   const cliente = clientes.get(a.clienteId)
@@ -39,6 +42,8 @@ export default function AgendamentoDetalheModal({ agendamento, onClose, onEditar
   return (
     <Modal title="Detalhes do agendamento" open onClose={onClose}>
       <div className="space-y-5">
+        <TrilhaOrigem registro={a} />
+
         <dl>
           <Linha rotulo="Cliente">
             {cliente ? (
@@ -49,7 +54,10 @@ export default function AgendamentoDetalheModal({ agendamento, onClose, onEditar
               <span className="text-slate-400">(cliente removido)</span>
             )}
           </Linha>
-          <Linha rotulo="Data">{formatData(a.data)}</Linha>
+          <Linha rotulo="Data">
+            {formatData(a.data)}
+            {formatHora(a.hora) && <span className="text-slate-500"> · {formatHora(a.hora)}</span>}
+          </Linha>
           <Linha rotulo="Tipo de serviço">{TIPOS_AGENDAMENTO[a.tipo] ?? a.tipo}</Linha>
           <Linha rotulo="Status">
             <Badge color={cor}>{rotulo}</Badge>
@@ -87,8 +95,13 @@ export default function AgendamentoDetalheModal({ agendamento, onClose, onEditar
           </Linha>
         </dl>
 
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button variant="secondary" onClick={onClose}>Fechar</Button>
+          {onCriarTarefa && (
+            <Button variant="ghost" onClick={() => onCriarTarefa(a)}>
+              <IconPlus size={15} /> Criar tarefa
+            </Button>
+          )}
           {onEditar && (
             <Button onClick={() => onEditar(a)}>Editar</Button>
           )}
