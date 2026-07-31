@@ -15,6 +15,8 @@ const FORM_VAZIO = {
 export default function Produtos() {
   const [lista, setLista] = useState(produtos.list())
   const [form, setForm] = useState(null) // null = fechado; {id?} = criando/editando
+  const [erro, setErro] = useState('')
+  const [salvando, setSalvando] = useState(false)
 
   const refresh = () => setLista(produtos.list())
   const aparelhos = lista.filter((p) => p.tipo === 'aparelho')
@@ -24,6 +26,7 @@ export default function Produtos() {
     refis.find((r) => r.aparelhoCompativelId === aparelhoId) ?? null
 
   function abrirEdicao(p) {
+    setErro('')
     setForm({
       ...FORM_VAZIO,
       ...p,
@@ -33,24 +36,32 @@ export default function Produtos() {
 
   async function salvar(e) {
     e.preventDefault()
-    const { refilVinculadoId, ...campos } = form
-    const dados = { ...campos, valor: Number(form.valor || 0) }
-    const produto = form.id ? await produtos.update(form.id, dados) : await produtos.create(dados)
+    setErro('')
+    setSalvando(true)
+    try {
+      const { refilVinculadoId, ...campos } = form
+      const dados = { ...campos, valor: Number(form.valor || 0) }
+      const produto = form.id ? await produtos.update(form.id, dados) : await produtos.create(dados)
 
-    // Vínculo escolhido pelo lado do aparelho: como ele é gravado no refil,
-    // desfazemos o anterior antes de marcar o novo (um aparelho tem um refil).
-    if (produto.tipo === 'aparelho') {
-      const anterior = refilDoAparelho(produto.id)
-      if (anterior && anterior.id !== refilVinculadoId) {
-        await produtos.update(anterior.id, { aparelhoCompativelId: '' })
+      // Vínculo escolhido pelo lado do aparelho: como ele é gravado no refil,
+      // desfazemos o anterior antes de marcar o novo (um aparelho tem um refil).
+      if (produto.tipo === 'aparelho') {
+        const anterior = refilDoAparelho(produto.id)
+        if (anterior && anterior.id !== refilVinculadoId) {
+          await produtos.update(anterior.id, { aparelhoCompativelId: '' })
+        }
+        if (refilVinculadoId && refilVinculadoId !== anterior?.id) {
+          await produtos.update(refilVinculadoId, { aparelhoCompativelId: produto.id })
+        }
       }
-      if (refilVinculadoId && refilVinculadoId !== anterior?.id) {
-        await produtos.update(refilVinculadoId, { aparelhoCompativelId: produto.id })
-      }
+
+      setForm(null)
+      refresh()
+    } catch (ex) {
+      setErro(ex?.message || String(ex))
+    } finally {
+      setSalvando(false)
     }
-
-    setForm(null)
-    refresh()
   }
 
   async function excluir(id) {
@@ -66,7 +77,7 @@ export default function Produtos() {
     <Page>
       <PageTitle
         subtitle="Aparelhos, refis, valores e intervalos de troca"
-        action={<Button onClick={() => setForm({ ...FORM_VAZIO })}><IconPlus size={16} /> Novo produto</Button>}
+        action={<Button onClick={() => { setErro(''); setForm({ ...FORM_VAZIO }) }}><IconPlus size={16} /> Novo produto</Button>}
       >
         Produtos
       </PageTitle>
@@ -140,7 +151,7 @@ export default function Produtos() {
         )}
       </Card>
 
-      <Modal title={form?.id ? 'Editar produto' : 'Novo produto'} open={!!form} onClose={() => setForm(null)}>
+      <Modal title={form?.id ? 'Editar produto' : 'Novo produto'} open={!!form} onClose={() => { setForm(null); setErro('') }}>
         {form && (
           <form onSubmit={salvar} className="space-y-4">
             {form.id ? (
@@ -238,9 +249,12 @@ export default function Produtos() {
                 </p>
               </div>
             )}
+            {erro && (
+              <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{erro}</p>
+            )}
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="secondary" onClick={() => setForm(null)}>Cancelar</Button>
-              <Button type="submit">Salvar</Button>
+              <Button type="submit" disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar'}</Button>
             </div>
           </form>
         )}
