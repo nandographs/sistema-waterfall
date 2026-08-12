@@ -529,7 +529,7 @@ export default function ClienteDetalhe() {
                 ))}
               </select>
             </Field>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field label="Valor da venda (R$)">
                 <input className={inputCls} type="number" step="0.01" min="0" required value={vendaForm.valor} onChange={setV('valor')} />
               </Field>
@@ -537,7 +537,7 @@ export default function ClienteDetalhe() {
                 <input className={inputCls} type="date" required value={vendaForm.data} onChange={setV('data')} />
               </Field>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field label="Forma de pagamento">
                 <select className={inputCls} value={vendaForm.formaPagamento} onChange={setV('formaPagamento')}>
                   {Object.entries(FORMAS_PAGAMENTO).map(([v, r]) => (
@@ -549,7 +549,7 @@ export default function ClienteDetalhe() {
                 <input className={inputCls} type="number" min="1" value={vendaForm.parcelas} onChange={setV('parcelas')} />
               </Field>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field label="Status do pagamento">
                 <select className={inputCls} value={vendaForm.status} onChange={setV('status')}>
                   <option value="pago">Pago</option>

@@ -53,7 +53,7 @@ export default function ClienteFormFields({ form, set, onEnderecoEncontrado }) {
       <Field label="Nome">
         <input className={inputCls} required value={form.nome} onChange={set('nome')} />
       </Field>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Field label="Telefone">
           <input
             className={inputCls}
@@ -94,7 +94,7 @@ export default function ClienteFormFields({ form, set, onEnderecoEncontrado }) {
         {erroCep && <p className="text-xs text-amber-600 mt-1">{erroCep}</p>}
       </Field>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="col-span-2">
           <Field label="Endereço">
             <input className={inputCls} value={form.endereco} onChange={set('endereco')} />
@@ -104,7 +104,7 @@ export default function ClienteFormFields({ form, set, onEnderecoEncontrado }) {
           <input ref={numeroRef} className={inputCls} value={form.numeroComplemento} onChange={set('numeroComplemento')} />
         </Field>
       </div>
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="col-span-2">
           <Field label="Bairro">
             <input className={inputCls} value={form.bairro} onChange={set('bairro')} />

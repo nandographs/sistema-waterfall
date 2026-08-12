@@ -216,7 +216,7 @@ export default function Clientes() {
           {filtrados.map((c) => {
             const prox = proximaVisita(c.id)
             return (
-              <li key={c.id} className="py-3 flex items-center justify-between gap-3">
+              <li key={c.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3">
                 <div className="flex items-center gap-3 min-w-0">
                   <span className="w-10 h-10 shrink-0 rounded-full overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center text-slate-300">
                     {c.fotoPerfilUrl ? (
@@ -235,7 +235,9 @@ export default function Clientes() {
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
+                {/* shrink-0 sem wrap somava ~300px de badges ao lado do nome e
+                    estourava o card no celular; agora quebram na linha de baixo. */}
+                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 pl-13 sm:pl-0 sm:shrink-0">
                   {temPagamentoPendente(c.id) && <Badge color="amber">A receber</Badge>}
                   {temTrocaPrevista(c.id) && <Badge color="red">Troca de refil</Badge>}
                   {prox ? <Badge color="sky">Próx. visita: {formatData(prox.data)}</Badge> : <Badge>Sem visita marcada</Badge>}

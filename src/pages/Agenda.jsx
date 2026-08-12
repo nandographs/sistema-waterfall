@@ -55,7 +55,7 @@ function GradeDoMes({ mes, selecionado, porDia, onSelecionar }) {
               key={dia}
               type="button"
               onClick={() => onSelecionar(dia)}
-              className={`min-h-[92px] text-left p-1.5 border-slate-100 cursor-pointer ${
+              className={`min-h-[64px] sm:min-h-[92px] text-left p-1 sm:p-1.5 border-slate-100 cursor-pointer ${
                 i % 7 !== 6 ? 'border-r' : ''
               } ${i >= 7 ? 'border-t' : ''} ${
                 ativo ? 'bg-blue-50 ring-1 ring-inset ring-blue-500' : doMes ? 'bg-white hover:bg-slate-50' : 'bg-slate-50/60'
@@ -68,7 +68,18 @@ function GradeDoMes({ mes, selecionado, porDia, onSelecionar }) {
               >
                 {Number(dia.slice(8, 10))}
               </span>
-              <div className="space-y-0.5">
+              {/* No celular a célula tem ~46px de largura: o chip sobra ~24px
+                  para o título e vira letra cortada. Pontos dizem "tem coisa
+                  aqui" com honestidade; o detalhe está a um toque, no dia. */}
+              <div className="flex flex-wrap gap-0.5 sm:hidden">
+                {eventos.slice(0, 4).map((evento) => (
+                  <span
+                    key={evento.id}
+                    className={`h-1.5 w-1.5 rounded-full ${estiloDoEvento(evento).ponto}`}
+                  />
+                ))}
+              </div>
+              <div className="hidden sm:block space-y-0.5">
                 {eventos.slice(0, 3).map((evento) => (
                   <ChipEvento key={evento.id} evento={evento} />
                 ))}
@@ -242,7 +253,9 @@ function FecharDiaModal({ dia, pendentes, onFechar, onMudou }) {
           <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
             {pendentes.map((evento) => (
               <li key={evento.id} className="px-3 py-2.5 flex flex-wrap items-center justify-between gap-2">
-                <div className="min-w-0 flex items-center gap-2">
+                {/* flex-1 faltando fazia o bloco de texto exceder a linha e o
+                    "· atrasado" — justamente o que muda a decisão — era cortado. */}
+                <div className="min-w-0 flex-1 flex items-center gap-2">
                   <IconeDoEvento evento={evento} className={estiloDoEvento(evento).icone} />
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-slate-900 truncate">{evento.titulo}</p>
@@ -280,7 +293,11 @@ function FecharDiaModal({ dia, pendentes, onFechar, onMudou }) {
 export default function Agenda() {
   const [dia, setDia] = useState(hojeISO())
   const [mes, setMes] = useState(mesAtual())
-  const [visao, setVisao] = useState('mes')
+  // No celular a grade do mês dá ~46px por dia — espaço para um ponto e nada
+  // mais. Quem abre a agenda no telefone quer o dia de hoje, não o panorama.
+  const [visao, setVisao] = useState(() =>
+    typeof window !== 'undefined' && window.innerWidth < 640 ? 'dia' : 'mes'
+  )
   const [fontes, setFontes] = useState(FONTES_PADRAO)
   const [soMinhas, setSoMinhas] = useState(false)
   const [aba, setAba] = useState('agenda')
@@ -396,11 +413,15 @@ export default function Agenda() {
           </button>
         </div>
 
-        <span className="text-base font-semibold text-slate-900 min-w-[160px]">{rotuloMes(mes)}</span>
+        <span className="text-base font-semibold text-slate-900 flex-1 sm:flex-none sm:min-w-[160px]">
+          {rotuloMes(mes)}
+        </span>
 
         <Button variant="secondary" onClick={irParaHoje}>Hoje</Button>
 
-        <div className="flex gap-1.5 ml-auto">
+        {/* No mobile as três visões ocupam a linha inteira em partes iguais —
+            antes o ml-auto jogava um botão sozinho na segunda linha. */}
+        <div className="grid grid-cols-3 gap-1.5 w-full sm:w-auto sm:flex sm:ml-auto">
           {[['mes', 'Mês'], ['semana', 'Semana'], ['dia', 'Dia']].map(([valor, rotulo]) => (
             <button key={valor} type="button" onClick={() => setVisao(valor)} className={pilula(visao === valor)}>
               {rotulo}
@@ -432,7 +453,7 @@ export default function Agenda() {
           </button>
         ))}
         {usuario && (
-          <button type="button" onClick={() => setSoMinhas((v) => !v)} className={pilula(soMinhas) + ' ml-auto'}>
+          <button type="button" onClick={() => setSoMinhas((v) => !v)} className={pilula(soMinhas) + ' sm:ml-auto'}>
             {soMinhas ? 'Só as minhas' : 'Todas'}
           </button>
         )}

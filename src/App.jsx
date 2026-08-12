@@ -9,7 +9,7 @@ import Agendamentos from './pages/Agendamentos.jsx'
 import Agenda from './pages/Agenda.jsx'
 import Vendas from './pages/Vendas.jsx'
 import Financeiro from './pages/Financeiro.jsx'
-import TopNav from './components/TopNav.jsx'
+import TopNav, { BottomNav } from './components/TopNav.jsx'
 import WallpaperPicker from './components/WallpaperPicker.jsx'
 import { lerWallpaper, salvarWallpaper, WALLPAPERS } from './data/wallpapers.js'
 import { supabase } from './lib/supabaseClient.js'
@@ -97,6 +97,8 @@ function AppLayout({ onSair }) {
         atual={wallpaperId}
         onSelecionar={escolherWallpaper}
       />
+
+      <BottomNav onSair={onSair} />
     </div>
   )
 }

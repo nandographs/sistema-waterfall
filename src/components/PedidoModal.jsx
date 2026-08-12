@@ -196,7 +196,7 @@ export default function PedidoModal({ venda, onClose, onGerado }) {
               </select>
             </Field>
           </div>
-          <div className="grid grid-cols-2 gap-3 mt-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
             <Field label="Tipo">
               <select className={inputCls} value={form.tipo} onChange={set('tipo')}>
                 <option value="venda">Venda</option>
@@ -218,7 +218,7 @@ export default function PedidoModal({ venda, onClose, onGerado }) {
         {/* Cliente */}
         <section>
           <p className={secao}>Cliente</p>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Cliente / Razão social">
               <input className={inputCls} maxLength={80} value={form.cliente} onChange={set('cliente')} />
             </Field>
@@ -228,7 +228,7 @@ export default function PedidoModal({ venda, onClose, onGerado }) {
             <Field label="CPF / CNPJ">
               <input className={inputCls} maxLength={80} value={form.cpf_cnpj} onChange={set('cpf_cnpj')} />
             </Field>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="RG / Inscrição estadual">
                 <input className={inputCls} maxLength={80} value={form.rg_inscricao} onChange={set('rg_inscricao')} />
               </Field>
@@ -265,7 +265,7 @@ export default function PedidoModal({ venda, onClose, onGerado }) {
               <input className={inputCls} maxLength={2} value={form.uf} onChange={set('uf')} />
             </Field>
           </div>
-          <div className="grid grid-cols-2 gap-3 mt-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
             <Field label="Telefone / WhatsApp">
               <input className={inputCls} maxLength={80} value={form.telefone_whatsapp} onChange={set('telefone_whatsapp')} />
             </Field>

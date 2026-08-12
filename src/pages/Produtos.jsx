@@ -170,7 +170,7 @@ export default function Produtos() {
                 A foto do produto pode ser adicionada após salvar, editando o produto.
               </p>
             )}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="col-span-2">
                 <Field label="Nome do produto">
                   <input className={inputCls} required value={form.nome} onChange={set('nome')} />
@@ -185,7 +185,7 @@ export default function Produtos() {
                 />
               </Field>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field label="Tipo">
                 <select className={inputCls} value={form.tipo} onChange={set('tipo')}>
                   <option value="aparelho">Aparelho</option>
@@ -198,7 +198,7 @@ export default function Produtos() {
             </div>
             {form.tipo === 'refil' && (
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Field label="Troca a cada (meses)">
                     <input className={inputCls} type="number" min="1" required value={form.intervaloTrocaMeses} onChange={set('intervaloTrocaMeses')} />
                   </Field>

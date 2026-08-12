@@ -28,6 +28,15 @@ export const IconDashboard = (p) => (
   </Icon>
 )
 
+// Reticências horizontais — "mais opções" na barra inferior e nos menus de ação
+export const IconMais = (p) => (
+  <Icon {...p}>
+    <circle cx="5" cy="12" r="1" />
+    <circle cx="12" cy="12" r="1" />
+    <circle cx="19" cy="12" r="1" />
+  </Icon>
+)
+
 export const IconUsers = (p) => (
   <Icon {...p}>
     <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />

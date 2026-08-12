@@ -475,7 +475,7 @@ export default function Financeiro() {
       <Modal title={form?.id ? 'Editar lançamento' : 'Novo lançamento'} open={!!form} onClose={() => setForm(null)}>
         {form && (
           <form onSubmit={salvar} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field label="Tipo">
                 <select className={inputCls} value={form.tipo} onChange={set('tipo')}>
                   <option value="saida">Saída (conta a pagar)</option>
@@ -489,7 +489,7 @@ export default function Financeiro() {
             <Field label="Descrição">
               <input className={inputCls} required placeholder="ex.: Compra de refis — fornecedor X" value={form.descricao} onChange={set('descricao')} />
             </Field>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field label="Categoria">
                 <select className={inputCls} value={form.categoria} onChange={set('categoria')}>
                   {form.tipo === 'saida'
@@ -505,7 +505,7 @@ export default function Financeiro() {
                 </select>
               </Field>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field label="Vencimento">
                 <input className={inputCls} type="date" required value={form.vencimento} onChange={set('vencimento')} />
               </Field>
