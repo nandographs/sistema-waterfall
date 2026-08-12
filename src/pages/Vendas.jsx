@@ -22,6 +22,7 @@ const FORM_VAZIO = {
   consultor: '', consultorTelefone: '', distribuidor: '', distribuidorTelefone: '',
   entregaTipo: '', entregaEndereco: '', entregaPrevisao: '',
   observacoes: '',
+  lancarFinanceiro: true,
 }
 
 const STATUS_BADGE = {
@@ -440,9 +441,22 @@ export default function Vendas() {
                     <input className={inputCls} type="date" value={form.primeiroVencimento} onChange={set('primeiroVencimento')} />
                   </Field>
                 </div>
-                <p className="text-xs text-slate-400">
-                  Ao confirmar a venda, cada parcela vira uma conta a receber com o seu vencimento.
-                </p>
+                <label className="flex items-start gap-2.5 cursor-pointer rounded-lg bg-slate-50 border border-slate-200 p-3">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600 cursor-pointer"
+                    checked={form.lancarFinanceiro !== false}
+                    onChange={(e) => setForm({ ...form, lancarFinanceiro: e.target.checked })}
+                  />
+                  <span>
+                    <span className="block text-[13px] font-medium text-slate-700">Lançar no financeiro</span>
+                    <span className="block text-xs text-slate-400 mt-0.5">
+                      {form.lancarFinanceiro === false
+                        ? 'Esta venda não gera contas a receber.'
+                        : 'Ao confirmar a venda, cada parcela vira uma conta a receber com o seu vencimento.'}
+                    </span>
+                  </span>
+                </label>
               </div>
             </div>
 

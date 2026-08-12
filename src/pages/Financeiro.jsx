@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import {
   lancamentos, clientes,
   salvarLancamento, excluirLancamento, darBaixa, estornarLancamento,
+  removerDoFinanceiro, lancamentosDaOrigem,
   formatBRL, formatData, hojeISO, somarMeses,
   resumoDoMes, variacao, somarMesesNoMes, mesDe,
   FORMAS_PAGAMENTO, CATEGORIAS_SAIDA,
@@ -77,6 +78,7 @@ export default function Financeiro() {
   const [aba, setAba] = useState('receber')
   const [form, setForm] = useState(null)
   const [excluir, setExcluir] = useState(null)
+  const [removendo, setRemovendo] = useState(false)
 
   const hoje = hojeISO()
   const todos = lancamentos.list()
@@ -130,10 +132,23 @@ export default function Financeiro() {
     refresh()
   }
 
+  // Um lançamento manual some de vez; um vinculado sai desligando a origem —
+  // ver removerDoFinanceiro, que cuida das duas pontas.
   async function confirmarExcluir() {
-    await excluirLancamento(excluir.id)
-    setExcluir(null)
-    refresh()
+    setRemovendo(true)
+    try {
+      if (excluir.origem === 'manual' && lancamentosDaOrigem(excluir).length === 0) {
+        await excluirLancamento(excluir.id)
+      } else {
+        await removerDoFinanceiro(excluir)
+      }
+      setExcluir(null)
+    } catch (erro) {
+      alert('Não foi possível remover do financeiro: ' + (erro?.message || erro))
+    } finally {
+      setRemovendo(false)
+      refresh()
+    }
   }
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
@@ -180,13 +195,12 @@ export default function Financeiro() {
           <Button variant="ghost" onClick={() => alternarBaixa(l)}>
             {l.status === 'realizado' ? 'Estornar' : 'Dar baixa'}
           </Button>
-          {/* Lançamentos de venda/agendamento são geridos na origem: apagar aqui
-              deixaria a venda sem a sua parcela. Só os manuais têm lixeira. */}
-          {l.origem === 'manual' && (
-            <Button variant="danger" onClick={() => setExcluir(l)} title="Excluir lançamento">
-              <IconTrash size={15} />
-            </Button>
-          )}
+          {/* Lançamentos vinculados também podem sair, mas a remoção age na
+              ORIGEM (desliga "Lançar no financeiro" lá) — apagar só a linha aqui
+              não adiantaria: a próxima gravação da venda/agendamento a recria. */}
+          <Button variant="danger" onClick={() => setExcluir(l)} title="Remover do financeiro">
+            <IconTrash size={15} />
+          </Button>
         </div>
       </li>
     )
@@ -457,19 +471,63 @@ export default function Financeiro() {
         </Card>
       </div>
 
-      <Modal title="Excluir lançamento" open={!!excluir} onClose={() => setExcluir(null)}>
-        {excluir && (
-          <div className="space-y-4">
-            <p className="text-sm text-slate-600">
-              Excluir <span className="font-semibold text-slate-900">{excluir.descricao}</span>{' '}
-              ({formatBRL(excluir.valor)})? Essa ação não pode ser desfeita.
-            </p>
-            <div className="flex justify-end gap-2 pt-1">
-              <Button type="button" variant="secondary" onClick={() => setExcluir(null)}>Cancelar</Button>
-              <Button type="button" variant="danger" onClick={confirmarExcluir}>Excluir</Button>
+      <Modal
+        title={excluir?.origem === 'manual' ? 'Excluir lançamento' : 'Remover do financeiro'}
+        open={!!excluir}
+        onClose={() => setExcluir(null)}
+      >
+        {excluir && (() => {
+          const irmaos = lancamentosDaOrigem(excluir)
+          const pagos = irmaos.filter((l) => l.status === 'realizado')
+          const previstos = irmaos.filter((l) => l.status !== 'realizado')
+          const vinculado = irmaos.length > 0
+          const origem = excluir.agendamentoId ? 'este agendamento' : 'esta venda'
+
+          return (
+            <div className="space-y-4">
+              {!vinculado ? (
+                <p className="text-sm text-slate-600">
+                  Excluir <span className="font-semibold text-slate-900">{excluir.descricao}</span>{' '}
+                  ({formatBRL(excluir.valor)})? Essa ação não pode ser desfeita.
+                </p>
+              ) : (
+                <>
+                  <p className="text-sm text-slate-600">
+                    Este lançamento pertence a {origem}. Remover aqui desliga o{' '}
+                    <span className="font-medium text-slate-900">“Lançar no financeiro”</span> na origem —
+                    senão ele voltaria na próxima vez que {origem} fosse salvo.
+                  </p>
+                  <ul className="text-sm text-slate-600 rounded-lg border border-slate-200 divide-y divide-slate-100">
+                    <li className="px-3 py-2 flex justify-between gap-3">
+                      <span>{previstos.length} parcela{previstos.length === 1 ? '' : 's'} em aberto</span>
+                      <span className="font-medium text-red-600">sai{previstos.length === 1 ? '' : 'em'} do caixa</span>
+                    </li>
+                    {pagos.length > 0 && (
+                      <li className="px-3 py-2 flex justify-between gap-3">
+                        <span>{pagos.length} já recebida{pagos.length === 1 ? '' : 's'}</span>
+                        <span className="font-medium text-emerald-700">vira{pagos.length === 1 ? '' : 'm'} lançamento manual</span>
+                      </li>
+                    )}
+                  </ul>
+                  {pagos.length > 0 && (
+                    <p className="text-xs text-slate-400">
+                      Dinheiro que já entrou continua no histórico e no relatório do mês; só deixa de ser
+                      recalculado a partir de {origem}.
+                    </p>
+                  )}
+                </>
+              )}
+              <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-1">
+                <Button type="button" variant="secondary" onClick={() => setExcluir(null)} disabled={removendo}>
+                  Cancelar
+                </Button>
+                <Button type="button" variant="danger" onClick={confirmarExcluir} disabled={removendo}>
+                  {removendo ? 'Removendo…' : vinculado ? 'Remover do financeiro' : 'Excluir'}
+                </Button>
+              </div>
             </div>
-          </div>
-        )}
+          )
+        })()}
       </Modal>
 
       <Modal title={form?.id ? 'Editar lançamento' : 'Novo lançamento'} open={!!form} onClose={() => setForm(null)}>

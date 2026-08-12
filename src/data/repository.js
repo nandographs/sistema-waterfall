@@ -326,6 +326,14 @@ async function sincronizarLancamentos(vinculo, plano) {
       await lancamentos.update(existente.id, dados)
     } else if (novo) {
       await lancamentos.create({ ...novo, ...vinculo })
+    } else if (existente.status === 'realizado') {
+      // Dinheiro que ENTROU não desaparece do caixa. A parcela sobrando perde o
+      // vínculo com a origem e vira um lançamento manual: continua no histórico
+      // e no relatório do mês, mas deixa de ser recalculada.
+      //
+      // Sem isso, cancelar uma venda paga ou desligar o financeiro de um serviço
+      // já recebido apagaria receita real do relatório.
+      await lancamentos.update(existente.id, { [chave]: '', origem: 'manual' })
     } else {
       await lancamentos.remove(existente.id)
     }
@@ -382,7 +390,7 @@ export async function salvarVenda(form, itensForm, opcoes = {}) {
     })
   }
 
-  const plano = venda.status === 'confirmada'
+  const plano = venda.status === 'confirmada' && venda.lancarFinanceiro !== false
     ? planoDeParcelas({
         descricao: `Venda ${venda.numero || ''}`.trim(),
         clienteId: venda.clienteId,
@@ -566,7 +574,12 @@ export async function mudarStatusAgendamento(id, status, dataConclusao) {
 // Cancelar ou zerar o valor os remove; baixas já dadas são preservadas pela
 // sincronização.
 async function sincronizarFinanceiro(ag) {
-  const contabiliza = Number(ag.valor) > 0 && ag.status !== 'cancelado'
+  // `lancarFinanceiro === false` é a escolha explícita de manter o serviço fora
+  // do caixa (cortesia, garantia, retrabalho, acerto por fora). Comparação com
+  // !== false e não com truthy: registros anteriores à migração 006 vêm sem o
+  // campo e devem continuar lançando.
+  const contabiliza =
+    ag.lancarFinanceiro !== false && Number(ag.valor) > 0 && ag.status !== 'cancelado'
 
   const plano = contabiliza
     ? planoDeParcelas({
@@ -597,6 +610,34 @@ async function sincronizarFinanceiro(ag) {
     return agendamentos.update(ag.id, { lancamentoId: primeiro })
   }
   return ag
+}
+
+// Os lançamentos irmãos de um lançamento vinculado — as outras parcelas da
+// mesma venda ou do mesmo agendamento. A tela usa para dizer, antes de remover,
+// exatamente o que vai sair do caixa e o que já foi recebido.
+export function lancamentosDaOrigem(lancamento) {
+  const chave = lancamento.vendaId ? 'vendaId' : lancamento.agendamentoId ? 'agendamentoId' : ''
+  if (!chave) return []
+  return lancamentos.list().filter((l) => l[chave] === lancamento[chave])
+}
+
+// "Remover do financeiro" a partir da tela do Financeiro.
+//
+// Não apaga a linha: desliga a chave na ORIGEM. Apagar só o lançamento seria
+// inútil, porque a próxima gravação do agendamento/venda o recriaria — a
+// sincronia trata a origem como verdade. Desligado lá, a sincronia remove as
+// parcelas previstas e destaca as já recebidas como manuais.
+export async function removerDoFinanceiro(lancamento) {
+  if (lancamento.agendamentoId) {
+    const ag = await agendamentos.update(lancamento.agendamentoId, { lancarFinanceiro: false })
+    return sincronizarFinanceiro(ag)
+  }
+  if (lancamento.vendaId) {
+    await vendas.update(lancamento.vendaId, { lancarFinanceiro: false })
+    return sincronizarLancamentos({ vendaId: lancamento.vendaId }, [])
+  }
+  // Lançamento manual não tem origem: sai de vez.
+  return lancamentos.remove(lancamento.id)
 }
 
 // Concluir uma instalação cria o equipamento do cliente; concluir uma troca de

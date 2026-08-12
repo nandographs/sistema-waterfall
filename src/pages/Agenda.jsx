@@ -355,18 +355,22 @@ export default function Agenda() {
   // desfecho, porque é aí que mora o próximo passo. A fricção fica onde ela
   // produz informação.
   async function concluirEvento(evento) {
-    if (evento.fonte === 'agendamento') {
-      await mudarStatusAgendamento(evento.registro.id, 'concluido')
-      recarregar()
-      return
+    try {
+      if (evento.fonte === 'agendamento') {
+        await mudarStatusAgendamento(evento.registro.id, 'concluido')
+        recarregar()
+        return
+      }
+      const atividade = evento.registro
+      if (['tarefa', 'nota'].includes(atividade.tipo)) {
+        await concluirAtividade(atividade.id, { resultado: 'sucesso' })
+        recarregar()
+        return
+      }
+      setConcluindo(atividade)
+    } catch (erro) {
+      alert('Não foi possível concluir: ' + (erro?.message || erro))
     }
-    const atividade = evento.registro
-    if (['tarefa', 'nota'].includes(atividade.tipo)) {
-      await concluirAtividade(atividade.id, { resultado: 'sucesso' })
-      recarregar()
-      return
-    }
-    setConcluindo(atividade)
   }
 
   function alternarFonte(fonte) {

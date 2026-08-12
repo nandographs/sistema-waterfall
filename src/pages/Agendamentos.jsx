@@ -15,6 +15,7 @@ import ProdutoBusca from '../components/ProdutoBusca.jsx'
 const FORM_VAZIO = {
   clienteId: '', data: '', hora: '', tipo: 'visita', observacoes: '', status: 'agendado',
   produtoIds: [], valor: '', formaPagamento: 'pix', parcelas: 1, statusPagamento: 'pendente',
+  lancarFinanceiro: true,
 }
 
 const STATUS_BADGE = {
@@ -27,7 +28,7 @@ const STATUS_BADGE = {
 // rolava de lado. No desktop continuam em linha; no celular fica só "Ver" e um
 // "⋯" que abre o resto empilhado, com alvos de 44px. Concluir e Cancelar, que
 // antes ficavam a 4px um do outro, agora estão separados e rotulados.
-function AcoesAgendamento({ agendamento: a, onVer, onGerarOS, onEditar, onConcluir, onCancelar, onExcluir }) {
+function AcoesAgendamento({ agendamento: a, ocupado, onVer, onGerarOS, onEditar, onConcluir, onCancelar, onExcluir }) {
   const [aberto, setAberto] = useState(false)
   const secundarias = []
 
@@ -54,8 +55,10 @@ function AcoesAgendamento({ agendamento: a, onVer, onGerarOS, onEditar, onConclu
         {a.status === 'agendado' && (
           <>
             <Button variant="ghost" onClick={onEditar}>Editar</Button>
-            <Button variant="secondary" onClick={onConcluir}>Concluir</Button>
-            <Button variant="danger" onClick={onCancelar}>Cancelar</Button>
+            <Button variant="secondary" onClick={onConcluir} disabled={ocupado}>
+              {ocupado ? 'Salvando…' : 'Concluir'}
+            </Button>
+            <Button variant="danger" onClick={onCancelar} disabled={ocupado}>Cancelar</Button>
           </>
         )}
         {a.status === 'cancelado' && (
@@ -113,6 +116,7 @@ export default function Agendamentos() {
   const [agDetalhe, setAgDetalhe] = useState(null)
   const [agExcluir, setAgExcluir] = useState(null)
   const [excluindo, setExcluindo] = useState(false)
+  const [mudandoStatus, setMudandoStatus] = useState('')
 
   // Painel "Filtrar por" (abre/fecha; fecha ao clicar fora) — mesmo padrão da
   // tela de Clientes.
@@ -153,9 +157,20 @@ export default function Agendamentos() {
     refresh()
   }
 
+  // Sem try/catch, uma falha aqui rejeitava a promise em silêncio: o refresh
+  // nunca rodava e o botão parecia simplesmente não funcionar. Mesmo padrão do
+  // FecharDiaModal da Agenda.
   async function mudarStatus(id, status) {
-    await mudarStatusAgendamento(id, status)
-    refresh()
+    setMudandoStatus(id)
+    try {
+      await mudarStatusAgendamento(id, status)
+      refresh()
+    } catch (erro) {
+      const acao = status === 'concluido' ? 'concluir' : 'cancelar'
+      alert(`Não foi possível ${acao} este agendamento: ${erro?.message || erro}`)
+    } finally {
+      setMudandoStatus('')
+    }
   }
 
   async function confirmarExcluir() {
@@ -300,6 +315,7 @@ export default function Agendamentos() {
                   <Badge color={cor}>{rotulo}</Badge>
                   <AcoesAgendamento
                     agendamento={a}
+                    ocupado={mudandoStatus === a.id}
                     onVer={() => setAgDetalhe(a)}
                     onGerarOS={() => setOsAgendamento(a)}
                     onEditar={() => setForm({ ...FORM_VAZIO, ...a })}
@@ -461,9 +477,31 @@ export default function Agendamentos() {
                   </select>
                 </Field>
               </div>
+              {/* Só aparece quando há valor: sem cobrança, não há o que lançar
+                  e a pergunta seria ruído. */}
+              {Number(form.valor) > 0 && (
+                <label className="flex items-start gap-2.5 cursor-pointer rounded-lg bg-white border border-slate-200 p-3">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600 cursor-pointer"
+                    checked={form.lancarFinanceiro !== false}
+                    onChange={(e) => setForm({ ...form, lancarFinanceiro: e.target.checked })}
+                  />
+                  <span>
+                    <span className="block text-[13px] font-medium text-slate-700">
+                      Lançar no financeiro
+                    </span>
+                    <span className="block text-xs text-slate-400 mt-0.5">
+                      {form.lancarFinanceiro === false
+                        ? 'Este serviço não gera parcelas a receber. Use para cortesia, garantia ou acerto por fora.'
+                        : `Gera ${Math.max(1, Number(form.parcelas) || 1)} parcela${Math.max(1, Number(form.parcelas) || 1) > 1 ? 's' : ''} a receber, somando ${formatBRL(form.valor)}.`}
+                    </span>
+                  </span>
+                </label>
+              )}
+
               <p className="text-xs text-slate-400">
-                Deixe o valor em branco para agendamentos sem cobrança. Quando houver valor, ele entra
-                automaticamente no financeiro do dashboard.
+                Deixe o valor em branco para agendamentos sem cobrança.
               </p>
             </div>
 
