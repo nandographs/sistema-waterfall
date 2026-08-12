@@ -292,7 +292,7 @@ export default function Vendas() {
                   required
                 />
               </Field>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Field label="Data">
                   <input className={inputCls} type="date" required value={form.data} onChange={set('data')} />
                 </Field>
@@ -391,7 +391,7 @@ export default function Vendas() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="rounded-lg border border-slate-200 p-4 space-y-3">
                 <p className="text-[13px] font-semibold text-slate-700">Totais</p>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <Field label="Desconto geral (R$)">
                     <input className={inputCls} type="number" min="0" step="0.01" value={form.desconto} onChange={set('desconto')} />
                   </Field>
@@ -411,7 +411,7 @@ export default function Vendas() {
 
               <div className="rounded-lg border border-slate-200 p-4 space-y-3">
                 <p className="text-[13px] font-semibold text-slate-700">Pagamento</p>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <Field label="Forma">
                     <select className={inputCls} value={form.formaPagamento} onChange={set('formaPagamento')}>
                       {Object.entries(FORMAS_PAGAMENTO).map(([v, r]) => <option key={v} value={v}>{r}</option>)}
@@ -424,7 +424,7 @@ export default function Vendas() {
                     </select>
                   </Field>
                 </div>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <Field label="Entrada (R$)">
                     <input className={inputCls} type="number" min="0" step="0.01" value={form.entrada} onChange={set('entrada')} />
                   </Field>

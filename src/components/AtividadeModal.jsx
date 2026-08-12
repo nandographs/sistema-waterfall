@@ -86,7 +86,7 @@ function Desfecho({ form, setForm, retorno, setRetorno }) {
       {form.resultado === 'retornar' && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-3">
           <p className="text-[13px] font-semibold text-amber-900">Quando você volta nesse contato?</p>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Data do retorno">
               <input
                 className={inputCls}
@@ -196,7 +196,7 @@ export default function AtividadeModal({ atividade, modo = 'edicao', onFechar, o
               />
             </Field>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field label="Data">
                 <input className={inputCls} type="date" required value={form.data} onChange={set('data')} />
               </Field>

@@ -219,7 +219,7 @@ export default function OrdemServicoModal({ agendamento, onClose, onGerada }) {
               </select>
             </Field>
           </div>
-          <div className="grid grid-cols-2 gap-3 mt-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
             <Field label="Tipo de atendimento">
               <select className={inputCls} value={form.tipo_atendimento} onChange={set('tipo_atendimento')}>
                 <option value="">Não se aplica</option>
@@ -238,7 +238,7 @@ export default function OrdemServicoModal({ agendamento, onClose, onGerada }) {
         {/* Cliente */}
         <section>
           <p className={secao}>Cliente e atendimento</p>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Cliente / Empresa">
               <input className={inputCls} maxLength={80} value={form.cliente} onChange={set('cliente')} />
             </Field>
@@ -297,7 +297,7 @@ export default function OrdemServicoModal({ agendamento, onClose, onGerada }) {
         {/* Equipamento e serviço */}
         <section>
           <p className={secao}>Equipamento e serviço</p>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Equipamento / modelo">
               <input className={inputCls} maxLength={80} value={form.equipamento_modelo} onChange={set('equipamento_modelo')} />
             </Field>

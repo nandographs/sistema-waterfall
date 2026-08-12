@@ -158,7 +158,7 @@ export default function Dashboard() {
     : 'Nenhuma pendência por aqui. Comece cadastrando um cliente ou agendando uma visita.'
 
   return (
-    <div className="px-6 pb-10 lg:px-10 max-w-[1600px] mx-auto w-full">
+    <div className="px-4 sm:px-6 pb-28 sm:pb-10 lg:px-10 max-w-[1600px] mx-auto w-full">
       {/* Boas-vindas */}
       <div className="flex flex-wrap items-start justify-between gap-6 mb-8 lg:mb-12 lg:pt-4">
         <div className="max-w-lg">

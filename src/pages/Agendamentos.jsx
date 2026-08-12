@@ -6,7 +6,7 @@ import {
 } from '../data/repository.js'
 import { formatHora } from '../lib/datas.js'
 import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge } from '../components/ui.jsx'
-import { IconPlus, IconFileText, IconTrash, IconEye, IconSearch, IconFilter } from '../components/icons.jsx'
+import { IconPlus, IconFileText, IconTrash, IconEye, IconSearch, IconFilter, IconMais } from '../components/icons.jsx'
 import OrdemServicoModal from '../components/OrdemServicoModal.jsx'
 import AgendamentoDetalheModal from '../components/AgendamentoDetalheModal.jsx'
 import ClienteBusca from '../components/ClienteBusca.jsx'
@@ -21,6 +21,85 @@ const STATUS_BADGE = {
   agendado: ['sky', 'Agendado'],
   concluido: ['green', 'Concluído'],
   cancelado: ['red', 'Cancelado'],
+}
+
+// As ações de uma linha somavam 706px numa tela de 375px — a página inteira
+// rolava de lado. No desktop continuam em linha; no celular fica só "Ver" e um
+// "⋯" que abre o resto empilhado, com alvos de 44px. Concluir e Cancelar, que
+// antes ficavam a 4px um do outro, agora estão separados e rotulados.
+function AcoesAgendamento({ agendamento: a, onVer, onGerarOS, onEditar, onConcluir, onCancelar, onExcluir }) {
+  const [aberto, setAberto] = useState(false)
+  const secundarias = []
+
+  if (a.status !== 'cancelado') {
+    secundarias.push({ rotulo: 'Gerar OS', Icon: IconFileText, onClick: onGerarOS })
+  }
+  if (a.status === 'agendado') {
+    secundarias.push({ rotulo: 'Editar', onClick: onEditar })
+    secundarias.push({ rotulo: 'Concluir', onClick: onConcluir })
+    secundarias.push({ rotulo: 'Cancelar', onClick: onCancelar, perigo: true })
+  }
+  if (a.status === 'cancelado') {
+    secundarias.push({ rotulo: 'Excluir', Icon: IconTrash, onClick: onExcluir, perigo: true })
+  }
+
+  return (
+    <>
+      {/* Desktop: tudo visível, como sempre foi */}
+      <div className="hidden sm:flex items-center gap-2">
+        <Button variant="ghost" onClick={onVer}><IconEye size={16} /> Ver</Button>
+        {a.status !== 'cancelado' && (
+          <Button variant="secondary" onClick={onGerarOS}><IconFileText size={16} /> Gerar OS</Button>
+        )}
+        {a.status === 'agendado' && (
+          <>
+            <Button variant="ghost" onClick={onEditar}>Editar</Button>
+            <Button variant="secondary" onClick={onConcluir}>Concluir</Button>
+            <Button variant="danger" onClick={onCancelar}>Cancelar</Button>
+          </>
+        )}
+        {a.status === 'cancelado' && (
+          <Button variant="danger" onClick={onExcluir}><IconTrash size={15} /> Excluir</Button>
+        )}
+      </div>
+
+      {/* Mobile: uma ação primária e o resto atrás do "⋯" */}
+      <div className="sm:hidden w-full">
+        <div className="flex gap-2">
+          <Button variant="secondary" className="flex-1" onClick={onVer}>
+            <IconEye size={16} /> Ver
+          </Button>
+          {secundarias.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setAberto((v) => !v)}
+              className="shrink-0 min-h-11 w-11 inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-600 cursor-pointer"
+              aria-label={`Mais ações para ${a.status === 'agendado' ? 'este agendamento' : 'este registro'}`}
+              aria-expanded={aberto}
+            >
+              <IconMais size={18} />
+            </button>
+          )}
+        </div>
+        {aberto && (
+          <div className="mt-2 rounded-lg border border-slate-200 overflow-hidden">
+            {secundarias.map(({ rotulo, Icon, onClick, perigo }) => (
+              <button
+                key={rotulo}
+                type="button"
+                onClick={() => { setAberto(false); onClick() }}
+                className={`flex items-center gap-2 w-full px-3 min-h-11 text-sm font-medium text-left cursor-pointer border-b border-slate-100 last:border-b-0 ${
+                  perigo ? 'text-red-600' : 'text-slate-700'
+                }`}
+              >
+                {Icon && <Icon size={16} />} {rotulo}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </>
+  )
 }
 
 export default function Agendamentos() {
@@ -206,9 +285,9 @@ export default function Agendamentos() {
                     {a.observacoes ? ` · ${a.observacoes}` : ''}
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                   {Number(a.valor) > 0 && (
-                    <span className="text-sm font-semibold text-slate-900 tnum">
+                    <span className="text-sm font-semibold text-slate-900 tnum inline-flex items-center gap-1.5">
                       {formatBRL(a.valor)}
                       {a.status !== 'cancelado' && (
                         <Badge color={a.statusPagamento === 'pago' ? 'green' : 'amber'}>
@@ -219,26 +298,15 @@ export default function Agendamentos() {
                   )}
                   {a.osNumero && <Badge color="slate">OS Nº {a.osNumero}</Badge>}
                   <Badge color={cor}>{rotulo}</Badge>
-                  <Button variant="ghost" onClick={() => setAgDetalhe(a)} title="Ver informações">
-                    <IconEye size={16} /> Ver
-                  </Button>
-                  {a.status !== 'cancelado' && (
-                    <Button variant="secondary" onClick={() => setOsAgendamento(a)}>
-                      <IconFileText size={16} /> Gerar OS
-                    </Button>
-                  )}
-                  {a.status === 'agendado' && (
-                    <>
-                      <Button variant="ghost" onClick={() => setForm({ ...FORM_VAZIO, ...a })}>Editar</Button>
-                      <Button variant="secondary" onClick={() => mudarStatus(a.id, 'concluido')}>Concluir</Button>
-                      <Button variant="danger" onClick={() => mudarStatus(a.id, 'cancelado')}>Cancelar</Button>
-                    </>
-                  )}
-                  {a.status === 'cancelado' && (
-                    <Button variant="danger" onClick={() => setAgExcluir(a)} title="Excluir ordem de serviço">
-                      <IconTrash size={15} /> Excluir
-                    </Button>
-                  )}
+                  <AcoesAgendamento
+                    agendamento={a}
+                    onVer={() => setAgDetalhe(a)}
+                    onGerarOS={() => setOsAgendamento(a)}
+                    onEditar={() => setForm({ ...FORM_VAZIO, ...a })}
+                    onConcluir={() => mudarStatus(a.id, 'concluido')}
+                    onCancelar={() => mudarStatus(a.id, 'cancelado')}
+                    onExcluir={() => setAgExcluir(a)}
+                  />
                 </div>
               </li>
             )
@@ -297,7 +365,7 @@ export default function Agendamentos() {
                 required
               />
             </Field>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <Field label="Data">
                 <input className={inputCls} type="date" required value={form.data} onChange={set('data')} />
               </Field>
@@ -362,7 +430,7 @@ export default function Agendamentos() {
                   Deixe a lista vazia para uma visita sem produto.
                 </p>
               </Field>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Field label="Valor do serviço (R$)">
                   <input
                     className={inputCls}
@@ -378,7 +446,7 @@ export default function Agendamentos() {
                   <input className={inputCls} type="number" min="1" value={form.parcelas} onChange={set('parcelas')} />
                 </Field>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Field label="Forma de pagamento">
                   <select className={inputCls} value={form.formaPagamento} onChange={set('formaPagamento')}>
                     {Object.entries(FORMAS_PAGAMENTO).map(([v, r]) => (
