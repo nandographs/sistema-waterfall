@@ -45,29 +45,40 @@ begin;
 -- papel `authenticated` a partir do próprio token. E o `service_role` ignora
 -- RLS por completo, então também não depende desta política.)
 
+-- NÃO comparamos pelo nome da política ("Usuários autenticados podem tudo").
+-- A primeira versão desta migração fazia isso e não removeu nada: o nome tem
+-- acento, e basta uma diferença de codificação entre o arquivo e o banco para
+-- a igualdade falhar em silêncio — o `if exists` simplesmente não entra, e a
+-- migração termina com sucesso sem ter feito coisa alguma.
+--
+-- A regra abaixo é declarativa e não depende de nome nenhum: em cada tabela,
+-- sobra a `acesso_autenticado` e sai todo o resto. É isto que queremos dizer,
+-- então é isto que o código diz.
+
 do $$
 declare
   t text;
+  p text;
   tabelas text[] := array['clientes', 'agendamentos', 'equipamentos', 'fotos', 'produtos'];
 begin
   foreach t in array tabelas loop
-    if exists (select 1 from pg_policies
-               where schemaname = 'public' and tablename = t
-                 and policyname = 'Usuários autenticados podem tudo') then
-
-      -- Trava de segurança: só remove a antiga se a nova estiver mesmo lá.
-      -- Sem isto, rodar este arquivo sem ter rodado o 007 deixaria a tabela
-      -- com RLS ligado e ZERO políticas — trancada para o sistema inteiro.
-      if not exists (select 1 from pg_policies
-                     where schemaname = 'public' and tablename = t
-                       and policyname = 'acesso_autenticado') then
-        raise exception
-          'ABORTADO: public.% nao tem a politica acesso_autenticado. Rode sql/007_seguranca_rls.sql primeiro.', t;
-      end if;
-
-      execute format('drop policy %I on public.%I', 'Usuários autenticados podem tudo', t);
-      raise notice 'Politica duplicada removida de public.%', t;
+    -- Trava de segurança: só remove as outras se a nova estiver mesmo lá.
+    -- Sem isto, rodar este arquivo sem ter rodado o 007 deixaria a tabela com
+    -- RLS ligado e ZERO políticas — trancada para o sistema inteiro.
+    if not exists (select 1 from pg_policies
+                   where schemaname = 'public' and tablename = t
+                     and policyname = 'acesso_autenticado') then
+      raise exception
+        'ABORTADO: public.% nao tem a politica acesso_autenticado. Rode sql/007_seguranca_rls.sql primeiro.', t;
     end if;
+
+    for p in select policyname from pg_policies
+              where schemaname = 'public' and tablename = t
+                and policyname <> 'acesso_autenticado'
+    loop
+      execute format('drop policy %I on public.%I', p, t);
+      raise notice 'Removida a politica "%" de public.%', p, t;
+    end loop;
   end loop;
 end $$;
 
@@ -88,13 +99,18 @@ end $$;
 -- O aplicativo não é afetado: `vendas_legado` não aparece na lista TABELAS de
 -- src/data/repository.js, ou seja, o sistema nunca a consulta.
 
+-- Mesma lógica do passo 1: remove o que houver, sem depender do nome. Aqui não
+-- há exceção a preservar — a tabela deve ficar sem política nenhuma.
+
 do $$
+declare p text;
 begin
-  if exists (select 1 from pg_policies
-             where schemaname = 'public' and tablename = 'vendas_legado') then
-    drop policy "Usuários autenticados podem tudo" on public.vendas_legado;
-    raise notice 'vendas_legado trancada: RLS ligado, nenhuma politica.';
-  end if;
+  for p in select policyname from pg_policies
+            where schemaname = 'public' and tablename = 'vendas_legado'
+  loop
+    execute format('drop policy %I on public.vendas_legado', p);
+    raise notice 'Removida a politica "%" de vendas_legado.', p;
+  end loop;
 end $$;
 
 commit;
