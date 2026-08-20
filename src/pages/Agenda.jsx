@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import {
   eventosPorDia, eventosDoDia, pendenciasAtrasadas, resumoDoDia,
   concluirAtividade, remarcarAtividade, cancelarAtividade,
@@ -7,14 +7,19 @@ import {
 } from '../data/repository.js'
 import {
   hojeISO, mesAtual, mesDe, mudarMes, gradeDoMes, semanaDe, rotuloMes, diaDaSemana,
-  diaExtenso, diaCurto, formatHora, somarDias, ehHoje, ehPassado, DIAS_CURTOS,
+  diaExtenso, diaCurto, formatHora, somarDias, ehHoje, ehPassado, rotuloRelativo, DIAS_CURTOS,
 } from '../lib/datas.js'
 import { usuarioAtual } from '../lib/auth.js'
 import { Card, Page, PageTitle, Button, Empty, Modal, Badge, inputCls } from '../components/ui.jsx'
-import { IconChevronLeft, IconChevronRight, IconPlus, IconCheck, IconAlert } from '../components/icons.jsx'
+import { IconChevronLeft, IconChevronRight, IconPlus, IconCheck, IconAlert, IconFilter, IconCalendar } from '../components/icons.jsx'
 import { LinhaEvento, IconeDoEvento, estiloDoEvento } from '../components/evento.jsx'
 import AtividadeModal, { atividadeNova } from '../components/AtividadeModal.jsx'
 import AgendamentoDetalheModal from '../components/AgendamentoDetalheModal.jsx'
+
+const pilula = (ativo) =>
+  `rounded-full px-3.5 py-1.5 text-sm font-medium cursor-pointer ${
+    ativo ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+  }`
 
 // Chip de um evento dentro da célula do calendário.
 function ChipEvento({ evento }) {
@@ -290,6 +295,102 @@ function FecharDiaModal({ dia, pendentes, onFechar, onMudou }) {
   )
 }
 
+// Folha inferior para escolher data no mobile: reúne o toggle de visão, a
+// navegação de mês e a grade completa num só lugar — em vez de duas linhas de
+// controles permanentes acima do dia, que era o que sobrava tela no celular.
+function SeletorDataModal({ mes, dia, visao, porDia, onMudarMes, onMudarVisao, onSelecionarDia, onHoje, onFechar }) {
+  return (
+    <Modal title="Escolher data" open onClose={onFechar}>
+      <div className="space-y-4">
+        <div className="grid grid-cols-3 gap-1.5">
+          {[['mes', 'Mês'], ['semana', 'Semana'], ['dia', 'Dia']].map(([valor, rotulo]) => (
+            <button key={valor} type="button" onClick={() => onMudarVisao(valor)} className={pilula(visao === valor)}>
+              {rotulo}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onMudarMes(-1)}
+            className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-50 cursor-pointer"
+            aria-label="Mês anterior"
+          >
+            <IconChevronLeft size={16} />
+          </button>
+          <span className="flex-1 text-center text-sm font-semibold text-slate-900">{rotuloMes(mes)}</span>
+          <button
+            type="button"
+            onClick={() => onMudarMes(1)}
+            className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-50 cursor-pointer"
+            aria-label="Próximo mês"
+          >
+            <IconChevronRight size={16} />
+          </button>
+        </div>
+
+        <GradeDoMes
+          mes={mes}
+          selecionado={dia}
+          porDia={porDia}
+          onSelecionar={(d) => { onSelecionarDia(d); onFechar() }}
+        />
+
+        <Button variant="secondary" className="w-full" onClick={() => { onHoje(); onFechar() }}>
+          Ir para hoje
+        </Button>
+      </div>
+    </Modal>
+  )
+}
+
+// Folha inferior para os filtros: fontes e "só as minhas" saem da tela
+// principal (onde ficavam sempre visíveis, competindo com o dia) e viram algo
+// que se abre só quando alguém quer de fato filtrar.
+function FiltrosModal({ fontes, soMinhas, usuario, onAlternarFonte, onAlternarSoMinhas, onFechar }) {
+  return (
+    <Modal title="Filtros" open onClose={onFechar}>
+      <div className="space-y-4">
+        <div>
+          <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-2">Mostrar</p>
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(FONTES_AGENDA).map(([fonte, rotulo]) => (
+              <button
+                key={fonte}
+                type="button"
+                onClick={() => onAlternarFonte(fonte)}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium cursor-pointer ${
+                  fontes.includes(fonte)
+                    ? 'border-slate-300 bg-white text-slate-700'
+                    : 'border-slate-200 bg-slate-50 text-slate-400'
+                }`}
+              >
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    !fontes.includes(fonte)
+                      ? 'bg-slate-300'
+                      : fonte === 'agendamento' ? 'bg-blue-500' : fonte === 'vencimento' ? 'bg-violet-500' : 'bg-emerald-500'
+                  }`}
+                />
+                {rotulo}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {usuario && (
+          <button type="button" onClick={onAlternarSoMinhas} className={pilula(soMinhas) + ' w-full'}>
+            {soMinhas ? 'Mostrando só as minhas' : 'Mostrando de todos'}
+          </button>
+        )}
+
+        <Button className="w-full" onClick={onFechar}>Aplicar</Button>
+      </div>
+    </Modal>
+  )
+}
+
 export default function Agenda() {
   const [dia, setDia] = useState(hojeISO())
   const [mes, setMes] = useState(mesAtual())
@@ -307,6 +408,9 @@ export default function Agenda() {
   const [agDetalhe, setAgDetalhe] = useState(null)
   const [fechandoDia, setFechandoDia] = useState(false)
   const [versao, setVersao] = useState(0)
+  const [seletorAberto, setSeletorAberto] = useState(false)
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false)
+  const toqueRef = useRef(null)
 
   const recarregar = () => setVersao((n) => n + 1)
   const usuario = usuarioAtual()
@@ -346,6 +450,37 @@ export default function Agenda() {
     setMes(mesAtual())
   }
 
+  // Um único ponto para "anterior/próximo" que respeita a visão ativa. Antes,
+  // as setas sempre mudavam o MÊS mesmo com a visão em "Dia" — no celular,
+  // onde "Dia" é o padrão, isso fazia o rótulo mudar sem o dia visível mudar
+  // junto, o que é a própria definição de confuso.
+  function navegar(direcao) {
+    if (visao === 'dia') return selecionarDia(somarDias(dia, direcao))
+    if (visao === 'semana') return selecionarDia(somarDias(dia, direcao * 7))
+    setMes(mudarMes(mes, direcao))
+  }
+
+  function aoTocarInicio(e) {
+    const t = e.touches[0]
+    toqueRef.current = { x: t.clientX, y: t.clientY }
+  }
+
+  // Arrastar o card do dia para o lado navega, como num app de agenda de
+  // verdade — os botõezinhos de seta ficam pequenos demais para depender só
+  // deles no polegar. Um gesto majoritariamente vertical (rolar a lista) não
+  // dispara nada.
+  function aoTocarFim(e) {
+    const inicio = toqueRef.current
+    toqueRef.current = null
+    if (!inicio) return
+    const t = e.changedTouches[0]
+    const dx = t.clientX - inicio.x
+    const dy = t.clientY - inicio.y
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      navegar(dx > 0 ? -1 : 1)
+    }
+  }
+
   function abrirEvento(evento) {
     if (evento.fonte === 'atividade') setForm(evento.registro)
     else if (evento.fonte === 'agendamento') setAgDetalhe(evento.registro)
@@ -379,17 +514,28 @@ export default function Agenda() {
     )
   }
 
-  const pilula = (ativo) =>
-    `rounded-full px-3.5 py-1.5 text-sm font-medium cursor-pointer ${
-      ativo ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-    }`
+  // Rótulo compacto do período: no mobile substitui o mês fixo — que continuava
+  // aparecendo mesmo na visão "Dia" — por algo que reflete o que está na tela.
+  const rotuloToolbar = useMemo(() => {
+    if (visao === 'dia') {
+      const relativo = rotuloRelativo(dia)
+      return `${DIAS_CURTOS[diaDaSemana(dia)]}, ${relativo || diaCurto(dia)}`
+    }
+    if (visao === 'semana') {
+      const dias = semanaDe(dia)
+      return `${diaCurto(dias[0])} – ${diaCurto(dias[6])}`
+    }
+    return rotuloMes(mes)
+  }, [visao, dia, mes])
+
+  const filtroAtivo = fontes.length < Object.keys(FONTES_AGENDA).length || soMinhas
 
   return (
     <Page>
       <PageTitle
         subtitle="Seu dia: contatos, tarefas e serviços no mesmo lugar"
         action={
-          <Button onClick={() => setForm(atividadeNova({ data: dia }))}>
+          <Button className="hidden sm:inline-flex" onClick={() => setForm(atividadeNova({ data: dia }))}>
             <IconPlus size={16} /> Nova atividade
           </Button>
         }
@@ -397,11 +543,51 @@ export default function Agenda() {
         Agenda
       </PageTitle>
 
-      <div className="flex flex-wrap items-center gap-2 mb-4">
+      {/* Mobile: uma linha só. Setas navegam pela visão ativa (dia/semana/mês);
+          o centro abre a folha com o mês inteiro, o toggle de visão e "Hoje";
+          o funil abre os filtros. As duas linhas de controles permanentes que
+          existiam antes empurravam o dia de hoje para fora da tela. */}
+      <div className="flex sm:hidden items-center gap-2 mb-4">
+        <button
+          type="button"
+          onClick={() => navegar(-1)}
+          className="shrink-0 rounded-lg border border-slate-200 bg-white p-2.5 text-slate-500 hover:bg-slate-50 cursor-pointer"
+          aria-label="Anterior"
+        >
+          <IconChevronLeft size={16} />
+        </button>
+        <button
+          type="button"
+          onClick={() => setSeletorAberto(true)}
+          className="flex-1 min-w-0 flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 cursor-pointer"
+        >
+          <IconCalendar size={15} className="text-slate-400 shrink-0" />
+          <span className="truncate first-letter:uppercase">{rotuloToolbar}</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => navegar(1)}
+          className="shrink-0 rounded-lg border border-slate-200 bg-white p-2.5 text-slate-500 hover:bg-slate-50 cursor-pointer"
+          aria-label="Próximo"
+        >
+          <IconChevronRight size={16} />
+        </button>
+        <button
+          type="button"
+          onClick={() => setFiltrosAbertos(true)}
+          className="relative shrink-0 rounded-lg border border-slate-200 bg-white p-2.5 text-slate-500 hover:bg-slate-50 cursor-pointer"
+          aria-label="Filtros"
+        >
+          <IconFilter size={16} />
+          {filtroAtivo && <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-blue-600" />}
+        </button>
+      </div>
+
+      <div className="hidden sm:flex flex-wrap items-center gap-2 mb-4">
         <div className="flex items-center gap-1">
           <button
             type="button"
-            onClick={() => (visao === 'semana' ? selecionarDia(somarDias(dia, -7)) : setMes(mudarMes(mes, -1)))}
+            onClick={() => navegar(-1)}
             className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-50 cursor-pointer"
             aria-label="Anterior"
           >
@@ -409,7 +595,7 @@ export default function Agenda() {
           </button>
           <button
             type="button"
-            onClick={() => (visao === 'semana' ? selecionarDia(somarDias(dia, 7)) : setMes(mudarMes(mes, 1)))}
+            onClick={() => navegar(1)}
             className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-50 cursor-pointer"
             aria-label="Próximo"
           >
@@ -417,8 +603,8 @@ export default function Agenda() {
           </button>
         </div>
 
-        <span className="text-base font-semibold text-slate-900 flex-1 sm:flex-none sm:min-w-[160px]">
-          {rotuloMes(mes)}
+        <span className="text-base font-semibold text-slate-900 flex-1 sm:flex-none sm:min-w-[160px] first-letter:uppercase">
+          {rotuloToolbar}
         </span>
 
         <Button variant="secondary" onClick={irParaHoje}>Hoje</Button>
@@ -434,7 +620,7 @@ export default function Agenda() {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 mb-4">
+      <div className="hidden sm:flex flex-wrap items-center gap-2 mb-4">
         {Object.entries(FONTES_AGENDA).map(([fonte, rotulo]) => (
           <button
             key={fonte}
@@ -475,6 +661,8 @@ export default function Agenda() {
         )}
 
         <Card
+          onTouchStart={aoTocarInicio}
+          onTouchEnd={aoTocarFim}
           className={visao === 'dia' ? 'max-w-3xl' : ''}
           title={
             <span className="first-letter:uppercase">
@@ -550,6 +738,43 @@ export default function Agenda() {
           )}
         </Card>
       </div>
+
+      {/* FAB: substitui o botão "Nova atividade" do topo no mobile — fica na
+          zona do polegar, acima da barra de navegação inferior, em vez de um
+          alvo pequeno no canto superior direito. */}
+      <button
+        type="button"
+        onClick={() => setForm(atividadeNova({ data: dia }))}
+        className="sm:hidden fixed right-4 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-30 flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg hover:bg-blue-700 cursor-pointer"
+        aria-label="Nova atividade"
+      >
+        <IconPlus size={22} />
+      </button>
+
+      {seletorAberto && (
+        <SeletorDataModal
+          mes={mes}
+          dia={dia}
+          visao={visao}
+          porDia={porDia}
+          onMudarMes={(n) => setMes(mudarMes(mes, n))}
+          onMudarVisao={setVisao}
+          onSelecionarDia={selecionarDia}
+          onHoje={irParaHoje}
+          onFechar={() => setSeletorAberto(false)}
+        />
+      )}
+
+      {filtrosAbertos && (
+        <FiltrosModal
+          fontes={fontes}
+          soMinhas={soMinhas}
+          usuario={usuario}
+          onAlternarFonte={alternarFonte}
+          onAlternarSoMinhas={() => setSoMinhas((v) => !v)}
+          onFechar={() => setFiltrosAbertos(false)}
+        />
+      )}
 
       {form && (
         <AtividadeModal

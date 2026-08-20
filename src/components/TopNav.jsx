@@ -1,85 +1,47 @@
 import { useState } from 'react'
-import { NavLink } from 'react-router-dom'
-import {
-  IconImage, IconLogOut, IconDashboard, IconUsers, IconDroplet, IconCalendar, IconUser,
-  IconFileText, IconWallet, IconCheckSquare, IconMais, IconX,
-} from './icons.jsx'
+import { NavLink, useLocation } from 'react-router-dom'
+import { IconLogOut, IconUser, IconMais, IconX, IconImage } from './icons.jsx'
+import { NA_BARRA, NO_MAIS, tituloDaRota } from './navegacao.js'
 import { usuarioAtual } from '../lib/auth.js'
 import logo from '../assets/logo.svg'
 
-// "Agenda" é o seu dia (contatos, tarefas, o calendário); "Serviços" são as
-// ordens de serviço em campo — o que antes se chamava "Agendamentos". Os dois
-// nomes juntos no menu confundiriam, e "Serviços" descreve melhor o que a
-// tela sempre foi. Rota e tabela seguem com o nome antigo.
-const links = [
-  { to: '/', label: 'Dashboard', Icon: IconDashboard },
-  { to: '/agenda', label: 'Agenda', Icon: IconCalendar },
-  { to: '/clientes', label: 'Clientes', Icon: IconUsers },
-  { to: '/produtos', label: 'Produtos', Icon: IconDroplet },
-  { to: '/agendamentos', label: 'Serviços', Icon: IconCheckSquare },
-  { to: '/vendas', label: 'Vendas', Icon: IconFileText },
-  { to: '/financeiro', label: 'Financeiro', Icon: IconWallet },
-]
+// Topbar no formato do template: barra sticky com borda inferior, o nome da
+// tela atual à esquerda e as ações à direita. Os destinos NÃO vivem aqui — no
+// desktop estão na Sidebar, no mobile na BottomNav.
+export default function TopNav({ naDashboard, onMudarWallpaper }) {
+  const { pathname } = useLocation()
 
-// No celular só cabem 5 destinos com rótulo legível; os outros dois vão para o
-// "Mais". A escolha dos 5 segue a frequência de uso em campo, não a ordem do
-// menu de desktop — Produtos e Vendas são tarefas de escritório.
-const ROTAS_BARRA = ['/', '/agenda', '/clientes', '/agendamentos', '/financeiro']
-const naBarra = links.filter((l) => ROTAS_BARRA.includes(l.to))
-const noMais = links.filter((l) => !ROTAS_BARRA.includes(l.to))
-
-const acao =
-  'inline-flex items-center justify-center gap-1.5 rounded-full bg-white border border-slate-200 px-3 sm:px-3.5 ' +
-  'min-h-11 sm:min-h-0 sm:py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 cursor-pointer shadow-sm'
-
-// Cabeçalho: no desktop, a pílula central com os 7 destinos e as ações à direita.
-// No mobile a pílula sai daqui — os 7 links somavam ~460px numa tela de 375px e
-// estouravam a viewport — e vira a barra inferior fixa (BottomNav abaixo).
-export default function TopNav({ naDashboard, onMudarWallpaper, onSair }) {
   return (
-    <header className="relative z-20 flex items-center justify-between sm:justify-center gap-2 sm:gap-3 px-4 sm:px-6 py-3 sm:py-4">
-      <NavLink to="/" aria-label="Início" className="flex lg:absolute lg:left-6 items-center shrink-0">
-        <img
-          src={logo}
-          alt="Waterfall"
-          className={`h-7 sm:h-8 w-auto ${naDashboard ? 'brightness-0 invert' : ''}`}
-        />
+    <header className="sticky top-0 z-30 flex h-16 lg:h-21 items-center gap-3 border-b border-slate-200 bg-white px-4 lg:pl-6 lg:pr-8">
+      {/* A logo só aparece no mobile: no desktop ela já está no topo da sidebar */}
+      <NavLink to="/" aria-label="Início" className="lg:hidden shrink-0">
+        <img src={logo} alt="Waterfall" className="h-7 w-auto" />
       </NavLink>
 
-      <nav className="hidden sm:inline-flex items-center gap-1 rounded-full bg-white border border-slate-200 p-1 shadow-sm">
-        {links.map(({ to, label }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={to === '/'}
-            className={({ isActive }) =>
-              `flex items-center rounded-full px-4 py-1.5 text-sm font-medium ${
-                isActive ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'
-              }`
-            }
-          >
-            {label}
-          </NavLink>
-        ))}
-      </nav>
+      <h1 className="mr-auto truncate text-base lg:text-lg font-medium text-slate-900">
+        {tituloDaRota(pathname)}
+      </h1>
 
-      <div className="flex items-center gap-2 lg:absolute lg:right-6">
-        {usuarioAtual() && (
-          <span className={acao + ' cursor-default hover:bg-white max-sm:hidden'} title="Usuário logado">
-            <IconUser size={15} /> <span className="hidden sm:inline">{usuarioAtual()}</span>
-          </span>
-        )}
-        {naDashboard && (
-          <button type="button" onClick={onMudarWallpaper} className={acao + ' max-sm:w-11'} title="Mudar wallpaper" aria-label="Mudar wallpaper">
-            <IconImage size={16} /> <span className="hidden sm:inline">Mudar wallpaper</span>
-          </button>
-        )}
-        {/* Sair vive no "Mais" da barra inferior no mobile — ação destrutiva não
-            deve dividir espaço com a navegação principal. */}
-        <button type="button" onClick={onSair} className={acao + ' max-sm:hidden'} title="Sair" aria-label="Sair">
-          <IconLogOut size={16} /> Sair
+      {naDashboard && (
+        <button
+          type="button"
+          onClick={onMudarWallpaper}
+          title="Mudar wallpaper"
+          aria-label="Mudar wallpaper"
+          className="lg:hidden inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-50 cursor-pointer"
+        >
+          <IconImage size={18} />
         </button>
-      </div>
+      )}
+
+      {usuarioAtual() && (
+        <span
+          className="hidden lg:inline-flex items-center gap-2 rounded-full bg-slate-50 border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700"
+          title="Usuário logado"
+        >
+          <IconUser size={15} /> {usuarioAtual()}
+        </span>
+      )}
     </header>
   )
 }
@@ -97,10 +59,10 @@ export function BottomNav({ onSair }) {
   return (
     <>
       <nav
-        className="sm:hidden fixed bottom-0 inset-x-0 z-40 grid grid-cols-6 bg-white border-t border-slate-200 pb-[env(safe-area-inset-bottom)]"
+        className="lg:hidden fixed bottom-0 inset-x-0 z-40 grid grid-cols-6 bg-white border-t border-slate-200 pb-[env(safe-area-inset-bottom)]"
         aria-label="Navegação principal"
       >
-        {naBarra.map(({ to, label, Icon }) => (
+        {NA_BARRA.map(({ to, label, Icon }) => (
           <NavLink key={to} to={to} end={to === '/'} className={celula}>
             <Icon size={20} />
             <span>{label}</span>
@@ -119,7 +81,7 @@ export function BottomNav({ onSair }) {
 
       {maisAberto && (
         <div
-          className="sm:hidden fixed inset-0 z-50 flex items-end bg-slate-900/50"
+          className="lg:hidden fixed inset-0 z-50 flex items-end bg-slate-900/50"
           onClick={() => setMaisAberto(false)}
         >
           <div
@@ -139,7 +101,7 @@ export function BottomNav({ onSair }) {
                 <IconX size={18} />
               </button>
             </div>
-            {noMais.map(({ to, label, Icon }) => (
+            {NO_MAIS.map(({ to, label, Icon }) => (
               <NavLink
                 key={to}
                 to={to}

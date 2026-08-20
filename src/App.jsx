@@ -10,6 +10,7 @@ import Agenda from './pages/Agenda.jsx'
 import Vendas from './pages/Vendas.jsx'
 import Financeiro from './pages/Financeiro.jsx'
 import TopNav, { BottomNav } from './components/TopNav.jsx'
+import Sidebar from './components/Sidebar.jsx'
 import WallpaperPicker from './components/WallpaperPicker.jsx'
 import { lerWallpaper, salvarWallpaper, WALLPAPERS } from './data/wallpapers.js'
 import { supabase } from './lib/supabaseClient.js'
@@ -57,39 +58,50 @@ function AppLayout({ onSair }) {
     setPickerAberto(false)
   }
 
-  return (
-    <div className="min-h-screen relative flex flex-col">
-      {/* Fundo com wallpaper apenas no dashboard.
-          absolute inset-0 no wrapper relative: cobre toda a altura e fica
-          atrás do conteúdo (que sobe com z-10), sem depender de z negativo. */}
-      {naDashboard && (
-        <div className="absolute inset-0">
-          <img src={wallpaper.src} alt="" aria-hidden="true" className="h-full w-full object-cover" />
-          <div className="absolute inset-0 bg-slate-900/70" />
-        </div>
-      )}
+  // Estrutura do template: sidebar fixa à esquerda no desktop, conteúdo rolando
+  // ao lado. O estado de colapso persiste — é preferência de quem usa, não do
+  // sistema, e reabrir sempre expandida seria irritante.
+  const [sidebarColapsada, setSidebarColapsada] = useState(
+    () => localStorage.getItem('sidebarColapsada') === '1'
+  )
 
-      <div className="relative z-10">
+  function alternarSidebar() {
+    setSidebarColapsada((v) => {
+      localStorage.setItem('sidebarColapsada', v ? '0' : '1')
+      return !v
+    })
+  }
+
+  return (
+    <div className="min-h-svh flex bg-slate-50">
+      <Sidebar
+        colapsada={sidebarColapsada}
+        onAlternar={alternarSidebar}
+        naDashboard={naDashboard}
+        onMudarWallpaper={() => setPickerAberto(true)}
+        onSair={onSair}
+      />
+
+      <div className="flex-1 min-w-0 flex flex-col">
         <TopNav
           naDashboard={naDashboard}
           onMudarWallpaper={() => setPickerAberto(true)}
-          onSair={onSair}
         />
-      </div>
 
-      <main className="flex-1 relative z-10">
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/clientes" element={<Clientes />} />
-          <Route path="/clientes/:id" element={<ClienteDetalhe />} />
-          <Route path="/produtos" element={<Produtos />} />
-          <Route path="/agenda" element={<Agenda />} />
-          <Route path="/agendamentos" element={<Agendamentos />} />
-          <Route path="/vendas" element={<Vendas />} />
-          <Route path="/financeiro" element={<Financeiro />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </main>
+        <main className="flex-1">
+          <Routes>
+            <Route path="/" element={<Dashboard wallpaper={wallpaper} />} />
+            <Route path="/clientes" element={<Clientes />} />
+            <Route path="/clientes/:id" element={<ClienteDetalhe />} />
+            <Route path="/produtos" element={<Produtos />} />
+            <Route path="/agenda" element={<Agenda />} />
+            <Route path="/agendamentos" element={<Agendamentos />} />
+            <Route path="/vendas" element={<Vendas />} />
+            <Route path="/financeiro" element={<Financeiro />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </main>
+      </div>
 
       <WallpaperPicker
         open={pickerAberto}
@@ -106,6 +118,10 @@ function AppLayout({ onSair }) {
 export default function App() {
   // sessao: undefined = ainda verificando; null = deslogado; objeto = logado
   const [sessao, setSessao] = useState(undefined)
+  // Quem está logado, para o efeito de carga: '' = ninguém. Depender disso (e
+  // não do objeto sessao) evita recarregar tudo quando o Supabase apenas renova
+  // o token — o que ele faz sempre que a aba/app volta ao foco.
+  const usuarioId = sessao === undefined ? undefined : (sessao?.user?.id ?? '')
   const [dadosProntos, setDadosProntos] = useState(false)
   const [erroCarregamento, setErroCarregamento] = useState('')
 
@@ -124,21 +140,31 @@ export default function App() {
         })
       }
     })
-    const { data: assinatura } = supabase.auth.onAuthStateChange((_evento, novaSessao) => {
+    const { data: assinatura } = supabase.auth.onAuthStateChange((evento, novaSessao) => {
       definirUsuarioAtual(novaSessao?.user)
-      setSessao(novaSessao)
+      // TOKEN_REFRESHED e SIGNED_IN disparam sozinhos quando a aba volta ao
+      // foco (ou o app volta do segundo plano no celular). Trocar o objeto da
+      // sessão nesses casos remontava a tela inteira e recarregava o banco.
+      // Só troca quando muda de fato quem está logado.
+      setSessao((atual) => {
+        if (evento === 'TOKEN_REFRESHED') return atual
+        if (atual && novaSessao && atual.user?.id === novaSessao.user?.id) {
+          return evento === 'USER_UPDATED' ? { ...atual, user: novaSessao.user } : atual
+        }
+        return novaSessao
+      })
     })
     return () => assinatura.subscription.unsubscribe()
   }, [])
 
   useEffect(() => {
-    if (!sessao) return
+    if (!usuarioId) return
     setDadosProntos(false)
     setErroCarregamento('')
     carregarDados()
       .then(() => setDadosProntos(true))
       .catch((erro) => setErroCarregamento(erro.message || String(erro)))
-  }, [sessao])
+  }, [usuarioId])
 
   function sair() {
     supabase.auth.signOut()

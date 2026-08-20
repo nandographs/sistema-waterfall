@@ -46,7 +46,7 @@ function Kpi({ icon, iconBg, label, value, hint }) {
   )
 }
 
-export default function Dashboard() {
+export default function Dashboard({ wallpaper }) {
   // Sorteada uma vez por montagem (a cada login/abertura do dashboard).
   const [saudacao] = useState(saudacaoAleatoria)
   const navigate = useNavigate()
@@ -162,22 +162,33 @@ export default function Dashboard() {
     : 'Nenhuma pendência por aqui. Comece cadastrando um cliente ou agendando uma visita.'
 
   return (
-    <div className="px-4 sm:px-6 pb-28 sm:pb-10 lg:px-10 max-w-[1600px] mx-auto w-full">
-      {/* Boas-vindas */}
-      <div className="flex flex-wrap items-start justify-between gap-6 mb-8 lg:mb-12 lg:pt-4">
-        <div className="max-w-lg">
-          <p className="text-[13px] font-medium text-blue-300 first-letter:uppercase">{dataExtenso}</p>
-          <h2 className="text-3xl lg:text-[34px] font-bold text-white tracking-tight mt-2">
-            {saudacao}
-          </h2>
-          <p className="text-sm text-slate-200 mt-2.5 leading-relaxed">{resumoDoMes}</p>
-          <div className="flex flex-wrap gap-2 mt-6">
-            <Link to="/agendamentos">
-              <Button><IconPlus size={16} /> Novo agendamento</Button>
-            </Link>
-            <Link to="/clientes">
-              <Button variant="hero"><IconPlus size={16} /> Novo cliente</Button>
-            </Link>
+    <div className="px-4 sm:px-6 py-6 lg:px-8 lg:py-8 pb-28 lg:pb-10 max-w-[1600px] mx-auto w-full">
+      <div className="flex flex-wrap items-stretch gap-6 mb-6">
+        {/* Boas-vindas. O wallpaper era o fundo da página inteira; num shell de
+            sidebar branco isso brigava com tudo. Virou o próprio cartão — a
+            imagem continua sendo a escolha do usuário, agora emoldurada. */}
+        <div className="relative flex-1 min-w-[18rem] overflow-hidden rounded-xl border border-slate-200">
+          <img
+            src={wallpaper.src}
+            alt=""
+            aria-hidden="true"
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+          <div className="absolute inset-0 bg-slate-900/70" />
+          <div className="relative p-6 lg:p-8 max-w-lg">
+            <p className="text-[13px] font-medium text-blue-200 first-letter:uppercase">{dataExtenso}</p>
+            <h2 className="text-2xl lg:text-3xl font-semibold text-white tracking-tight mt-2">
+              {saudacao}
+            </h2>
+            <p className="text-sm text-slate-100 mt-2.5 leading-relaxed">{resumoDoMes}</p>
+            <div className="flex flex-wrap gap-2 mt-6">
+              <Link to="/agendamentos">
+                <Button><IconPlus size={16} /> Novo agendamento</Button>
+              </Link>
+              <Link to="/clientes">
+                <Button variant="hero"><IconPlus size={16} /> Novo cliente</Button>
+              </Link>
+            </div>
           </div>
         </div>
 

@@ -2,41 +2,54 @@
 // sem gradientes e sem animações.
 
 import { useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import { IconX } from './icons.jsx'
+import { tituloDaRota } from './navegacao.js'
 
 // Espaçamento padrão das páginas internas.
-// pb-28 no mobile reserva a altura da barra de navegação inferior fixa (56px +
-// safe area) para o último item da lista não ficar embaixo dela.
+// pb-28 reserva a altura da barra de navegação inferior fixa (56px + safe area)
+// para o último item da lista não ficar embaixo dela. O corte é `lg`, não `sm`:
+// a barra inferior vive até 1023px, que é onde a sidebar assume.
 export function Page({ children }) {
   return (
-    <div className="px-4 sm:px-6 py-6 sm:py-8 lg:px-10 pb-28 sm:pb-8 max-w-[1600px] mx-auto w-full">
+    <div className="px-4 sm:px-6 py-6 lg:px-8 lg:py-8 pb-28 lg:pb-8 max-w-[1600px] mx-auto w-full">
       {children}
     </div>
   )
 }
 
+// O nome da tela agora vive na topbar. Repetir "Serviços" na topbar e de novo
+// como h2 logo abaixo é ruído puro — então o h2 só aparece quando diz algo
+// diferente do que a topbar já disse (ex.: o nome do cliente em ClienteDetalhe).
+// O subtítulo e a ação continuam sempre, porque explicam e não repetem.
 export function PageTitle({ children, subtitle, action }) {
+  const { pathname } = useLocation()
+  const repeteTopbar =
+    typeof children === 'string' && children.trim() === tituloDaRota(pathname)
+
   return (
-    <div className="flex flex-wrap items-start justify-between gap-4 mb-8">
+    <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
       <div>
-        <h2 className="text-2xl font-bold tracking-tight text-slate-900">{children}</h2>
-        {subtitle && <p className="text-sm text-slate-500 mt-1">{subtitle}</p>}
+        {!repeteTopbar && (
+          <h2 className="text-xl lg:text-2xl font-semibold tracking-tight text-slate-900">{children}</h2>
+        )}
+        {subtitle && <p className="text-sm text-slate-500">{subtitle}</p>}
       </div>
       {action}
     </div>
   )
 }
 
-export function Card({ title, action, children, className = '' }) {
+export function Card({ title, action, children, className = '', ...props }) {
   return (
-    <section className={`bg-white rounded-xl border border-slate-200 ${className}`}>
+    <section className={`bg-white rounded-xl border border-slate-200 ${className}`} {...props}>
       {(title || action) && (
-        <header className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-slate-100">
-          <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+        <header className="flex items-center justify-between gap-3 px-5 pt-5 pb-4">
+          <h3 className="text-base font-medium text-slate-900">{title}</h3>
           {action}
         </header>
       )}
-      <div className="px-5 py-4">{children}</div>
+      <div className="px-5 pb-5 pt-0 [&:first-child]:pt-5">{children}</div>
     </section>
   )
 }
@@ -71,11 +84,15 @@ export function Field({ label, children }) {
   )
 }
 
+// Campo preenchido e sem borda, como no template (bg-input + border-none): o
+// contraste com o branco do card já delimita o campo, e sem a borda a tela fica
+// visivelmente mais calma num formulário de 40 campos.
+//
 // text-base (16px) no mobile é obrigatório: abaixo disso o Safari do iPhone dá
 // zoom automático ao focar o campo e desloca o layout inteiro. No desktop volta
 // para 14px. O py maior no mobile leva o campo aos 44px mínimos de toque.
 export const inputCls =
-  'w-full rounded-lg border border-slate-300 px-3 py-2.5 sm:py-2 text-base sm:text-sm bg-white placeholder:text-slate-400 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100'
+  'w-full rounded-lg border border-transparent bg-slate-50 px-3 py-2.5 sm:py-2 text-base sm:text-sm text-slate-900 placeholder:text-slate-500 focus:outline-none focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100'
 
 export function Badge({ children, color = 'slate' }) {
   const colors = {

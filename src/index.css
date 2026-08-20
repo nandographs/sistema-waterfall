@@ -1,5 +1,22 @@
 @import "tailwindcss";
 
+/* ============================================================================
+   Paleta — linguagem visual do template "library-dashboard"
+   ============================================================================
+   O sistema inteiro já usa a escala `slate` de forma consistente (slate-900
+   para texto, slate-500 para apoio, slate-200 para borda, slate-50 para fundo).
+   Em vez de reescrever centenas de classes em 17 arquivos, a escala é
+   REDEFINIDA aqui com os valores do template. Uma mudança, todas as telas.
+
+   Do template vieram: o navy do texto (#0a1b39 — bem mais frio e profundo que
+   o slate original), os cinzas neutros (#858585, #ededed, #f8f8f8) e o coral
+   (#ff5150) no lugar do vermelho.
+
+   O que NÃO veio: a cor primária. A logo da Waterfall é azul; o coral do
+   template brigaria com ela em toda tela. O azul #009ace continua sendo a ação;
+   o coral assumiu o papel de alerta e destrutivo, onde a energia dele rende.
+   ========================================================================== */
+
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
 
@@ -10,6 +27,31 @@
   --color-blue-500: #00ace6;
   --color-blue-600: #009ace;
   --color-blue-700: #007ea8;
+
+  /* Neutros do template. slate-900 é o foreground; slate-500 o muted-foreground;
+     slate-200 a borda; slate-50 o muted. */
+  --color-slate-50: #f8f8f8;
+  --color-slate-100: #f2f2f2;
+  --color-slate-200: #ededed;
+  --color-slate-300: #e4e4e4;
+  --color-slate-400: #a3a3a3;
+  --color-slate-500: #858585;
+  --color-slate-600: #5c6478;
+  --color-slate-700: #485066;
+  --color-slate-800: #242424;
+  --color-slate-900: #0a1b39;
+
+  /* Coral do template no lugar do vermelho — vencido, atrasado, excluir */
+  --color-red-50: #fff2f2;
+  --color-red-100: #ffe1e1;
+  --color-red-200: #ffc9c9;
+  --color-red-500: #ff5150;
+  --color-red-600: #ff5150;
+  --color-red-700: #e63b3a;
+
+  /* Superfície azulada do template (--accent: #edf3fc), usada no estado ativo
+     da sidebar e em destaques suaves. */
+  --color-accent-suave: #edf3fc;
 }
 
 body {
@@ -19,4 +61,15 @@ body {
 /* Valores monetários e datas alinham melhor com algarismos tabulares */
 .tnum {
   font-variant-numeric: tabular-nums;
+}
+
+/* A sidebar rola sem barra visível, como no template. Restrito a ela de
+   propósito: esconder a barra de rolagem da página inteira tira do usuário a
+   noção de quanto conteúdo existe. */
+.sem-barra {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.sem-barra::-webkit-scrollbar {
+  display: none;
 }
