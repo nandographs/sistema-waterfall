@@ -1,8 +1,11 @@
 node_modules
 dist
-.env
-.env.local
-.env.*.local
 .vercel
 .DS_Store
 *.log
+
+# Variáveis de ambiente: bloqueia TODO .env, com exceção do exemplo sem valores.
+# O padrão amplo evita que um .env.production ou .env.staging escape por engano.
+.env
+.env.*
+!.env.example
