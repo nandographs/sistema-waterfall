@@ -4,7 +4,7 @@ import {
   clientes, produtos, equipamentos, vendas, lancamentos, agendamentos,
   salvarVenda, darBaixa, excluirVenda, itensDaVenda, agendarProximaTroca,
   definirFotoPerfil, removerFotoPerfil,
-  proximoPasso, linhaDoTempoDoCliente, oportunidadesDoCliente,
+  proximoPasso, linhaDoTempoDoCliente, oportunidadesDoCliente, conversaDoCliente,
   proximaTroca, formatBRL, formatData, enderecoCompleto,
   FORMAS_PAGAMENTO, STATUS_VENDA, RESULTADOS_ATIVIDADE, ETAPAS_FUNIL, ETAPAS_FECHADAS,
 } from '../data/repository.js'
@@ -39,6 +39,10 @@ export default function ClienteDetalhe() {
   const refresh = () => forceRender((n) => n + 1)
 
   const cliente = clientes.get(id)
+  // A foto que ELE usa no WhatsApp — só entra na ficha quando não há foto de
+  // cadastro. Não é `fotoDoContato` de propósito: ali a do cadastro vence, e
+  // aqui a do cadastro já é o `url` do componente logo abaixo.
+  const avatarWhatsapp = conversaDoCliente(id)?.avatarUrl || ''
   const [editando, setEditando] = useState(null)
   const [vendaForm, setVendaForm] = useState(null)
   const [osAgendamento, setOsAgendamento] = useState(null)
@@ -208,15 +212,30 @@ export default function ClienteDetalhe() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="space-y-6">
           <Card title="Dados do cliente">
-            <div className="flex justify-center mb-5">
+            <div className="flex flex-col items-center mb-5">
               <FotoUnica
                 url={cliente.fotoPerfilUrl}
                 onEnviar={async (arquivo) => { await definirFotoPerfil(id, arquivo); refresh() }}
                 onRemover={async () => { await removerFotoPerfil(id); refresh() }}
                 formato="circulo"
                 tamanho={104}
-                placeholder={<IconUser size={48} />}
+                // A foto do WhatsApp entra como PLACEHOLDER, e não como `url`,
+                // e a diferença importa: `url` é a foto DESTA ficha — a que o
+                // botão de câmera troca e o "Remover foto" apaga. A do WhatsApp
+                // não é sua para apagar; ela só ocupa o vazio até você tirar uma.
+                // Passando por aqui, o "Remover foto" continua escondido
+                // enquanto não existir foto de verdade, que é o correto.
+                placeholder={
+                  avatarWhatsapp
+                    ? <img src={avatarWhatsapp} alt="" className="w-full h-full object-cover" />
+                    : <IconUser size={48} />
+                }
               />
+              {/* Sem esta linha a foto do WhatsApp passa por foto do cadastro, e
+                  aí ninguém entende por que ela mudou sozinha um dia. */}
+              {!cliente.fotoPerfilUrl && avatarWhatsapp && (
+                <span className="mt-2 text-[11px] text-slate-500">Foto do WhatsApp</span>
+              )}
             </div>
             <dl className="space-y-2 text-sm">
               <div><dt className="text-xs text-slate-500">Telefone</dt><dd>{cliente.telefone || '—'}</dd></div>

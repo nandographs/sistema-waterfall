@@ -71,6 +71,17 @@ export function variantesBR(e164: string): string[] {
   return [...variantes]
 }
 
+// O JID que a Evolution espera. Gêmeo do `numeroParaJid` de src/lib/telefone.js.
+//
+// NÃO É COSMÉTICO. Medido contra a instância: `POST /user/avatar` com o número
+// cru ("5547991868646") não responde NUNCA — a requisição fica pendurada até
+// estourar o tempo, sem erro. Com o JID, a mesma chamada volta em 0,3 s. A
+// resolução interna do número é o que trava. Ver o cabeçalho de avatar.ts.
+export function numeroParaJid(telefone: unknown): string {
+  const e164 = paraE164(telefone)
+  return e164 ? `${e164}@s.whatsapp.net` : ''
+}
+
 export function mesmoNumero(a: unknown, b: unknown): boolean {
   const um = paraE164(a)
   const outro = paraE164(b)

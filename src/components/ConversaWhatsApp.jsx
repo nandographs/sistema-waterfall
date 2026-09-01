@@ -1,56 +1,27 @@
 import { useEffect, useRef, useState } from 'react'
-import { clientes } from '../data/repository.js'
 import { MODELOS_MENSAGEM, aplicarModelo } from '../data/mensagens.js'
 import { formatHora, rotuloRelativo, diaCurto } from '../lib/datas.js'
 import { usuarioAtual } from '../lib/auth.js'
 import { Button, inputCls } from './ui.jsx'
-import { IconMais, IconCheck, IconFileText, IconUser } from './icons.jsx'
+import { AvatarContato } from './Avatar.jsx'
+import { IconMais, IconCheck, IconFileText } from './icons.jsx'
 
-// Iniciais do nome: "Marina Alves" -> "MA". Duas letras no máximo, porque três
-// já não se lê num círculo de 40px.
-function iniciais(nome) {
-  const partes = String(nome || '').trim().split(/\s+/).filter(Boolean)
-  if (!partes.length) return ''
-  const primeira = partes[0][0]
-  const ultima = partes.length > 1 ? partes[partes.length - 1][0] : ''
-  return (primeira + ultima).toUpperCase()
-}
-
-// Foto do cliente na conversa. A foto de perfil já vem no cache com a URL
-// assinada (ver carregarDados), então é a mesma imagem da ficha — sem download
-// novo e sem componente próprio de imagem.
+// Foto do contato na conversa. O desenho é o `AvatarContato` (compartilhado com
+// os cartões do funil e a ficha do cliente); aqui só traduzimos uma conversa
+// para o que ele espera.
 //
-// Sem foto, as iniciais; sem nome (número que não está no cadastro), o ícone
-// genérico — que aqui diz algo: "não sei quem é".
+// Qual foto aparece — a do cadastro, senão a do perfil do WhatsApp — é decisão
+// do `fotoDoContato`, no repositório. As duas já vêm no cache com a URL
+// assinada (ver carregarDados): nenhum download novo acontece por aqui.
 export function AvatarConversa({ conversa, size = 40 }) {
-  const cliente = conversa.clienteId ? clientes.get(conversa.clienteId) : null
-  const nome = conversa.clienteNome || conversa.nomeWhatsapp || ''
-  const letras = iniciais(nome)
-  const estilo = { width: size, height: size }
-
-  if (cliente?.fotoPerfilUrl) {
-    return (
-      <img
-        src={cliente.fotoPerfilUrl}
-        alt=""
-        style={estilo}
-        className="shrink-0 rounded-full object-cover border border-slate-200 bg-slate-100"
-      />
-    )
-  }
-
   return (
-    <span
-      style={estilo}
-      aria-hidden="true"
-      className="shrink-0 inline-flex items-center justify-center rounded-full bg-slate-100 border border-slate-200 text-slate-500 font-semibold"
-    >
-      {letras ? (
-        <span style={{ fontSize: Math.round(size * 0.36) }}>{letras}</span>
-      ) : (
-        <IconUser size={Math.round(size * 0.45)} />
-      )}
-    </span>
+    <AvatarContato
+      clienteId={conversa.clienteId}
+      conversaId={conversa.id}
+      telefone={conversa.numero}
+      nome={conversa.clienteNome || conversa.nomeWhatsapp || ''}
+      size={size}
+    />
   )
 }
 

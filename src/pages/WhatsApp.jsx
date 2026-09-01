@@ -5,7 +5,7 @@ import { formatHora, rotuloRelativo, diaCurto } from '../lib/datas.js'
 import {
   clientes, conversasRecentes, carregarMensagens, mensagensDaConversa,
   marcarConversaLida, enviarMensagemWhatsapp, assinarWhatsapp, statusWhatsapp,
-  vincularConversaACliente, oportunidadesDoCliente,
+  vincularConversaACliente, oportunidadesDoCliente, atualizarAvatares,
   ETAPAS_FUNIL, ETAPAS_ABERTAS,
 } from '../data/repository.js'
 import ConversaWhatsApp, { CabecalhoConversa, AvatarConversa } from '../components/ConversaWhatsApp.jsx'
@@ -63,6 +63,21 @@ export default function WhatsApp() {
       // aconteceu quando faltava CORS nas funções: o número estava conectado e
       // a tela dizia o contrário.
       .catch((falha) => setConexao({ indisponivel: true, erro: falha?.message || String(falha) }))
+  }, [])
+
+  // As fotos de perfil dos contatos, também uma vez ao abrir.
+  //
+  // Aqui e não na carga do sistema por dois motivos: é a tela onde as fotos
+  // aparecem, e a busca é lenta de propósito — uma conversa por vez, para não
+  // afogar a instância (ver _compartilhado/avatar.ts). Ninguém espera por ela:
+  // a lista já desenhou com as iniciais, e as fotos entram quando chegam.
+  //
+  // Cada chamada cuida de um lote; as conversas restantes ficam para a próxima
+  // vez que você abrir a tela. A fila anda sozinha ao longo dos dias.
+  useEffect(() => {
+    let ativo = true
+    atualizarAvatares().then((quantas) => { if (ativo && quantas) recarregar() })
+    return () => { ativo = false }
   }, [])
 
   // Abrir uma conversa é lê-la: busca o histórico e zera o contador.

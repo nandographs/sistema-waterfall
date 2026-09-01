@@ -136,6 +136,10 @@ Pontos-chave:
   a identidade, não o cliente — mensagem chega de quem quiser); `mensagens` tem
   `wa_message_id` **unique**, que é o que torna o webhook idempotente. Quem
   escreve nelas é a Edge Function, não o navegador. Ver `sql/010` e a seção 6.
+  As colunas `avatar_*` (migração 012) guardam a foto de perfil do WhatsApp do
+  contato: o **caminho** no bucket privado, não a URL — a que o WhatsApp entrega
+  expira em horas. Quem decide qual foto uma tela mostra é `fotoDoContato()`, no
+  repositório: a do cadastro ganha, a do WhatsApp preenche o vazio.
 
 **Rastreabilidade ("de onde veio isso?")**: agendamentos, vendas e oportunidades
 guardam `origem_atividade_id`, formando uma corrente navegável — ver
@@ -145,7 +149,7 @@ corrente completa é
 
 ### Migrações (`sql/`)
 
-Numeradas 001→010, **idempotentes**, aplicadas manualmente no SQL Editor do
+Numeradas 001→012, **idempotentes**, aplicadas manualmente no SQL Editor do
 Supabase. Não há ferramenta de migração automática. Os arquivos são fortemente
 comentados e explicam a intenção de cada decisão.
 

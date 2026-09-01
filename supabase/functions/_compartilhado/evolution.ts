@@ -25,19 +25,51 @@ export function configuracaoAusente(): string | null {
 
 type Resposta = { ok: boolean; status: number; corpo: any }
 
+// Tempo limite de cada chamada.
+//
+// EXISTE POR CAUSA DE UM CASO REAL, e não por precaução genérica: pedir a foto
+// de perfil com o número no formato errado faz a Evolution NUNCA responder —
+// não devolve erro, apenas não volta. Sem este limite, a Edge Function ficava
+// pendurada até a plataforma matá-la, sem gravar nada e sem dizer por quê.
+//
+// Um `fetch` sem timeout é uma promessa que pode nunca se resolver. Num
+// servidor que responde em 0,3 s quando está bem, 20 s já é generoso: se
+// passou disso, não é lentidão, é travamento.
+const LIMITE_MS = 20_000
+
 export async function chamarEvolution(
   caminho: string,
-  init: { metodo?: string; corpo?: unknown } = {},
+  init: { metodo?: string; corpo?: unknown; limiteMs?: number } = {},
 ): Promise<Resposta> {
   const url = `${URL_BASE.replace(/\/+$/, '')}${caminho}`
-  const resposta = await fetch(url, {
-    method: init.metodo ?? 'GET',
-    headers: {
-      'apikey': TOKEN,
-      'Content-Type': 'application/json',
-    },
-    body: init.corpo === undefined ? undefined : JSON.stringify(init.corpo),
-  })
+
+  const cancelador = new AbortController()
+  const alarme = setTimeout(() => cancelador.abort(), init.limiteMs ?? LIMITE_MS)
+
+  let resposta: Response
+  try {
+    resposta = await fetch(url, {
+      method: init.metodo ?? 'GET',
+      headers: {
+        'apikey': TOKEN,
+        'Content-Type': 'application/json',
+      },
+      body: init.corpo === undefined ? undefined : JSON.stringify(init.corpo),
+      signal: cancelador.signal,
+    })
+  } catch (falha) {
+    // 504 (tempo esgotado) é a tradução honesta de "não respondeu": quem chama
+    // trata como erro de infraestrutura e tenta de novo depois, em vez de
+    // concluir que o contato não tem foto.
+    const expirou = (falha as Error)?.name === 'AbortError'
+    return {
+      ok: false,
+      status: expirou ? 504 : 0,
+      corpo: { error: expirou ? `sem resposta em ${(init.limiteMs ?? LIMITE_MS) / 1000}s` : String(falha) },
+    }
+  } finally {
+    clearTimeout(alarme)
+  }
 
   // A Evolution devolve JSON em tudo, mas um proxy no meio do caminho pode
   // devolver HTML numa falha — ler como texto primeiro evita que o erro real

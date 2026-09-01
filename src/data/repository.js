@@ -5,9 +5,9 @@
 // assíncronos (fazem requisição de rede) e já atualizam o cache ao terminar.
 
 import { supabase } from '../lib/supabaseClient.js'
-import { BUCKET, comprimir, assinarUrl, assinarVarias } from '../lib/imagem.js'
+import { BUCKET, BUCKET_WHATSAPP, comprimir, assinarUrl, assinarVarias } from '../lib/imagem.js'
 import { somarDias, chaveOrdem } from '../lib/datas.js'
-import { formatarE164 } from '../lib/telefone.js'
+import { formatarE164, mesmoNumero } from '../lib/telefone.js'
 import { usuarioAtual } from '../lib/auth.js'
 import { somarMeses, hojeISO, planoDeParcelas, totaisDaVenda } from './financeiro.js'
 
@@ -131,6 +131,16 @@ export async function carregarDados() {
   cache.clientes = cache.clientes.map((c) => ({ ...c, fotoPerfilUrl: urlsClientes[c.fotoPerfil] || '' }))
   const urlsProdutos = await assinarVarias(cache.produtos.map((p) => p.foto))
   cache.produtos = cache.produtos.map((p) => ({ ...p, fotoUrl: urlsProdutos[p.foto] || '' }))
+
+  // A foto de perfil do WhatsApp do contato (migração 012). Mesmo tratamento
+  // das de cima, com uma diferença: outro bucket, porque é mídia que veio de
+  // fora. Uma requisição só para todas as conversas.
+  await assinarAvataresDasConversas()
+}
+
+async function assinarAvataresDasConversas() {
+  const urls = await assinarVarias(cache.conversas.map((c) => c.avatarPath), BUCKET_WHATSAPP)
+  cache.conversas = cache.conversas.map((c) => ({ ...c, avatarUrl: urls[c.avatarPath] || '' }))
 }
 
 // Descarta do cache em memória o que o banco já apagou por cascata (ex.: os
@@ -587,6 +597,73 @@ export function conversaDoCliente(clienteId) {
   return conversas.list().filter((c) => c.clienteId === clienteId).sort(ordenarPorRecente)[0] ?? null
 }
 
+// A conversa de um telefone solto — o lead do funil, que ainda não tem cadastro
+// e por isso não tem `clienteId` para procurar.
+export function conversaDoNumero(telefone) {
+  if (!telefone) return null
+  return conversas.list().find((c) => mesmoNumero(c.numero, telefone)) ?? null
+}
+
+// ---- Qual foto aparece ----
+//
+// O ÚNICO lugar do sistema que responde "que imagem eu mostro desta pessoa?".
+// Existe porque a resposta agora tem duas fontes, e espalhar a regra por cinco
+// telas é como elas passam a discordar entre si.
+//
+// A ORDEM, e o motivo dela:
+//
+//   1. A foto do CADASTRO ganha. Foi você quem tirou, na ficha, de propósito —
+//      normalmente é o rosto do cliente ou o resultado de um trabalho. A do
+//      WhatsApp é a que a pessoa escolheu para o mundo, e às vezes é uma
+//      paisagem, o cachorro dela ou nada.
+//
+//   2. Depois, a do WHATSAPP. É o que preenche o vazio: cliente sem foto na
+//      ficha e, principalmente, o LEAD — o número que escreveu ontem e ainda
+//      não é ninguém no cadastro. É aí que essa foto muda mais o dia a dia:
+//      dá rosto a quem, até então, era só um número na coluna do funil.
+//
+//   3. Nada. A tela decide o que fazer (iniciais, ícone) — não é assunto daqui.
+export function fotoDoContato({ clienteId, conversaId, telefone } = {}) {
+  const cliente = clienteId ? clientes.get(clienteId) : null
+  if (cliente?.fotoPerfilUrl) return cliente.fotoPerfilUrl
+
+  const conversa =
+    (conversaId ? conversas.get(conversaId) : null) ??
+    conversaDoCliente(clienteId) ??
+    conversaDoNumero(telefone || cliente?.telefone)
+
+  return conversa?.avatarUrl || ''
+}
+
+// Pede à Edge Function que confira as fotos que faltam ou envelheceram.
+//
+// SILENCIOSA POR PROJETO: é enfeite. Se a Evolution estiver fora do ar, a tela
+// continua com as iniciais e ninguém recebe um erro que não pode resolver. O
+// retorno diz se algo mudou, para a tela só se redesenhar quando valeu a pena.
+export async function atualizarAvatares({ conversaIds, forcar = false } = {}) {
+  try {
+    const { data, error } = await supabase.functions.invoke('wa-avatar', {
+      body: { conversaIds, forcar },
+    })
+    if (error || !data?.atualizadas) return 0
+
+    // As conversas mudaram no banco; o cache precisa das linhas novas e de URLs
+    // assinadas para os caminhos novos.
+    const { data: linhas } = await supabase.from('conversas').select('*')
+    if (linhas) {
+      const anteriores = new Map(cache.conversas.map((c) => [c.id, c]))
+      cache.conversas = linhas.map((linha) => {
+        const item = paraApp(linha)
+        return { ...anteriores.get(item.id), ...item }
+      })
+      await assinarAvataresDasConversas()
+    }
+    return data.atualizadas
+  } catch {
+    return 0
+  }
+}
+
 // Quantas mensagens novas há de um cliente — o número do contador no cartão do
 // CRM. Cliente sem conversa devolve 0, e não null: a tela não precisa saber se
 // esse cliente já conversou algum dia.
@@ -681,6 +758,15 @@ async function recarregarConversa(conversaId) {
   const { data, error } = await supabase.from('conversas').select('*').eq('id', conversaId).maybeSingle()
   if (error || !data) return null
   const item = paraApp(data)
+
+  // `avatarUrl` não vem do banco: é assinada no carregamento. Sem reassinar
+  // aqui, toda conversa recarregada — e o Realtime recarrega a cada mensagem —
+  // perderia a foto e voltaria para as iniciais.
+  const anterior = cache.conversas.find((c) => c.id === conversaId)
+  item.avatarUrl = item.avatarPath === anterior?.avatarPath
+    ? (anterior?.avatarUrl || '')
+    : await assinarUrl(item.avatarPath, BUCKET_WHATSAPP).catch(() => '')
+
   const existe = cache.conversas.some((c) => c.id === conversaId)
   cache.conversas = existe
     ? cache.conversas.map((c) => (c.id === conversaId ? item : c))

@@ -24,3 +24,9 @@ verify_jwt = true
 
 [functions.wa-status]
 verify_jwt = true
+
+# Fotos de perfil dos contatos. Exige login pelo mesmo motivo de `wa-enviar`:
+# perguntar "qual é a foto deste número?" é usar a instância, e a instância é o
+# WhatsApp da empresa.
+[functions.wa-avatar]
+verify_jwt = true

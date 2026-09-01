@@ -341,8 +341,14 @@ borda é outro programa, e Deno não aceita outra coisa.
 | QR | `GET /instance/qr` | `GET /instance/connect/{instancia}` |
 | Webhook | **não tem endpoint próprio**: a URL é definida em `POST /instance/connect` (`webhookUrl` + `subscribe`), uma por instância | `POST /webhook/set/{instancia}` |
 
+Rota descoberta depois, na mesma fonte, para a foto de perfil do contato:
+`POST /user/avatar` com `{ number, preview }`. A resposta é um mapa solto
+(`gin.H`), e o nome do campo da URL já mudou entre versões — por isso
+`_compartilhado/avatar.ts` lê vários nomes possíveis em vez de um só.
+
 | Função | `verify_jwt` | O que faz |
 |---|---|---|
+| `wa-avatar` | **true** | Confere as fotos de perfil que faltam ou passaram de 7 dias, em fila (uma por vez: a Evolution fala com um único aparelho pareado, e uma rajada de pedidos é como se derruba a instância). Baixa a imagem e guarda no bucket privado — a URL do `pps.whatsapp.net` expira em horas, então guardá-la daria uma foto boa hoje e quebrada amanhã. O caminho leva uma impressão digital do conteúdo, para foto trocada virar URL nova e não ficar presa no cache do navegador. |
 | `wa-enviar` | **true** | Recebe `{ conversaId ou clienteId, texto, oportunidadeId }`, normaliza o número, chama `POST /send/text`, grava a mensagem com o id retornado. Erro da Evolution vira mensagem `falhou` com o motivo — nunca some silenciosamente. |
 | `wa-webhook` | **false** | Recebe `messages.upsert`, `messages.update` (status de entrega) e `connection.update`. Valida um segredo próprio, faz upsert da conversa, insere a mensagem, casa o número com um cliente, atualiza `nao_lidas`. |
 | `wa-status` | **true** | `GET /instance/connectionState/waterfall` e `GET /instance/connect/waterfall` (QR em base64), para a tela de conexão. |

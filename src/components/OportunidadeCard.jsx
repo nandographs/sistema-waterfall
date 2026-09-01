@@ -6,6 +6,7 @@ import {
 } from '../data/repository.js'
 import { hojeISO } from '../lib/datas.js'
 import { Badge } from './ui.jsx'
+import { AvatarContato } from './Avatar.jsx'
 import { IconMais, IconAlert, IconArrastar, IconMessage } from './icons.jsx'
 
 // Cartão do funil. Mostra o mínimo para decidir o que fazer com a negociação
@@ -53,6 +54,19 @@ export default function OportunidadeCard({
       } ${arrastavel ? 'lg:cursor-grab lg:active:cursor-grabbing' : ''}`}
     >
       <div className="flex items-start justify-between gap-2">
+        {/* O rosto da pessoa, antes do nome dela.
+            Quem mais ganha com isto é o LEAD: até aqui ele era um número numa
+            coluna, e agora tem a cara que ele mesmo escolheu no WhatsApp —
+            porque lead não tem foto de cadastro para mostrar, por definição.
+            Quem decide qual foto aparece é o repositório (ver fotoDoContato). */}
+        <AvatarContato
+          clienteId={oportunidade.clienteId}
+          conversaId={oportunidade.conversaId}
+          telefone={contato.telefone}
+          nome={contato.nome}
+          size={32}
+          className="mt-0.5"
+        />
         <button
           type="button"
           onClick={onAbrir}

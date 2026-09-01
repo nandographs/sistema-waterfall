@@ -31,6 +31,7 @@
 
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { jidParaNumero, ehGrupo, ehStatus, mesmoNumero } from '../_compartilhado/telefone.ts'
+import { sincronizarAvatar } from '../_compartilhado/avatar.ts'
 
 const TOKEN_ESPERADO = Deno.env.get('WEBHOOK_TOKEN') ?? ''
 const INSTANCIA = Deno.env.get('EVOLUTION_INSTANCIA') ?? 'waterfall'
@@ -221,6 +222,22 @@ Deno.serve(async (req) => {
     //     quem está falando e por quê.
     if (conversaNova && !clienteId && !daGente) {
       await abrirLead({ conversaId, numero, nome: info.PushName ?? '', texto })
+    }
+
+    // A foto de perfil do contato, na primeira mensagem dele.
+    //
+    // FORA DO CAMINHO DA RESPOSTA, de propósito. Buscar a foto é uma ida à
+    // Evolution mais um download de imagem — meio segundo, às vezes mais. A
+    // regra 1 desta função é responder 200 rápido; segurar o webhook por causa
+    // de um enfeite de tela é o jeito de encher a fila de retentativa da
+    // Evolution. `waitUntil` mantém a tarefa viva depois do 200.
+    //
+    // Se falhar, ninguém fica sabendo e está tudo bem: a conversa aparece com
+    // as iniciais, e a varredura da função `wa-avatar` tenta de novo depois.
+    if (conversaNova) {
+      const tarefa = sincronizarAvatar({ id: conversaId, numero })
+      // @ts-ignore — EdgeRuntime existe no Supabase, não nos tipos do Deno.
+      if (typeof EdgeRuntime !== 'undefined') EdgeRuntime.waitUntil(tarefa)
     }
 
     // 3. A mensagem. O unique do wa_message_id é o que segura a reentrega.
