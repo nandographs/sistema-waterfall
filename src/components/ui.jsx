@@ -164,6 +164,12 @@ export function Modal({ title, open, onClose, children, size = 'md', fecharNoFun
   const painelRef = useRef(null)
   const tituloId = useId()
 
+  // onClose costuma ser uma arrow criada no render do pai; guardar em ref
+  // mantem o efeito preso so ao `open`. Sem isso, cada tecla digitada
+  // re-rodava o efeito e o foco voltava pro X do cabecalho.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+
   // Esc fecha, e o fundo trava de rolar enquanto o modal está aberto — sem isso
   // o scroll do modal "vaza" para a página atrás no iOS.
   useEffect(() => {
@@ -175,7 +181,7 @@ export function Modal({ title, open, onClose, children, size = 'md', fecharNoFun
     function aoTeclar(e) {
       if (e.key === 'Escape') {
         e.preventDefault()
-        onClose()
+        onCloseRef.current()
       }
       if (e.key === 'Tab' && painelRef.current) {
         const focaveis = [...painelRef.current.querySelectorAll(seletorFocavel)]
@@ -199,7 +205,7 @@ export function Modal({ title, open, onClose, children, size = 'md', fecharNoFun
       document.body.style.overflow = overflowAnterior
       focoAnterior?.focus?.()
     }
-  }, [open, onClose])
+  }, [open])
 
   if (!open) return null
   const width = size === 'wide' ? 'max-w-3xl' : 'max-w-lg'
