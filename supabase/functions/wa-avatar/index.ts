@@ -19,7 +19,17 @@ import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { configuracaoAusente, json, erro, preflight } from '../_compartilhado/evolution.ts'
 import { sincronizarVarios, VALIDADE_DIAS } from '../_compartilhado/avatar.ts'
 
-const TETO = 40
+// Quantas conversas por chamada.
+//
+// Era 40, e 40 estourava: a Edge Function respondeu 546 (limite de recursos) na
+// primeira varredura, quando havia fila acumulada. Cada foto é uma ida à
+// Evolution mais o download da imagem, em fila — o tempo soma rápido.
+//
+// 15 cabe com folga, e não custa nada: a tela pede de novo na próxima abertura,
+// e a fila anda sozinha ao longo dos dias. Lote menor que termina vale mais do
+// que lote grande que morre no meio — quando a função é morta, o que já foi
+// gravado fica, mas o resto nem tentou.
+const TETO = 15
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,

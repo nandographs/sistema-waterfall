@@ -7,6 +7,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#08070d" />
     <title>Sistema Waterfall</title>
+    <!-- O arquivo mora em public/ e não na raiz: só o conteúdo de public/ é
+         copiado para dist/ no build. Na raiz ele funcionaria no `npm run dev` e
+         sumiria em produção — o tipo de erro que ninguém vê até publicar. -->
+    <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

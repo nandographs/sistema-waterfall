@@ -10,7 +10,8 @@ import {
 } from '../data/repository.js'
 import { hojeISO, formatHora, diaCurto } from '../lib/datas.js'
 import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge, notificar } from '../components/ui.jsx'
-import { IconPlus, IconFileText, IconChevronLeft, IconUser, IconTrash, IconEye, IconAlert } from '../components/icons.jsx'
+import { IconPlus, IconFileText, IconChevronLeft, IconUser, IconTrash, IconEye, IconAlert, IconMessage } from '../components/icons.jsx'
+import { paraE164 } from '../lib/telefone.js'
 import { IconeDoEvento, estiloDoEvento } from '../components/evento.jsx'
 import AtividadeModal, { atividadeNova } from '../components/AtividadeModal.jsx'
 import OrdemServicoModal from '../components/OrdemServicoModal.jsx'
@@ -43,6 +44,10 @@ export default function ClienteDetalhe() {
   // cadastro. Não é `fotoDoContato` de propósito: ali a do cadastro vence, e
   // aqui a do cadastro já é o `url` do componente logo abaixo.
   const avatarWhatsapp = conversaDoCliente(id)?.avatarUrl || ''
+  // `paraE164` e não `cliente.telefone`: telefone preenchido com lixo ("a
+  // combinar", um ramal) não dá um número para o qual se possa escrever, e um
+  // botão que leva a lugar nenhum é pior que botão nenhum.
+  const temTelefone = !!paraE164(cliente?.telefone)
   const [editando, setEditando] = useState(null)
   const [vendaForm, setVendaForm] = useState(null)
   const [osAgendamento, setOsAgendamento] = useState(null)
@@ -237,6 +242,25 @@ export default function ClienteDetalhe() {
                 <span className="mt-2 text-[11px] text-slate-500">Foto do WhatsApp</span>
               )}
             </div>
+
+            {/* Chamar no WhatsApp — só quando há telefone, porque sem número o
+                botão não teria para onde ir.
+                Ele NÃO manda mensagem: abre a conversa dentro do sistema, com o
+                campo pronto. O que se escreve para um cliente costuma depender
+                do que já foi dito, e disparar algo de dentro da ficha, sem ver o
+                histórico, é como se manda a mensagem errada.
+                A conversa não é criada agora: se você abrir e desistir, nada
+                fica para trás (ver o rascunho em WhatsApp.jsx). */}
+            {temTelefone && (
+              <Link
+                to={`/whatsapp?cliente=${id}`}
+                className="mb-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+              >
+                <IconMessage size={16} className="text-emerald-500" />
+                {conversaDoCliente(id) ? 'Abrir conversa no WhatsApp' : 'Chamar no WhatsApp'}
+              </Link>
+            )}
+
             <dl className="space-y-2 text-sm">
               <div><dt className="text-xs text-slate-500">Telefone</dt><dd>{cliente.telefone || '—'}</dd></div>
               <div><dt className="text-xs text-slate-500">E-mail</dt><dd>{cliente.email || '—'}</dd></div>

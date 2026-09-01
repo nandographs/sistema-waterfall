@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { MODELOS_MENSAGEM, aplicarModelo } from '../data/mensagens.js'
 import { formatHora, rotuloRelativo, diaCurto } from '../lib/datas.js'
 import { usuarioAtual } from '../lib/auth.js'
@@ -126,7 +127,14 @@ export default function ConversaWhatsApp({ conversa, onEnviar, aviso }) {
     <div className="flex flex-col h-full min-h-0">
       <div className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-4 py-4 space-y-2">
         {mensagens.length === 0 && (
-          <p className="text-sm text-slate-500 text-center py-10">Nenhuma mensagem nesta conversa.</p>
+          <p className="text-sm text-slate-500 text-center py-10">
+            {/* Conversa que ainda não existe no banco (veio da ficha do cliente)
+                não é o mesmo que conversa vazia — e dizer "nenhuma mensagem"
+                para as duas faria parecer que algo se perdeu. */}
+            {conversa?.rascunho
+              ? 'Vocês ainda não conversaram por aqui. Escreva a primeira mensagem.'
+              : 'Nenhuma mensagem nesta conversa.'}
+          </p>
         )}
         {mensagens.map((mensagem) => {
           const dia = String(mensagem.ocorridoEm).slice(0, 10)
@@ -195,8 +203,23 @@ export default function ConversaWhatsApp({ conversa, onEnviar, aviso }) {
 // Cabeçalho da conversa — quem é, o número e o vínculo com o cadastro. Número
 // sem cliente é o caso que precisa de ação, então ele aparece como convite para
 // vincular, e não como um erro.
-export function CabecalhoConversa({ conversa, onVoltar, acoes, onVincular }) {
+export function CabecalhoConversa({
+  conversa, onVoltar, acoes, onVincular, onCadastrar, onArquivar,
+}) {
   const identificado = !!conversa.clienteNome
+  const podeCadastrar = !conversa.clienteId && !!onCadastrar
+  const podeVincular = !conversa.clienteId && !!onVincular
+  const temMenu = podeCadastrar || podeVincular || !!onArquivar || !!conversa.clienteId
+
+  function fecharMenu(e) {
+    e.currentTarget.closest('details')?.removeAttribute('open')
+  }
+
+  // Mesma aparência do menu do cartão do funil — é o mesmo gesto, os três
+  // pontos, e ele não deve mudar de cara conforme a tela.
+  const itemMenu =
+    'flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-sm font-semibold text-slate-700 hover:bg-slate-200 cursor-pointer'
+
   return (
     <header className="shrink-0 flex items-center gap-3 border-b border-slate-200 px-3 sm:px-4 py-3">
       {onVoltar && (
@@ -232,9 +255,68 @@ export function CabecalhoConversa({ conversa, onVoltar, acoes, onVincular }) {
           Vincular a um cliente
         </button>
       )}
-      <span className="hidden sm:inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400">
-        <IconMais size={18} />
-      </span>
+      {/* Os três pontos. Até aqui eram um <span> sem clique — um botão que
+          parecia botão e não era, que é pior do que não existir.
+          Agora carregam o que se faz COM a conversa, e não dentro dela:
+          transformar o contato em cliente e tirar o fio da caixa de entrada.
+
+          E somem quando não há nada a fazer — é o caso da conversa aberta pela
+          ficha do cliente, que ainda não existe no banco: não dá para arquivar
+          nem cadastrar o que já é cliente. Menu vazio é a mesma armadilha do
+          <span> de antes. */}
+      {temMenu && (
+      <details className="relative shrink-0">
+        <summary
+          aria-label="Ações da conversa"
+          className="list-none inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 [&::-webkit-details-marker]:hidden"
+        >
+          <IconMais size={18} />
+        </summary>
+
+        <div className="absolute right-0 top-10 z-20 w-60 rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+          {/* O caminho de volta para a ficha. Atender pelo WhatsApp é metade da
+              informação: o que ele comprou, quando foi a última visita e quando
+              vence o refil estão na ficha, e ter que procurar o cliente pelo
+              nome no meio do atendimento é o tipo de atrito que faz ninguém
+              olhar. */}
+          {conversa.clienteId && (
+            <Link
+              to={`/clientes/${conversa.clienteId}`}
+              draggable={false}
+              className={itemMenu}
+              onClick={fecharMenu}
+            >
+              Abrir ficha do cliente
+            </Link>
+          )}
+
+          {/* Cadastrar e vincular só aparecem para quem não é cliente. Para
+              quem já é, seriam duas linhas mortas — e menu com opção inútil
+              ensina a não ler o menu. */}
+          {!conversa.clienteId && onCadastrar && (
+            <button type="button" className={itemMenu} onClick={(e) => { fecharMenu(e); onCadastrar() }}>
+              Cadastrar como cliente
+            </button>
+          )}
+          {!conversa.clienteId && onVincular && (
+            <button type="button" className={itemMenu} onClick={(e) => { fecharMenu(e); onVincular() }}>
+              Vincular a um cliente existente
+            </button>
+          )}
+
+          {onArquivar && (
+            <button
+              type="button"
+              // A linha separadora só quando há algo acima para separar.
+              className={`${itemMenu} ${podeCadastrar || podeVincular || conversa.clienteId ? 'border-t border-slate-200 mt-1 pt-1' : ''}`}
+              onClick={(e) => { fecharMenu(e); onArquivar() }}
+            >
+              {conversa.arquivada ? 'Tirar do arquivo' : 'Arquivar conversa'}
+            </button>
+          )}
+        </div>
+      </details>
+      )}
     </header>
   )
 }

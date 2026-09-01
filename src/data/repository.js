@@ -713,6 +713,156 @@ export async function vincularConversaACliente(conversaId, clienteId) {
   return conversas.update(conversaId, { clienteId })
 }
 
+// ---- Anotações da conversa ----
+//
+// São `atividades` com `tipo = 'nota'` — não uma tabela nova. O motivo está na
+// migração 014: a anotação já existia no sistema e já aparecia na ficha do
+// cliente; o que faltava era ela saber de qual conversa e de qual negociação
+// estava falando.
+//
+// A consequência é o que torna isto útil no balcão: a nota escrita aqui é o
+// MESMO registro que o cartão do CRM mostra. Não há cópia para sair de sincronia
+// — é uma linha só, lida de três lugares.
+
+// A negociação a que uma conversa pertence, para pendurar a nota nela.
+// Prioriza a aberta: o cartão que está sendo trabalhado é o que outro atendente
+// vai abrir. Sem nenhuma aberta, vale a mais recente — melhor a nota aparecer
+// num cartão fechado do que em lugar nenhum.
+function oportunidadeDaConversa(conversaId, clienteId) {
+  const daConversa = oportunidades.list().filter((o) => o.conversaId === conversaId)
+  const doCliente = clienteId ? oportunidades.list().filter((o) => o.clienteId === clienteId) : []
+  const candidatas = [...new Set([...daConversa, ...doCliente])]
+  return (
+    candidatas.find((o) => ETAPAS_ABERTAS.includes(o.etapa)) ??
+    candidatas.sort((a, b) => String(b.criadoEm || '').localeCompare(String(a.criadoEm || '')))[0] ??
+    null
+  )
+}
+
+export function notasDaConversa(conversaId) {
+  if (!conversaId) return []
+  return atividades
+    .list()
+    .filter((a) => a.tipo === 'nota' && a.conversaId === conversaId)
+    .sort((a, b) => String(b.criadoEm || '').localeCompare(String(a.criadoEm || '')))
+}
+
+// As notas de um cartão do funil — a mesma coisa, olhada pelo outro lado.
+export function notasDaOportunidade(oportunidadeId) {
+  if (!oportunidadeId) return []
+  return atividades
+    .list()
+    .filter((a) => a.tipo === 'nota' && a.oportunidadeId === oportunidadeId)
+    .sort((a, b) => String(b.criadoEm || '').localeCompare(String(a.criadoEm || '')))
+}
+
+export async function anotarNaConversa(conversa, texto) {
+  const limpo = String(texto || '').trim()
+  if (!limpo || !conversa?.id) return null
+
+  const cartao = oportunidadeDaConversa(conversa.id, conversa.clienteId)
+
+  return atividades.create({
+    tipo: 'nota',
+    descricao: limpo,
+    // Nota nasce concluída: é registro do que já aconteceu, não tarefa a fazer.
+    // É a mesma regra do TIPOS_SEM_PENDENCIA — repeti-la aqui é o que impede a
+    // anotação de aparecer como pendência atrasada na agenda de alguém.
+    status: 'concluida',
+    data: hojeISO(),
+    concluidaEm: hojeISO(),
+    conversaId: conversa.id,
+    clienteId: conversa.clienteId || null,
+    oportunidadeId: cartao?.id || null,
+    criadoPor: usuarioAtual(),
+    responsavel: usuarioAtual(),
+  })
+}
+
+export async function apagarNota(notaId) {
+  return atividades.remove(notaId)
+}
+
+// Garante que a conversa com um CLIENTE apareça no funil.
+//
+// O webhook abre cartão para quem NÃO é cliente (o lead). Quem já é cliente
+// ficava de fora de propósito: não se abre negociação a cada "bom dia" de quem
+// já está na base, senão o funil vira a caixa de entrada com outro nome.
+//
+// O que muda aqui é a INTENÇÃO. Sair da ficha do cliente e escrever para ele é
+// um ato deliberado — você foi atrás da pessoa. Isso é começo de negociação, e
+// merece cartão.
+//
+// A trava é `ETAPAS_ABERTAS`: se já existe negociação em andamento com essa
+// pessoa, a conversa pertence a ela, e um cartão novo só dividiria a história
+// em dois lugares.
+export async function garantirOportunidadeDoCliente(clienteId, conversaId) {
+  if (!clienteId) return null
+
+  const emAberto = oportunidades
+    .list()
+    .find((o) => o.clienteId === clienteId && ETAPAS_ABERTAS.includes(o.etapa))
+  if (emAberto) {
+    // Cartão que existia antes da conversa passa a conhecê-la — é o que faz o
+    // botão de conversar do cartão cair no fio certo.
+    if (!emAberto.conversaId && conversaId) {
+      return oportunidades.update(emAberto.id, { conversaId })
+    }
+    return emAberto
+  }
+
+  const cliente = clientes.get(clienteId)
+  return salvarOportunidade({
+    clienteId,
+    conversaId: conversaId || null,
+    titulo: cliente?.nome ? `${cliente.nome} (WhatsApp)` : 'Contato pelo WhatsApp',
+    etapa: 'novo',
+    canal: 'whatsapp',
+  })
+}
+
+// Tira (ou devolve) a conversa da caixa de entrada.
+//
+// Arquivar NÃO apaga nada: o fio e as mensagens continuam no banco, e a conversa
+// volta a aparecer se a pessoa escrever de novo — porque o webhook atualiza
+// `ultima_em` e quem lista escolhe se quer ver as arquivadas. É o "resolvido",
+// não o "sumiu".
+export async function arquivarConversa(conversaId, arquivada = true) {
+  return conversas.update(conversaId, { arquivada })
+}
+
+// Cria o cliente a partir do contato e amarra tudo que já existe dele.
+//
+// São três coisas numa só, e é justamente por isso que mora aqui e não na tela:
+// deixar a tela orquestrar isso é como um dos três passos acaba esquecido.
+//
+//   1. cria o cliente;
+//   2. liga a conversa a ele — o histórico do WhatsApp passa a aparecer na
+//      ficha, e não some numa conversa órfã;
+//   3. adota o cartão que o lead já tinha no funil, em vez de criar outro. A
+//      negociação continua na etapa em que estava, com o histórico dela. Sem
+//      este passo você teria dois cartões da mesma pessoa: o lead antigo e o
+//      cliente novo.
+export async function cadastrarClienteDaConversa(conversaId, dadosDoCliente) {
+  const cliente = await clientes.create({ ...dadosDoCliente, criadoPor: usuarioAtual() })
+
+  await conversas.update(conversaId, { clienteId: cliente.id })
+
+  // `contatoNome`/`contatoTelefone` eram a identidade provisória do lead. Agora
+  // que existe cadastro, quem responde por isso é o cliente — deixá-los para
+  // trás faria o cartão mostrar o nome velho se o cliente mudar de nome depois.
+  const cartoes = oportunidades.list().filter((o) => o.conversaId === conversaId && !o.clienteId)
+  for (const cartao of cartoes) {
+    await oportunidades.update(cartao.id, {
+      clienteId: cliente.id,
+      contatoNome: '',
+      contatoTelefone: '',
+    })
+  }
+
+  return cliente
+}
+
 // Envia pelo WhatsApp. Quem fala com a Evolution é a Edge Function; daqui só
 // sai o texto e o destino, com o JWT da sessão que o Supabase já anexa.
 export async function enviarMensagemWhatsapp({ conversaId, clienteId, numero, texto, oportunidadeId }) {

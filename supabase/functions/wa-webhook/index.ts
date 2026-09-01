@@ -96,6 +96,27 @@ async function acharCliente(numero: string): Promise<string | null> {
   return null
 }
 
+// Esta conversa já virou cartão no funil alguma vez?
+//
+// É a trava contra duplicata, e ela pergunta pelo `conversa_id` — não pelo
+// telefone nem pelo nome, que mudam. Vale para cartão de qualquer etapa,
+// inclusive `ganho` e `perdido`: negócio que já foi trabalhado e fechado não
+// volta para "novo" porque a pessoa mandou "bom dia" seis meses depois.
+async function temCartao(conversaId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('oportunidades')
+    .select('id')
+    .eq('conversa_id', conversaId)
+    .limit(1)
+    .maybeSingle()
+
+  // Na dúvida (erro de rede, tabela fora do ar), responde "já tem" e NÃO abre
+  // cartão. Entre um lead que falta e um funil poluído de duplicatas, o que
+  // falta é recuperável na próxima mensagem; a duplicata é trabalho manual.
+  if (error) return true
+  return !!data
+}
+
 // Abre a negociação de um número que ainda não é cliente.
 //
 // A oportunidade nasce SEM `cliente_id` de propósito — ver o cabeçalho da
@@ -209,18 +230,26 @@ Deno.serve(async (req) => {
     }
     if (!conversaId) return new Response('ok', { status: 200 })
 
-    // Número desconhecido que ESCREVEU primeiro é um lead: abre uma negociação
-    // na etapa `novo`, para ele aparecer no CRM em vez de depender de alguém
-    // reparar na caixa de entrada.
+    // Número desconhecido que escreveu é um lead: abre uma negociação na etapa
+    // `novo`, para ele aparecer no CRM em vez de depender de alguém reparar na
+    // caixa de entrada.
     //
-    // Três condições, e cada uma tem motivo:
-    //   * `conversaNova` — só na primeira mensagem, senão cada mensagem viraria
-    //     um cartão;
+    // A CONDIÇÃO MUDOU, e vale registrar por quê. Antes exigia `conversaNova` —
+    // só a PRIMEIRA mensagem de um número que nunca tinha escrito abria cartão.
+    // O efeito prático foi que nenhuma conversa que já existia quando esta
+    // lógica subiu virou lead, e nunca ia virar: `conversaNova` jamais seria
+    // verdade para elas de novo. A caixa de entrada tinha sete contatos sem
+    // cadastro e o funil, nenhum.
+    //
+    // Agora a pergunta é outra e é a certa: "esta conversa já tem cartão?".
+    // Ela não duplica (é o mesmo `conversa_id` que responde) e se cura sozinha:
+    // conversa antiga ganha o cartão na próxima mensagem que chegar.
+    //
     //   * `!clienteId` — quem já é cliente entra pelo funil normal, quando
     //     houver negócio, e não a cada "bom dia";
     //   * `!daGente` — conversa que VOCÊ começou não é lead: você já sabe com
     //     quem está falando e por quê.
-    if (conversaNova && !clienteId && !daGente) {
+    if (!clienteId && !daGente && !(await temCartao(conversaId))) {
       await abrirLead({ conversaId, numero, nome: info.PushName ?? '', texto })
     }
 

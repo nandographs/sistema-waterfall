@@ -2,7 +2,7 @@ import { useState } from 'react'
 import {
   clientes, produtos, salvarOportunidade, excluirOportunidade,
   ganharOportunidade, perderOportunidade,
-  formatBRL,
+  formatBRL, formatData, notasDaOportunidade,
   ETAPAS_FUNIL, ETAPAS_ABERTAS, CANAIS_OPORTUNIDADE, MOTIVOS_PERDA,
 } from '../data/repository.js'
 import { Modal, Button, Field, inputCls, notificar } from './ui.jsx'
@@ -28,6 +28,7 @@ export default function OportunidadeModal({ oportunidade, onFechar, onSalvo }) {
 
   const editando = !!form.id
   const set = (campo) => (e) => setForm((f) => ({ ...f, [campo]: e.target.value }))
+  const notas = notasDaOportunidade(form.id)
 
   // Escolher o produto já sugere o valor: é o dado que o operador teria que
   // buscar no catálogo para digitar em seguida.
@@ -158,6 +159,34 @@ export default function OportunidadeModal({ oportunidade, onFechar, onSalvo }) {
             placeholder="O que o cliente pediu, o que ficou combinado…"
           />
         </Field>
+
+        {/* Os recados deixados no atendimento pelo WhatsApp.
+            SÓ LEITURA aqui, e de propósito: elas pertencem ao fio da conversa,
+            onde se sabe o que estava sendo dito quando alguém anotou. Poder
+            escrever nos dois lugares faria duas caixas disputarem o mesmo
+            assunto — e este formulário já tem "Observações", que é outra coisa:
+            o resumo da negociação, não o recado do plantão.
+
+            Não é cópia: é a mesma linha em `atividades` que a conversa mostra
+            (migração 014). O que se lê aqui é o que foi escrito lá. */}
+        {notas.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-slate-500 mb-1.5">
+              Anotações do atendimento ({notas.length})
+            </p>
+            <div className="space-y-1.5 max-h-40 overflow-y-auto">
+              {notas.map((nota) => (
+                <div key={nota.id} className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2">
+                  <p className="text-sm text-amber-950 whitespace-pre-wrap break-words">{nota.descricao}</p>
+                  <p className="mt-0.5 text-[10px] font-semibold text-amber-800">
+                    {nota.criadoPor || 'alguém'}
+                    {nota.criadoEm ? ` · ${formatData(String(nota.criadoEm).slice(0, 10))}` : ''}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {erro && (
           <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">{erro}</p>
