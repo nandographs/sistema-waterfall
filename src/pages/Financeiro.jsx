@@ -8,10 +8,10 @@ import {
   resumoDoMes, variacao, somarMesesNoMes, mesDe,
   FORMAS_PAGAMENTO, CATEGORIAS_SAIDA,
 } from '../data/repository.js'
-import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge } from '../components/ui.jsx'
+import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge, notificar } from '../components/ui.jsx'
 import {
-  IconPlus, IconTrash, IconWallet, IconClock, IconAlert,
-  IconChevronLeft, IconChevronRight,
+  IconPlus, IconPencil, IconTrash, IconWallet, IconClock, IconAlert,
+  IconChevronLeft, IconChevronRight, IconSearch,
 } from '../components/icons.jsx'
 
 const CATEGORIAS_ENTRADA = { venda: 'Venda', servico: 'Serviço', outros: 'Outros' }
@@ -76,6 +76,7 @@ export default function Financeiro() {
   const refresh = () => forceRender((n) => n + 1)
 
   const [aba, setAba] = useState('receber')
+  const [busca, setBusca] = useState('')
   const [form, setForm] = useState(null)
   const [excluir, setExcluir] = useState(null)
   const [removendo, setRemovendo] = useState(false)
@@ -144,7 +145,7 @@ export default function Financeiro() {
       }
       setExcluir(null)
     } catch (erro) {
-      alert('Não foi possível remover do financeiro: ' + (erro?.message || erro))
+      notificar('Não foi possível remover do financeiro: ' + (erro?.message || erro), 'erro')
     } finally {
       setRemovendo(false)
       refresh()
@@ -153,11 +154,46 @@ export default function Financeiro() {
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
 
+  // Abre o mesmo formulário do "Novo lançamento", já preenchido. Campos que só
+  // existem em lançamentos antigos (ou gerados) são normalizados para o form
+  // controlado não trocar de "uncontrolled" para "controlled" no meio do caminho.
+  function editar(l) {
+    setForm({
+      ...FORM_VAZIO,
+      ...l,
+      valor: String(l.valor ?? ''),
+      descricao: l.descricao || '',
+      observacoes: l.observacoes || '',
+      vencimento: l.vencimento || hoje,
+      dataPagamento: l.dataPagamento || '',
+      categoria: l.categoria || (l.tipo === 'entrada' ? 'outros' : 'fornecedor'),
+      formaPagamento: l.formaPagamento || 'pix',
+    })
+  }
+
+  // Busca simples nas contas: descrição, categoria, forma, cliente e valor.
+  const termo = busca.trim().toLowerCase()
+  const combina = (l) => {
+    if (!termo) return true
+    const cliente = l.clienteId ? clientes.get(l.clienteId)?.nome : ''
+    return [
+      l.descricao,
+      nomeCategoria(l.categoria),
+      FORMAS_PAGAMENTO[l.formaPagamento] ?? l.formaPagamento,
+      cliente,
+      l.observacoes,
+      formatBRL(l.valor),
+      String(l.valor ?? ''),
+    ].some((campo) => (campo || '').toString().toLowerCase().includes(termo))
+  }
+
   const listaDaAba = {
     receber: aReceber,
     pagar: aPagar,
     realizados: [...recebido, ...pago],
-  }[aba].sort((a, b) => (a.vencimento || '').localeCompare(b.vencimento || ''))
+  }[aba]
+    .filter(combina)
+    .sort((a, b) => (a.vencimento || '').localeCompare(b.vencimento || ''))
 
   function Linha({ l }) {
     const atrasado = l.status === 'previsto' && l.vencimento && l.vencimento < hoje
@@ -194,6 +230,9 @@ export default function Financeiro() {
           )}
           <Button variant="ghost" onClick={() => alternarBaixa(l)}>
             {l.status === 'realizado' ? 'Estornar' : 'Dar baixa'}
+          </Button>
+          <Button variant="ghost" onClick={() => editar(l)} title="Editar lançamento" aria-label="Editar lançamento">
+            <IconPencil size={15} />
           </Button>
           {/* Lançamentos vinculados também podem sair, mas a remoção age na
               ORIGEM (desliga "Lançar no financeiro" lá) — apagar só a linha aqui
@@ -259,7 +298,7 @@ export default function Financeiro() {
             <button
               type="button"
               onClick={() => setMesRelatorio(somarMesesNoMes(mesRelatorio, -1))}
-              className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 cursor-pointer"
+              className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 cursor-pointer"
               aria-label="Mês anterior"
               title="Mês anterior"
             >
@@ -271,7 +310,7 @@ export default function Financeiro() {
             <button
               type="button"
               onClick={() => setMesRelatorio(somarMesesNoMes(mesRelatorio, 1))}
-              className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 cursor-pointer"
+              className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 cursor-pointer"
               aria-label="Próximo mês"
               title="Próximo mês"
             >
@@ -421,8 +460,22 @@ export default function Financeiro() {
             ))}
           </div>
 
+          <div className="relative mb-4">
+            <IconSearch size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <input
+              className={`${inputCls} pl-9`}
+              type="search"
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar por descrição, cliente, categoria ou valor"
+              aria-label="Buscar nas contas"
+            />
+          </div>
+
           <Card>
-            {listaDaAba.length === 0 && <Empty>Nada por aqui.</Empty>}
+            {listaDaAba.length === 0 && (
+              <Empty>{termo ? `Nada encontrado para “${busca.trim()}”.` : 'Nada por aqui.'}</Empty>
+            )}
             <ul className="divide-y divide-slate-100">
               {listaDaAba.map((l) => <Linha key={l.id} l={l} />)}
             </ul>
@@ -533,9 +586,24 @@ export default function Financeiro() {
       <Modal title={form?.id ? 'Editar lançamento' : 'Novo lançamento'} open={!!form} onClose={() => setForm(null)}>
         {form && (
           <form onSubmit={salvar} className="space-y-4">
+            {/* Editar aqui vale para JÁ; a origem continua sendo a fonte de
+                verdade e recalcula valor, vencimento e parcelas na próxima vez
+                que for salva. Melhor o usuário saber disso antes de digitar. */}
+            {(form.vendaId || form.agendamentoId) && (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed">
+                Este lançamento vem d{form.agendamentoId ? 'e um agendamento' : 'e uma venda'}.
+                A edição vale agora, mas se {form.agendamentoId ? 'o agendamento' : 'a venda'} for
+                salvo de novo, valor, vencimento e parcelas voltam a ser calculados de lá.
+              </p>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field label="Tipo">
-                <select className={inputCls} value={form.tipo} onChange={set('tipo')}>
+                <select
+                  className={inputCls}
+                  value={form.tipo}
+                  onChange={set('tipo')}
+                  disabled={!!(form.vendaId || form.agendamentoId)}
+                >
                   <option value="saida">Saída (conta a pagar)</option>
                   <option value="entrada">Entrada (a receber)</option>
                 </select>

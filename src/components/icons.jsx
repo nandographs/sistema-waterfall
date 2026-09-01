@@ -183,6 +183,13 @@ export const IconCamera = (p) => (
   </Icon>
 )
 
+export const IconPencil = (p) => (
+  <Icon {...p}>
+    <path d="M12 20h9" />
+    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+  </Icon>
+)
+
 export const IconTrash = (p) => (
   <Icon {...p}>
     <polyline points="3 6 5 6 21 6" />
@@ -237,5 +244,41 @@ export const IconUsersRound = (p) => (
   <Icon {...p}>
     <circle cx="12" cy="8" r="4" />
     <path d="M4 21a8 8 0 0 1 16 0" />
+  </Icon>
+)
+
+// Colunas de alturas diferentes — o quadro do funil. Não usa o funil-de-filtro
+// (IconFilter) de propósito: os dois no mesmo sistema virariam a mesma coisa.
+export const IconFunil = (p) => (
+  <Icon {...p}>
+    <rect x="3" y="4" width="5" height="16" rx="1" />
+    <rect x="9.5" y="4" width="5" height="11" rx="1" />
+    <rect x="16" y="4" width="5" height="7" rx="1" />
+  </Icon>
+)
+
+// Arrastar: as seis alças do "grip", o gesto padrão de mover um cartão.
+export const IconArrastar = (p) => (
+  <Icon {...p}>
+    <circle cx="9" cy="6" r="1" />
+    <circle cx="15" cy="6" r="1" />
+    <circle cx="9" cy="12" r="1" />
+    <circle cx="15" cy="12" r="1" />
+    <circle cx="9" cy="18" r="1" />
+    <circle cx="15" cy="18" r="1" />
+  </Icon>
+)
+
+// Alternância de tema: sol (modo claro) e lua (modo escuro)
+export const IconSol = (p) => (
+  <Icon {...p}>
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+  </Icon>
+)
+
+export const IconLua = (p) => (
+  <Icon {...p}>
+    <path d="M12 3a6.5 6.5 0 0 0 9 9 9 9 0 1 1-9-9z" />
   </Icon>
 )

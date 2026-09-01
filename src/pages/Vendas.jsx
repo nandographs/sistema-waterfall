@@ -6,8 +6,8 @@ import {
   formatData, formatBRL, hojeISO,
   FORMAS_PAGAMENTO, STATUS_VENDA, CANAIS_VENDA,
 } from '../data/repository.js'
-import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge } from '../components/ui.jsx'
-import { IconPlus, IconFileText, IconTrash, IconEye } from '../components/icons.jsx'
+import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge, notificar } from '../components/ui.jsx'
+import { IconPlus, IconFileText, IconTrash, IconEye, IconMais } from '../components/icons.jsx'
 import ClienteBusca from '../components/ClienteBusca.jsx'
 import ProdutoBusca from '../components/ProdutoBusca.jsx'
 import PedidoModal from '../components/PedidoModal.jsx'
@@ -29,6 +29,45 @@ const STATUS_BADGE = {
   proposta: 'sky',
   confirmada: 'green',
   cancelada: 'red',
+}
+
+function AcoesVenda({ venda, onVer, onPedido, onEditar, onConfirmar, onCancelar, onExcluir }) {
+  function fechar(e) {
+    e.currentTarget.closest('details')?.removeAttribute('open')
+  }
+
+  const acaoCls = 'flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-sm font-semibold text-slate-700 hover:bg-slate-200'
+
+  return (
+    <div className="flex items-center gap-2 shrink-0">
+      <Button variant="secondary" onClick={onVer}><IconEye size={16} /> Ver</Button>
+      <details className="relative">
+        <summary
+          aria-label="Mais ações da venda"
+          className="list-none inline-flex h-11 w-11 sm:h-9 sm:w-9 cursor-pointer items-center justify-center rounded-xl border border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200 [&::-webkit-details-marker]:hidden"
+        >
+          <IconMais size={18} />
+        </summary>
+        <div className="absolute right-0 z-20 mt-2 w-52 rounded-xl border border-slate-300 bg-slate-100 p-1.5 shadow-xl shadow-black/30">
+          <button type="button" className={acaoCls} onClick={(e) => { fechar(e); onPedido() }}>
+            <IconFileText size={16} /> Gerar pedido
+          </button>
+          {venda.status === 'proposta' && (
+            <>
+              <button type="button" className={acaoCls} onClick={(e) => { fechar(e); onEditar() }}>Editar</button>
+              <button type="button" className={acaoCls} onClick={(e) => { fechar(e); onConfirmar() }}>Confirmar venda</button>
+            </>
+          )}
+          {venda.status === 'confirmada' && (
+            <button type="button" className={acaoCls} onClick={(e) => { fechar(e); onCancelar() }}>Cancelar venda</button>
+          )}
+          <button type="button" className={acaoCls + ' text-red-700 hover:bg-red-50'} onClick={(e) => { fechar(e); onExcluir() }}>
+            <IconTrash size={15} /> Excluir
+          </button>
+        </div>
+      </details>
+    </div>
+  )
 }
 
 export default function Vendas() {
@@ -75,6 +114,11 @@ export default function Vendas() {
     setSalvando(true)
     try {
       await salvarVenda(form, itens)
+      notificar(
+        form.status === 'confirmada'
+          ? 'Venda confirmada. Financeiro e agenda foram atualizados conforme a condição informada.'
+          : 'Venda salva com sucesso.',
+      )
       setForm(null)
       refresh()
     } catch (ex) {
@@ -85,8 +129,13 @@ export default function Vendas() {
   }
 
   async function mudarStatus(venda, status) {
-    await salvarVenda({ ...venda, status }, itensDaVenda(venda.id))
-    refresh()
+    try {
+      await salvarVenda({ ...venda, status }, itensDaVenda(venda.id))
+      notificar(status === 'confirmada' ? 'Venda confirmada e desdobramentos atualizados.' : 'Venda cancelada.')
+      refresh()
+    } catch (ex) {
+      notificar('Não foi possível alterar a venda: ' + (ex?.message || ex), 'erro')
+    }
   }
 
   async function confirmarExcluir() {
@@ -149,8 +198,8 @@ export default function Vendas() {
             const parcelas = lancamentosDaVenda(v.id)
             const recebido = parcelas.filter((l) => l.status === 'realizado').length
             return (
-              <li key={v.id} className="py-3 flex flex-wrap items-center justify-between gap-3">
-                <div className="min-w-0">
+              <li key={v.id} className="py-4 flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0 flex-1 basis-[16rem]">
                   <Link to={`/clientes/${v.clienteId}`} className="text-sm font-medium text-slate-900 hover:text-blue-600">
                     {clientes.get(v.clienteId)?.nome ?? '(cliente removido)'}
                   </Link>
@@ -166,25 +215,16 @@ export default function Vendas() {
                   {v.tipo === 'orcamento' && <Badge color="slate">Orçamento</Badge>}
                   {v.pedidoNumero && <Badge color="slate">Pedido Nº {v.pedidoNumero}</Badge>}
                   <Badge color={STATUS_BADGE[v.status] ?? 'slate'}>{STATUS_VENDA[v.status] ?? v.status}</Badge>
-                  <Button variant="ghost" onClick={() => setDetalhe(v)} title="Ver informações">
-                    <IconEye size={16} /> Ver
-                  </Button>
-                  <Button variant="secondary" onClick={() => setPedidoVenda(v)}>
-                    <IconFileText size={16} /> Gerar pedido
-                  </Button>
-                  {v.status === 'proposta' && (
-                    <>
-                      <Button variant="ghost" onClick={() => abrirEdicao(v)}>Editar</Button>
-                      <Button variant="secondary" onClick={() => mudarStatus(v, 'confirmada')}>Confirmar</Button>
-                    </>
-                  )}
-                  {v.status === 'confirmada' && (
-                    <Button variant="danger" onClick={() => mudarStatus(v, 'cancelada')}>Cancelar</Button>
-                  )}
-                  <Button variant="danger" onClick={() => setExcluir(v)} title="Excluir venda">
-                    <IconTrash size={15} />
-                  </Button>
                 </div>
+                <AcoesVenda
+                  venda={v}
+                  onVer={() => setDetalhe(v)}
+                  onPedido={() => setPedidoVenda(v)}
+                  onEditar={() => abrirEdicao(v)}
+                  onConfirmar={() => mudarStatus(v, 'confirmada')}
+                  onCancelar={() => mudarStatus(v, 'cancelada')}
+                  onExcluir={() => setExcluir(v)}
+                />
               </li>
             )
           })}
@@ -283,7 +323,7 @@ export default function Vendas() {
 
       <Modal title={form?.id ? 'Editar venda' : 'Nova venda'} open={!!form} onClose={() => setForm(null)} size="wide">
         {form && (
-          <form onSubmit={salvar} className="space-y-5">
+          <form onSubmit={salvar} className="space-y-5 pb-20 sm:pb-0">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field label="Cliente">
                 <ClienteBusca
@@ -460,53 +500,71 @@ export default function Vendas() {
               </div>
             </div>
 
-            {/* Atendimento e entrega */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <Field label="Consultor / Vendedor">
-                <input className={inputCls} value={form.consultor} onChange={set('consultor')} />
-              </Field>
-              <Field label="Telefone do consultor">
-                <input className={inputCls} value={form.consultorTelefone} onChange={set('consultorTelefone')} />
-              </Field>
-              <Field label="Entrega">
-                <select className={inputCls} value={form.entregaTipo} onChange={set('entregaTipo')}>
-                  <option value="">—</option>
-                  <option value="retirada">Retirada</option>
-                  <option value="endereco_cliente">Endereço do cliente</option>
-                  <option value="outro">Outro endereço</option>
-                </select>
-              </Field>
-              <Field label="Previsão de entrega">
-                <input className={inputCls} type="date" value={form.entregaPrevisao} onChange={set('entregaPrevisao')} />
-              </Field>
-            </div>
+            {/* Campos menos frequentes ficam disponíveis sem competir com o
+                fechamento principal. Se já possuem valor, abrem na edição. */}
+            <details
+              open={!!(form.consultor || form.consultorTelefone || form.entregaTipo || form.observacoes)}
+              className="group rounded-xl border border-slate-200 bg-slate-50"
+            >
+              <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between px-4 text-sm font-semibold text-slate-700 [&::-webkit-details-marker]:hidden">
+                Atendimento, entrega e observações
+                <span className="text-slate-400 transition-transform group-open:rotate-45">+</span>
+              </summary>
+              <div className="border-t border-slate-200 p-4 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <Field label="Consultor / Vendedor">
+                    <input className={inputCls} value={form.consultor} onChange={set('consultor')} />
+                  </Field>
+                  <Field label="Telefone do consultor">
+                    <input className={inputCls} value={form.consultorTelefone} onChange={set('consultorTelefone')} />
+                  </Field>
+                  <Field label="Entrega">
+                    <select className={inputCls} value={form.entregaTipo} onChange={set('entregaTipo')}>
+                      <option value="">—</option>
+                      <option value="retirada">Retirada</option>
+                      <option value="endereco_cliente">Endereço do cliente</option>
+                      <option value="outro">Outro endereço</option>
+                    </select>
+                  </Field>
+                  <Field label="Previsão de entrega">
+                    <input className={inputCls} type="date" value={form.entregaPrevisao} onChange={set('entregaPrevisao')} />
+                  </Field>
+                </div>
 
-            {form.entregaTipo === 'outro' && (
-              <Field label="Endereço de entrega">
-                <input className={inputCls} value={form.entregaEndereco} onChange={set('entregaEndereco')} />
-              </Field>
-            )}
+                {form.entregaTipo === 'outro' && (
+                  <Field label="Endereço de entrega">
+                    <input className={inputCls} value={form.entregaEndereco} onChange={set('entregaEndereco')} />
+                  </Field>
+                )}
 
-            <Field label="Observações">
-              <textarea className={inputCls} rows="2" value={form.observacoes} onChange={set('observacoes')} />
-            </Field>
+                <Field label="Observações">
+                  <textarea className={inputCls} rows="2" value={form.observacoes} onChange={set('observacoes')} />
+                </Field>
+              </div>
+            </details>
 
             {form.status === 'confirmada' && (
-              <p className="text-xs text-slate-500 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+              <p className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2">
                 Confirmar gera as contas a receber e já deixa o serviço na agenda
                 (instalação, se houver aparelho; troca, se for só refil).
               </p>
             )}
 
             {erro && (
-              <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{erro}</p>
+              <p role="alert" aria-live="polite" className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{erro}</p>
             )}
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+            <div className="sticky bottom-0 z-10 -mx-4 sm:-mx-6 flex flex-wrap items-center justify-between gap-3 border-t border-slate-300 bg-slate-100/95 px-4 sm:px-6 py-3 backdrop-blur-md">
+              <div>
+                <span className="block text-xs text-slate-500">Total da venda</span>
+                <strong className="block text-lg tnum text-slate-900">{formatBRL(total)}</strong>
+              </div>
+              <div className="flex gap-2 ml-auto">
               <Button type="button" variant="secondary" onClick={() => setForm(null)} disabled={salvando}>
                 Cancelar
               </Button>
               <Button type="submit" disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar venda'}</Button>
+              </div>
             </div>
           </form>
         )}

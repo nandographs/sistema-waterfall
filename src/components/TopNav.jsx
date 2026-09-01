@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
-import { IconLogOut, IconUser, IconMais, IconX, IconImage } from './icons.jsx'
+import { IconLogOut, IconUser, IconMais, IconX, IconSol, IconLua } from './icons.jsx'
 import { NA_BARRA, NO_MAIS, tituloDaRota } from './navegacao.js'
 import { usuarioAtual } from '../lib/auth.js'
 import logo from '../assets/logo.svg'
@@ -8,40 +8,39 @@ import logo from '../assets/logo.svg'
 // Topbar no formato do template: barra sticky com borda inferior, o nome da
 // tela atual à esquerda e as ações à direita. Os destinos NÃO vivem aqui — no
 // desktop estão na Sidebar, no mobile na BottomNav.
-export default function TopNav({ naDashboard, onMudarWallpaper }) {
+export default function TopNav({ tema, onAlternarTema }) {
   const { pathname } = useLocation()
+  const rotuloTema = tema === 'claro' ? 'Mudar para o modo escuro' : 'Mudar para o modo claro'
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 lg:h-21 items-center gap-3 border-b border-slate-200 bg-white px-4 lg:pl-6 lg:pr-8">
+    <header className="sticky top-0 z-30 flex h-16 lg:h-20 items-center gap-3 border-b border-slate-200 bg-[var(--topnav-bg)] backdrop-blur-sm px-4 lg:pl-7 lg:pr-8">
       {/* A logo só aparece no mobile: no desktop ela já está no topo da sidebar */}
       <NavLink to="/" aria-label="Início" className="lg:hidden shrink-0">
-        <img src={logo} alt="Waterfall" className="h-7 w-auto" />
+        <img src={logo} alt="Waterfall" className="h-6 w-auto logo-mark" />
       </NavLink>
 
-      <h1 className="mr-auto truncate text-base lg:text-lg font-medium text-slate-900">
+      <h1 className="mr-auto truncate text-base lg:text-xl font-semibold tracking-[-0.025em] text-slate-900">
         {tituloDaRota(pathname)}
       </h1>
 
-      {naDashboard && (
-        <button
-          type="button"
-          onClick={onMudarWallpaper}
-          title="Mudar wallpaper"
-          aria-label="Mudar wallpaper"
-          className="lg:hidden inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-50 cursor-pointer"
-        >
-          <IconImage size={18} />
-        </button>
-      )}
-
       {usuarioAtual() && (
         <span
-          className="hidden lg:inline-flex items-center gap-2 rounded-full bg-slate-50 border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700"
+          className="hidden lg:inline-flex items-center gap-2 rounded-xl bg-slate-100 border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-700"
           title="Usuário logado"
         >
           <IconUser size={15} /> {usuarioAtual()}
         </span>
       )}
+
+      <button
+        type="button"
+        onClick={onAlternarTema}
+        title={rotuloTema}
+        aria-label={rotuloTema}
+        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900 cursor-pointer"
+      >
+        {tema === 'claro' ? <IconLua size={18} /> : <IconSol size={18} />}
+      </button>
     </header>
   )
 }
@@ -59,7 +58,7 @@ export function BottomNav({ onSair }) {
   return (
     <>
       <nav
-        className="lg:hidden fixed bottom-0 inset-x-0 z-40 grid grid-cols-6 bg-white border-t border-slate-200 pb-[env(safe-area-inset-bottom)]"
+        className="lg:hidden fixed bottom-0 inset-x-0 z-40 grid grid-cols-6 bg-[var(--nav-blur-bg)] backdrop-blur-md border-t border-slate-200 pb-[env(safe-area-inset-bottom)]"
         aria-label="Navegação principal"
       >
         {NA_BARRA.map(({ to, label, Icon }) => (
@@ -81,11 +80,11 @@ export function BottomNav({ onSair }) {
 
       {maisAberto && (
         <div
-          className="lg:hidden fixed inset-0 z-50 flex items-end bg-slate-900/50"
+          className="lg:hidden fixed inset-0 z-50 flex items-end bg-black/60"
           onClick={() => setMaisAberto(false)}
         >
           <div
-            className="w-full bg-white rounded-t-2xl pb-[max(1rem,env(safe-area-inset-bottom))]"
+          className="w-full bg-slate-100 border-t border-slate-300 rounded-t-2xl pb-[max(1rem,env(safe-area-inset-bottom))]"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-4 pt-4 pb-2">

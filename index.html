@@ -5,16 +5,33 @@
     <!-- viewport-fit=cover libera as env(safe-area-inset-*) usadas pela barra
          inferior de navegação; sem ele o iPhone ignora as variáveis. -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#009ace" />
+    <meta name="theme-color" content="#08070d" />
     <title>Sistema Waterfall</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
   </head>
   <body>
+    <!--
+      THESIS: a operação aparece como um cockpit de continuidade; recusa o dashboard claro de cartões iguais.
+      OWN-WORLD: carvão profundo, superfícies grafite, tipografia Manrope, azul Waterfall e acentos verde/coral/amarelo por função.
+      STORY: o operador entende o que exige atenção, age e confirma os efeitos no ciclo do cliente.
+      FIRST VIEWPORT: saudação compacta, ações rápidas e Hoje dominam; métricas apoiam sem competir.
+      FORM: referência de dashboard operacional escuro fornecida pelo usuário; direção fixada pelo brief, seed waterfall-dark-ops.
+      FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+    -->
+    <script>
+      // Aplica o tema salvo antes do React montar, para não piscar escuro→claro.
+      try {
+        var t = localStorage.getItem('waterfall:tema');
+        document.documentElement.dataset.theme = t === 'claro' ? 'light' : 'dark';
+      } catch (e) {
+        document.documentElement.dataset.theme = 'dark';
+      }
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

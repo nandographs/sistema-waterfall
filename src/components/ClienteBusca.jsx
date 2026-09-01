@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { inputCls } from './ui.jsx'
 import { IconSearch, IconX } from './icons.jsx'
 
@@ -19,6 +19,7 @@ export default function ClienteBusca({ clientes, value, onChange, required, plac
   const [aberto, setAberto] = useState(false)
   const [destaque, setDestaque] = useState(0)
   const wrapRef = useRef(null)
+  const listaId = useId()
 
   // Mantém o texto do campo em sincronia com o cliente selecionado (ex.: ao editar).
   useEffect(() => {
@@ -102,12 +103,17 @@ export default function ClienteBusca({ clientes, value, onChange, required, plac
           onKeyDown={aoTeclar}
           placeholder={placeholder}
           autoComplete="off"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={aberto}
+          aria-controls={listaId}
+          aria-activedescendant={aberto && opcoes[destaque] ? `${listaId}-${opcoes[destaque].id}` : undefined}
         />
         {value && (
           <button
             type="button"
             onClick={limpar}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-0.5"
+            className="absolute right-0.5 top-1/2 -translate-y-1/2 inline-flex h-11 w-11 items-center justify-center text-slate-400 hover:text-slate-700 cursor-pointer"
             aria-label="Limpar"
           >
             <IconX size={16} />
@@ -127,17 +133,20 @@ export default function ClienteBusca({ clientes, value, onChange, required, plac
       </div>
 
       {aberto && (
-        <ul className="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-sm divide-y divide-slate-100">
+        <ul id={listaId} role="listbox" className="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto rounded-xl border border-slate-300 bg-slate-100 shadow-xl shadow-black/30 divide-y divide-slate-200">
           {opcoes.length === 0 ? (
             <li className="px-3 py-2.5 text-sm text-slate-400">Nenhum cliente encontrado.</li>
           ) : (
             opcoes.map((c, i) => (
-              <li key={c.id}>
+              <li key={c.id} role="none">
                 <button
+                  id={`${listaId}-${c.id}`}
+                  role="option"
+                  aria-selected={c.id === value}
                   type="button"
                   onMouseEnter={() => setDestaque(i)}
                   onClick={() => selecionar(c)}
-                  className={`w-full text-left px-3 py-2 text-sm cursor-pointer ${
+                  className={`w-full min-h-11 text-left px-3 py-2 text-sm cursor-pointer ${
                     i === destaque ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-50'
                   } ${c.id === value ? 'font-semibold' : ''}`}
                 >

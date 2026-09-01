@@ -21,15 +21,34 @@ export const WALLPAPERS = [
   { id: 'bg5', nome: 'Pico', src: bg5, thumb: thumb5 },
 ]
 
-const CHAVE = 'waterfall:wallpaper'
+const CHAVE_SESSAO = 'waterfall:wallpaper'
+const CHAVE_ULTIMO = 'waterfall:wallpaper-ultimo'
 
-// A escolha vale apenas para a sessão atual: ao abrir o sistema de novo,
-// o wallpaper volta a ser o primeiro.
-export function lerWallpaper() {
-  const id = sessionStorage.getItem(CHAVE)
-  return WALLPAPERS.find((w) => w.id === id) ?? WALLPAPERS[0]
-}
+// O wallpaper do painel não é escolhido: ele avança um a cada novo acesso
+// (login / abrir o sistema de novo) e fica fixo durante a sessão.
+export function wallpaperDaSessao() {
+  try {
+    const jaEscolhido = sessionStorage.getItem(CHAVE_SESSAO)
+    const atual = WALLPAPERS.find((w) => w.id === jaEscolhido)
+    if (atual) return atual
+  } catch {
+    /* storage bloqueado: cai no sorteio abaixo */
+  }
 
-export function salvarWallpaper(id) {
-  sessionStorage.setItem(CHAVE, id)
+  let anterior = null
+  try {
+    anterior = localStorage.getItem(CHAVE_ULTIMO)
+  } catch {
+    /* ignore */
+  }
+  const idx = WALLPAPERS.findIndex((w) => w.id === anterior)
+  const proximo = WALLPAPERS[(idx + 1) % WALLPAPERS.length]
+
+  try {
+    sessionStorage.setItem(CHAVE_SESSAO, proximo.id)
+    localStorage.setItem(CHAVE_ULTIMO, proximo.id)
+  } catch {
+    /* ignore */
+  }
+  return proximo
 }

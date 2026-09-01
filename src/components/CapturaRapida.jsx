@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import {
-  clientes, salvarAtividade, TIPOS_ATIVIDADE, RESULTADOS_ATIVIDADE,
+  clientes, salvarAtividade, salvarOportunidade, TIPOS_ATIVIDADE, RESULTADOS_ATIVIDADE,
 } from '../data/repository.js'
 import { hojeISO, somarDias } from '../lib/datas.js'
-import { Button, inputCls } from './ui.jsx'
+import { Button, inputCls, notificar } from './ui.jsx'
 import { IconeDoEvento } from './evento.jsx'
 import ClienteBusca from './ClienteBusca.jsx'
 
@@ -11,6 +11,10 @@ import ClienteBusca from './ClienteBusca.jsx'
 const ATALHOS = ['ligacao', 'whatsapp', 'visita', 'tarefa']
 
 const VAZIO = { tipo: 'ligacao', clienteId: '', descricao: '', resultado: 'sucesso' }
+
+// De qual tipo de contato a negociação nasceu — o canal do funil fala o mesmo
+// idioma da atividade, só com outro nome.
+const CANAL_DO_TIPO = { ligacao: 'telefone', whatsapp: 'whatsapp', visita: 'loja' }
 
 // Registro em um gesto: o que acabou de acontecer e o que fica marcado por
 // causa disso.
@@ -24,6 +28,7 @@ export default function CapturaRapida({ onRegistrado }) {
   const [retorno, setRetorno] = useState({ data: '', hora: '' })
   const [erro, setErro] = useState('')
   const [salvando, setSalvando] = useState(false)
+  const [abrirNegociacao, setAbrirNegociacao] = useState(false)
 
   const vaiRetornar = form.resultado === 'retornar'
 
@@ -39,7 +44,7 @@ export default function CapturaRapida({ onRegistrado }) {
     setErro('')
     setSalvando(true)
     try {
-      await salvarAtividade(
+      const atividade = await salvarAtividade(
         {
           ...form,
           data: hojeISO(),
@@ -49,8 +54,28 @@ export default function CapturaRapida({ onRegistrado }) {
         },
         vaiRetornar ? retorno : null,
       )
+
+      // A negociação nasce apontando para o contato que a originou: é a
+      // corrente do sistema ("de onde veio isso?") começando no lugar certo.
+      const criouNegociacao = abrirNegociacao && !!form.clienteId
+      if (criouNegociacao) {
+        await salvarOportunidade({
+          clienteId: form.clienteId,
+          etapa: 'novo',
+          canal: CANAL_DO_TIPO[form.tipo] || 'outro',
+          observacoes: form.descricao,
+          origemAtividadeId: atividade.id,
+        })
+      }
+
       setForm(VAZIO)
       setRetorno({ data: '', hora: '' })
+      setAbrirNegociacao(false)
+      notificar(
+        criouNegociacao
+          ? 'Atividade registrada e negociação aberta no CRM.'
+          : (vaiRetornar ? 'Atividade registrada e retorno agendado.' : 'Atividade registrada.'),
+      )
       onRegistrado?.()
     } catch (problema) {
       setErro(problema?.message || String(problema))
@@ -128,6 +153,21 @@ export default function CapturaRapida({ onRegistrado }) {
             onChange={(e) => setRetorno({ ...retorno, hora: e.target.value })}
           />
         </div>
+      )}
+
+      {/* Só aparece com cliente escolhido: negociação sem cliente não existe.
+          Fica depois do resultado porque a decisão vem depois de saber como o
+          contato terminou. */}
+      {form.clienteId && (
+        <label className="flex items-center gap-2 text-[13px] font-medium text-slate-600 cursor-pointer">
+          <input
+            type="checkbox"
+            className="h-4 w-4 accent-blue-600 cursor-pointer"
+            checked={abrirNegociacao}
+            onChange={(e) => setAbrirNegociacao(e.target.checked)}
+          />
+          Abrir negociação no CRM
+        </label>
       )}
 
       {erro && (

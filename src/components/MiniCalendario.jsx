@@ -23,7 +23,7 @@ export default function MiniCalendario({
         <button
           type="button"
           onClick={() => onMudarMes?.(mudarMes(mes, -1))}
-          className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 cursor-pointer"
+          className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700 cursor-pointer"
           aria-label="Mês anterior"
         >
           <IconChevronLeft size={16} />
@@ -32,7 +32,7 @@ export default function MiniCalendario({
         <button
           type="button"
           onClick={() => onMudarMes?.(mudarMes(mes, 1))}
-          className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 cursor-pointer"
+          className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700 cursor-pointer"
           aria-label="Próximo mês"
         >
           <IconChevronRight size={16} />
@@ -64,7 +64,7 @@ export default function MiniCalendario({
               onClick={() => onSelecionar?.(dia)}
               aria-label={diaCurto(dia)}
               aria-current={ativo ? 'date' : undefined}
-              className={`flex flex-col items-center rounded-lg py-1 cursor-pointer ${compacto ? 'gap-0.5' : 'gap-1'} ${
+              className={`flex min-h-10 flex-col items-center justify-center rounded-lg py-1 cursor-pointer ${compacto ? 'gap-0.5' : 'gap-1'} ${
                 ativo
                   ? 'bg-blue-600 text-white'
                   : doMes

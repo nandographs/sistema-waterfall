@@ -10,7 +10,7 @@ import {
   diaExtenso, diaCurto, formatHora, somarDias, ehHoje, ehPassado, rotuloRelativo, DIAS_CURTOS,
 } from '../lib/datas.js'
 import { usuarioAtual } from '../lib/auth.js'
-import { Card, Page, PageTitle, Button, Empty, Modal, Badge, inputCls } from '../components/ui.jsx'
+import { Card, Page, PageTitle, Button, Empty, Modal, Badge, inputCls, notificar } from '../components/ui.jsx'
 import { IconChevronLeft, IconChevronRight, IconPlus, IconCheck, IconAlert, IconFilter, IconCalendar } from '../components/icons.jsx'
 import { LinhaEvento, IconeDoEvento, estiloDoEvento } from '../components/evento.jsx'
 import AtividadeModal, { atividadeNova } from '../components/AtividadeModal.jsx'
@@ -228,7 +228,7 @@ function FecharDiaModal({ dia, pendentes, onFechar, onMudou }) {
       }
       onMudou()
     } catch (erro) {
-      alert('Não foi possível concluir a ação: ' + (erro?.message || erro))
+      notificar('Não foi possível concluir a ação: ' + (erro?.message || erro), 'erro')
     } finally {
       setOcupado('')
     }
@@ -504,7 +504,7 @@ export default function Agenda() {
       }
       setConcluindo(atividade)
     } catch (erro) {
-      alert('Não foi possível concluir: ' + (erro?.message || erro))
+      notificar('Não foi possível concluir: ' + (erro?.message || erro), 'erro')
     }
   }
 

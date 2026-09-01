@@ -7,6 +7,7 @@
 import { supabase } from '../lib/supabaseClient.js'
 import { BUCKET, comprimir, assinarUrl, assinarVarias } from '../lib/imagem.js'
 import { somarDias, chaveOrdem } from '../lib/datas.js'
+import { formatarE164 } from '../lib/telefone.js'
 import { usuarioAtual } from '../lib/auth.js'
 import { somarMeses, hojeISO, planoDeParcelas, totaisDaVenda } from './financeiro.js'
 
@@ -16,7 +17,8 @@ export { resumoDoMes, variacao, somarMesesNoMes, mesDe } from './financeiro.js'
 
 const TABELAS = [
   'clientes', 'produtos', 'equipamentos', 'agendamentos',
-  'vendas', 'venda_itens', 'lancamentos', 'atividades',
+  'oportunidades', 'vendas', 'venda_itens', 'lancamentos', 'atividades',
+  'conversas',
 ]
 
 const cache = {
@@ -24,11 +26,19 @@ const cache = {
   produtos: [],
   equipamentos: [],
   agendamentos: [],
+  oportunidades: [],
   vendas: [],
   venda_itens: [],
   lancamentos: [],
   atividades: [],
+  conversas: [],
 }
+
+// As MENSAGENS ficam fora do cache principal, guardadas por conversa e trazidas
+// sob demanda. É a mesma razão da janela de 365 dias das atividades, levada um
+// passo adiante: conversa de WhatsApp cresce sem limite, e carregar o histórico
+// inteiro de todo mundo a cada login ficaria mais lento a cada mês.
+const mensagensPorConversa = new Map()
 
 function camelParaSnake(s) {
   return s.replace(/[A-Z]/g, (m) => '_' + m.toLowerCase())
@@ -75,6 +85,9 @@ const MIGRACAO_DA_TABELA = {
   vendas: 'sql/001_vendas_financeiro.sql',
   venda_itens: 'sql/001_vendas_financeiro.sql',
   atividades: 'sql/005_agenda_atividades.sql',
+  oportunidades: 'sql/009_crm_oportunidades.sql',
+  conversas: 'sql/010_whatsapp.sql',
+  mensagens: 'sql/010_whatsapp.sql',
 }
 
 function consultar(tabela) {
@@ -168,6 +181,16 @@ export const produtos = makeStore('produtos')
 // Equipamento do cliente: { clienteId, produtoId, dataInstalacao, dataUltimaTroca }
 export const equipamentos = makeStore('equipamentos')
 
+// Oportunidade (a negociação — o cartão do funil): { clienteId, titulo,
+//          etapa: 'novo'|'contato'|'proposta'|'negociacao'|'ganho'|'perdido',
+//          valorEstimado, produtoId, canal, responsavel, dataPrevista, observacoes,
+//          ordem (posição na coluna), motivoPerda, fechadaEm,
+//          vendaId (a venda que fechou o negócio),
+//          origemAtividadeId (a ligação de onde ela nasceu) }
+// É o elo que faltava entre a atividade e a venda: o período em que o negócio
+// já existe mas ainda não tem pedido montado — ver a migração 009.
+export const oportunidades = makeStore('oportunidades')
+
 // Venda (documento comercial): { numero, clienteId, data, validadeDias,
 //          tipo: 'venda'|'orcamento', canal, status: 'proposta'|'confirmada'|'cancelada',
 //          subtotal, desconto, frete, total,
@@ -253,6 +276,44 @@ export const STATUS_VENDA = {
   proposta: 'Proposta',
   confirmada: 'Confirmada',
   cancelada: 'Cancelada',
+}
+
+// Etapas do funil. Vocabulário fechado, como TIPOS_ATIVIDADE e STATUS_VENDA:
+// com um funil só, uma tabela de configuração editável cobraria o preço de uma
+// tela inteira sem entregar nada. Se um dia houver mais de um funil, a coluna
+// `etapa` já é texto e a migração é direta.
+export const ETAPAS_FUNIL = {
+  novo: 'Novo',
+  contato: 'Em contato',
+  proposta: 'Proposta',
+  negociacao: 'Negociação',
+  ganho: 'Ganho',
+  perdido: 'Perdido',
+}
+
+// `ganho` e `perdido` são terminais: saem do fluxo do quadro e viram histórico.
+export const ETAPAS_ABERTAS = ['novo', 'contato', 'proposta', 'negociacao']
+export const ETAPAS_FECHADAS = ['ganho', 'perdido']
+
+export const CANAIS_OPORTUNIDADE = {
+  indicacao: 'Indicação',
+  whatsapp: 'WhatsApp',
+  instagram: 'Instagram',
+  loja: 'Loja',
+  telefone: 'Telefone',
+  site: 'Site',
+  outro: 'Outro',
+}
+
+// Perder sem motivo não ensina nada — e é justamente o registro que, somado ao
+// longo de um ano, diz se o problema é preço, prazo ou atendimento.
+export const MOTIVOS_PERDA = {
+  preco: 'Preço',
+  sem_retorno: 'Sumiu / não respondeu',
+  concorrente: 'Comprou de outro',
+  sem_interesse: 'Não tinha interesse',
+  fora_area: 'Fora da área de atendimento',
+  outro: 'Outro',
 }
 
 export const CANAIS_VENDA = {
@@ -491,6 +552,457 @@ export async function excluirVenda(vendaId) {
   removerDoCache('lancamentos', (l) => l.vendaId === vendaId)
 }
 
+// ---- WhatsApp ----
+//
+// Duas exceções conscientes ao padrão do repositório, e o motivo de cada uma:
+//
+//   1. VOLUME. `conversas` são poucas e entram na carga inicial como qualquer
+//      tabela. `mensagens` não: `carregarMensagens()` busca sob demanda e
+//      guarda por conversa.
+//
+//   2. CHEGADA ASSÍNCRONA. Uma mensagem nova entra pela Edge Function
+//      `wa-webhook`, não por uma ação da tela. `assinarWhatsapp()` escuta o
+//      Realtime do Postgres e atualiza o cache sozinho. É a única parte do
+//      sistema em que o dado muda sem ninguém ter clicado em nada — por isso
+//      ela fica contida aqui dentro, e não espalhada pelas telas.
+//
+// O envio NÃO fala com a Evolution: chama a Edge Function `wa-enviar`, que
+// guarda a chave. Ver a seção 3.1 do CRM_WHATSAPP.md.
+
+export const conversas = makeStore('conversas')
+
+const ordenarPorRecente = (a, b) =>
+  String(b.ultimaEm || '').localeCompare(String(a.ultimaEm || ''))
+
+// A caixa de entrada: conversas da mais recente para a mais antiga.
+export function conversasRecentes({ incluirArquivadas = false } = {}) {
+  return conversas
+    .list()
+    .filter((c) => (incluirArquivadas ? true : !c.arquivada))
+    .sort(ordenarPorRecente)
+}
+
+export function conversaDoCliente(clienteId) {
+  if (!clienteId) return null
+  return conversas.list().filter((c) => c.clienteId === clienteId).sort(ordenarPorRecente)[0] ?? null
+}
+
+// Quantas mensagens novas há de um cliente — o número do contador no cartão do
+// CRM. Cliente sem conversa devolve 0, e não null: a tela não precisa saber se
+// esse cliente já conversou algum dia.
+export function naoLidasDoCliente(clienteId) {
+  if (!clienteId) return 0
+  return conversas
+    .list()
+    .filter((c) => c.clienteId === clienteId)
+    .reduce((soma, c) => soma + Number(c.naoLidas || 0), 0)
+}
+
+export function mensagensDaConversa(conversaId) {
+  return mensagensPorConversa.get(conversaId) ?? []
+}
+
+export function naoLidasDaConversa(conversaId) {
+  return Number(conversas.get(conversaId)?.naoLidas || 0)
+}
+
+// Busca o histórico de uma conversa. `limite` corta pelas mais recentes — quem
+// abre uma conversa quer ver o fim dela, não o começo de dois anos atrás.
+export async function carregarMensagens(conversaId, limite = 200) {
+  if (!conversaId) return []
+  const { data, error } = await supabase
+    .from('mensagens')
+    .select('*')
+    .eq('conversa_id', conversaId)
+    .order('ocorrido_em', { ascending: false })
+    .limit(limite)
+  if (error) throw error
+
+  const lista = data.map(paraApp).reverse()
+  mensagensPorConversa.set(conversaId, lista)
+  return lista
+}
+
+// Marca a conversa como lida. Abrir é ler: o contador zera aqui e some do
+// cartão do CRM no mesmo instante, porque os dois olham para a mesma linha.
+export async function marcarConversaLida(conversaId) {
+  const conversa = conversas.get(conversaId)
+  if (!conversa || Number(conversa.naoLidas || 0) === 0) return conversa
+  return conversas.update(conversaId, { naoLidas: 0 })
+}
+
+// Número que chegou sem cadastro: liga a conversa a um cliente existente.
+export async function vincularConversaACliente(conversaId, clienteId) {
+  return conversas.update(conversaId, { clienteId })
+}
+
+// Envia pelo WhatsApp. Quem fala com a Evolution é a Edge Function; daqui só
+// sai o texto e o destino, com o JWT da sessão que o Supabase já anexa.
+export async function enviarMensagemWhatsapp({ conversaId, clienteId, numero, texto, oportunidadeId }) {
+  const { data, error } = await supabase.functions.invoke('wa-enviar', {
+    body: {
+      conversaId: conversaId || undefined,
+      clienteId: clienteId || undefined,
+      numero: numero || undefined,
+      texto,
+      oportunidadeId: oportunidadeId || undefined,
+      enviadoPor: usuarioAtual(),
+    },
+  })
+
+  // A função devolve o motivo real da recusa (número inexistente no WhatsApp,
+  // instância caída). Repassar isso é o que evita o "erro ao enviar" genérico
+  // que não ajuda ninguém.
+  if (error) {
+    let detalhe = ''
+    try {
+      const corpo = await error.context?.json?.()
+      detalhe = corpo?.detalhe || corpo?.erro || ''
+    } catch { /* resposta sem corpo JSON */ }
+    throw new Error(detalhe || error.message || 'não foi possível enviar')
+  }
+
+  // Recarrega a conversa afetada para a tela mostrar a mensagem que acabou de
+  // sair, sem esperar o eco do Realtime.
+  if (data?.conversaId) {
+    await recarregarConversa(data.conversaId)
+    await carregarMensagens(data.conversaId)
+  }
+  return data
+}
+
+export async function statusWhatsapp() {
+  const { data, error } = await supabase.functions.invoke('wa-status')
+  if (error) throw new Error(error.message || 'não foi possível falar com o WhatsApp')
+  return data
+}
+
+async function recarregarConversa(conversaId) {
+  const { data, error } = await supabase.from('conversas').select('*').eq('id', conversaId).maybeSingle()
+  if (error || !data) return null
+  const item = paraApp(data)
+  const existe = cache.conversas.some((c) => c.id === conversaId)
+  cache.conversas = existe
+    ? cache.conversas.map((c) => (c.id === conversaId ? item : c))
+    : [...cache.conversas, item]
+  return item
+}
+
+// Assina as mudanças que chegam sozinhas. Devolve a função de cancelar, para a
+// tela desligar no unmount.
+export function assinarWhatsapp(aoMudar) {
+  // Nome único por assinatura: mais de uma tela escuta ao mesmo tempo (o CRM
+  // pelo contador, a caixa de entrada pela conversa), e dois canais com o mesmo
+  // tópico se atropelam no Supabase.
+  const canal = supabase
+    .channel(`whatsapp-${crypto.randomUUID()}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'mensagens' }, async (evento) => {
+      const linha = evento.new ?? evento.old
+      const conversaId = linha?.conversa_id
+      if (!conversaId) return
+      // Só recarrega a conversa que já está aberta na tela: puxar o histórico
+      // de todas a cada mensagem seria trabalho jogado fora.
+      if (mensagensPorConversa.has(conversaId)) await carregarMensagens(conversaId)
+      await recarregarConversa(conversaId)
+      aoMudar?.()
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'conversas' }, async (evento) => {
+      const id = evento.new?.id ?? evento.old?.id
+      if (evento.eventType === 'DELETE') {
+        cache.conversas = cache.conversas.filter((c) => c.id !== id)
+      } else if (id) {
+        await recarregarConversa(id)
+      }
+      aoMudar?.()
+    })
+    .subscribe()
+
+  return () => supabase.removeChannel(canal)
+}
+
+// ---- Funil (oportunidades) ----
+
+// Espaço entre cartões vizinhos. Cartão novo entra no fim da coluna com
+// `ultima + PASSO_ORDEM`; mover calcula a média entre os vizinhos. Assim um
+// arrasto grava UMA linha, e não a coluna inteira renumerada.
+const PASSO_ORDEM = 1000
+
+const porOrdem = (a, b) => Number(a.ordem || 0) - Number(b.ordem || 0)
+
+// Os cartões de uma etapa, na ordem em que aparecem na coluna.
+export function oportunidadesDaEtapa(etapa) {
+  return oportunidades.list().filter((o) => o.etapa === etapa).sort(porOrdem)
+}
+
+// O quadro inteiro. As etapas fechadas mostram só o passado recente: manter
+// "ganho" e "perdido" inteiros faria a coluna crescer para sempre e esconder o
+// que ainda dá para trabalhar.
+export function oportunidadesPorEtapa(diasDeFechadas = 30) {
+  const limite = somarDias(hojeISO(), -diasDeFechadas)
+  const quadro = {}
+  for (const etapa of Object.keys(ETAPAS_FUNIL)) {
+    const cartoes = oportunidadesDaEtapa(etapa)
+    quadro[etapa] = ETAPAS_FECHADAS.includes(etapa)
+      ? cartoes.filter((o) => !o.fechadaEm || o.fechadaEm >= limite)
+      : cartoes
+  }
+  return quadro
+}
+
+export function oportunidadesDoCliente(clienteId) {
+  if (!clienteId) return []
+  return oportunidades
+    .list()
+    .filter((o) => o.clienteId === clienteId)
+    .sort((a, b) => String(b.criadoEm || '').localeCompare(String(a.criadoEm || '')))
+}
+
+// Contagem e dinheiro em jogo por etapa, para o cabeçalho das colunas.
+export function resumoDoFunil() {
+  const quadro = oportunidadesPorEtapa()
+  const resumo = {}
+  for (const [etapa, cartoes] of Object.entries(quadro)) {
+    resumo[etapa] = {
+      quantidade: cartoes.length,
+      valor: cartoes.reduce((soma, o) => soma + Number(o.valorEstimado || 0), 0),
+    }
+  }
+  return resumo
+}
+
+// Negociações abertas paradas há mais de `dias` — o número que importa no
+// dashboard. Uma oportunidade esquecida não avisa que foi esquecida.
+export function oportunidadesParadas(dias = 7) {
+  const limite = somarDias(hojeISO(), -dias)
+  return oportunidades
+    .list()
+    .filter((o) => ETAPAS_ABERTAS.includes(o.etapa))
+    .filter((o) => String(o.atualizadoEm || o.criadoEm || '').slice(0, 10) < limite)
+    .sort((a, b) => String(a.atualizadoEm || '').localeCompare(String(b.atualizadoEm || '')))
+}
+
+function tituloPadraoDaOportunidade(dados) {
+  const produto = dados.produtoId ? produtos.get(dados.produtoId) : null
+  if (produto) return produto.nome
+  const cliente = dados.clienteId ? clientes.get(dados.clienteId) : null
+  return cliente ? `Negociação — ${cliente.nome}` : 'Nova negociação'
+}
+
+export async function salvarOportunidade(form) {
+  const etapa = form.etapa || 'novo'
+  const dados = {
+    ...form,
+    etapa,
+    titulo: String(form.titulo || '').trim() || tituloPadraoDaOportunidade(form),
+    valorEstimado: Number(form.valorEstimado || 0),
+    responsavel: form.responsavel || usuarioAtual(),
+    criadoPor: form.criadoPor || usuarioAtual(),
+  }
+
+  // Cartão novo entra no fim da coluna: quem acabou de chegar não fura a fila
+  // do que já estava sendo trabalhado.
+  if (!form.id) {
+    const coluna = oportunidadesDaEtapa(etapa)
+    const ultima = coluna[coluna.length - 1]
+    dados.ordem = ultima ? Number(ultima.ordem || 0) + PASSO_ORDEM : PASSO_ORDEM
+  }
+
+  return form.id ? oportunidades.update(form.id, dados) : oportunidades.create(dados)
+}
+
+// Move o cartão para `etapa`, na posição `indice` daquela coluna.
+//
+// A nova ordem é a média entre os vizinhos de destino. Com numeric(20,10) dá
+// para dividir o intervalo dezenas de vezes antes de faltar precisão, e uma
+// coluna reordenada à mão tantas vezes assim é hipótese de laboratório.
+export async function moverOportunidade(id, etapa, indice) {
+  const cartao = oportunidades.get(id)
+  if (!cartao) return null
+
+  const coluna = oportunidadesDaEtapa(etapa).filter((o) => o.id !== id)
+  const posicao = Math.max(0, Math.min(indice ?? coluna.length, coluna.length))
+  const anterior = coluna[posicao - 1]
+  const proximo = coluna[posicao]
+
+  let ordem
+  if (!anterior && !proximo) ordem = PASSO_ORDEM
+  else if (!anterior) ordem = Number(proximo.ordem || PASSO_ORDEM) / 2
+  else if (!proximo) ordem = Number(anterior.ordem || 0) + PASSO_ORDEM
+  else ordem = (Number(anterior.ordem || 0) + Number(proximo.ordem || 0)) / 2
+
+  return oportunidades.update(id, { etapa, ordem })
+}
+
+// O canal da negociação e o canal da venda são vocabulários diferentes (a venda
+// só conhece quatro). Traduz em vez de deixar o CHECK do banco recusar a venda.
+function canalDaVenda(canal) {
+  if (['loja', 'whatsapp', 'telefone'].includes(canal)) return canal
+  return canal ? 'externo' : ''
+}
+
+// Abre a venda a partir da negociação, já com cliente, produto e valor.
+//
+// Nasce como PROPOSTA de propósito: proposta não vira dinheiro no caixa (ver
+// salvarVenda), então ganhar o funil nunca lança receita sozinho. Quem confirma
+// a venda — e com isso gera parcelas e agenda a instalação — continua sendo
+// você, na tela de Vendas.
+export async function criarVendaDaOportunidade(oportunidade) {
+  const produto = oportunidade.produtoId ? produtos.get(oportunidade.produtoId) : null
+  const valor = Number(oportunidade.valorEstimado || 0) || Number(produto?.valor || 0)
+
+  const itens = produto
+    ? [{
+        produtoId: produto.id,
+        descricao: produto.nome,
+        quantidade: 1,
+        valorUnitario: valor,
+        desconto: 0,
+      }]
+    : []
+
+  return salvarVenda(
+    {
+      clienteId: oportunidade.clienteId,
+      data: hojeISO(),
+      tipo: 'venda',
+      canal: canalDaVenda(oportunidade.canal),
+      status: 'proposta',
+      validadeDias: 15,
+      formaPagamento: 'pix',
+      condicao: 'a_vista',
+      parcelas: 1,
+      desconto: 0,
+      frete: 0,
+      entrada: 0,
+      observacoes: oportunidade.observacoes || '',
+      oportunidadeId: oportunidade.id,
+      origemAtividadeId: oportunidade.origemAtividadeId || '',
+    },
+    itens,
+  )
+}
+
+// Fecha a negociação como ganha. `criarVenda` abre a proposta correspondente e
+// guarda o vínculo nos dois sentidos.
+export async function ganharOportunidade(id, { criarVenda = false } = {}) {
+  const cartao = oportunidades.get(id)
+  if (!cartao) return null
+
+  let venda = null
+  if (criarVenda && !cartao.vendaId) venda = await criarVendaDaOportunidade(cartao)
+
+  return oportunidades.update(id, {
+    etapa: 'ganho',
+    fechadaEm: hojeISO(),
+    motivoPerda: '',
+    vendaId: venda?.id || cartao.vendaId || '',
+  })
+}
+
+// Fecha como perdida. O motivo é obrigatório pela mesma razão que o resultado
+// "retornar" exige data de volta: o registro só serve se disser alguma coisa.
+export async function perderOportunidade(id, { motivo, observacoes } = {}) {
+  if (!motivo) {
+    throw new Error(
+      'Escolha o motivo da perda: negociação perdida sem motivo não vira ' +
+      'aprendizado nenhum no fim do mês.',
+    )
+  }
+  const cartao = oportunidades.get(id)
+  if (!cartao) return null
+
+  return oportunidades.update(id, {
+    etapa: 'perdido',
+    fechadaEm: hojeISO(),
+    motivoPerda: motivo,
+    observacoes: observacoes ?? cartao.observacoes,
+  })
+}
+
+// Volta uma negociação fechada para o fluxo. A venda já criada continua
+// vinculada — ela existe de fato, e apagar o rastro seria mentir.
+export async function reabrirOportunidade(id, etapa = 'negociacao') {
+  return oportunidades.update(id, { etapa, fechadaEm: '', motivoPerda: '' })
+}
+
+export async function excluirOportunidade(id) {
+  await oportunidades.remove(id)
+}
+
+// ---- Leads ----
+//
+// Um LEAD é uma oportunidade sem cliente: alguém escreveu no WhatsApp, o número
+// não está no cadastro, e o sistema abriu a negociação sozinho (ver a Edge
+// Function `wa-webhook` e a migração 011).
+//
+// A escolha de fundo: não criar cliente automático. `clientes` alimenta venda,
+// financeiro, agenda e os documentos — enchê-lo de engano e propaganda estraga
+// tudo isso. O cadastro nasce quando VOCÊ decide que aquela pessoa é cliente.
+
+export const ehLead = (oportunidade) => !!oportunidade && !oportunidade.clienteId
+
+// Quem é a pessoa do cartão, seja ela cliente ou lead.
+export function contatoDaOportunidade(oportunidade) {
+  if (!oportunidade) return null
+  const cliente = oportunidade.clienteId ? clientes.get(oportunidade.clienteId) : null
+  if (cliente) {
+    return { nome: cliente.nome, telefone: cliente.telefone, cliente, lead: false }
+  }
+  return {
+    nome: oportunidade.contatoNome || 'Contato sem nome',
+    telefone: formatarE164(oportunidade.contatoTelefone) || oportunidade.contatoTelefone || '',
+    cliente: null,
+    lead: true,
+  }
+}
+
+// A conversa de WhatsApp de uma oportunidade — pelo vínculo direto (lead) ou
+// pelo cliente (negociação normal).
+export function conversaDaOportunidade(oportunidade) {
+  if (!oportunidade) return null
+  if (oportunidade.conversaId) return conversas.get(oportunidade.conversaId) ?? null
+  return conversaDoCliente(oportunidade.clienteId)
+}
+
+export function naoLidasDaOportunidade(oportunidade) {
+  if (!oportunidade) return 0
+  if (oportunidade.clienteId) return naoLidasDoCliente(oportunidade.clienteId)
+  return naoLidasDaConversa(oportunidade.conversaId)
+}
+
+// Promove o lead a cliente: cria o cadastro, e liga a ele a negociação e a
+// conversa. É o momento em que a pessoa deixa de ser "um número que escreveu" e
+// passa a existir no sistema — por isso é uma decisão sua, com um clique, e não
+// um efeito colateral de ter recebido mensagem.
+export async function converterLeadEmCliente(oportunidadeId, dadosDoCliente = {}) {
+  const oportunidade = oportunidades.get(oportunidadeId)
+  if (!oportunidade) throw new Error('negociação não encontrada')
+  if (oportunidade.clienteId) return clientes.get(oportunidade.clienteId)
+
+  const nome = String(dadosDoCliente.nome || oportunidade.contatoNome || '').trim()
+  if (!nome) throw new Error('dê um nome ao cliente antes de converter')
+
+  const cliente = await clientes.create({
+    ...dadosDoCliente,
+    nome,
+    telefone: dadosDoCliente.telefone || formatarE164(oportunidade.contatoTelefone),
+    criadoPor: usuarioAtual(),
+  })
+
+  await oportunidades.update(oportunidadeId, {
+    clienteId: cliente.id,
+    titulo: oportunidade.titulo?.includes('(WhatsApp)') ? nome : oportunidade.titulo,
+  })
+
+  // A conversa também passa a ter dono: a partir daqui ela aparece na ficha do
+  // cliente e para de ser mostrada como "sem cadastro".
+  if (oportunidade.conversaId) {
+    await conversas.update(oportunidade.conversaId, { clienteId: cliente.id })
+  }
+
+  return cliente
+}
+
 // ---- Lançamentos (caixa) ----
 
 // Marca um lançamento como recebido/pago. Reflete no agendamento de origem para
@@ -532,7 +1044,11 @@ export async function salvarLancamento(form) {
     parcelas: Number(form.parcelas || 1),
     origem: form.origem || 'manual',
   }
-  return form.id ? lancamentos.update(form.id, dados) : lancamentos.create(dados)
+  const salvo = form.id ? await lancamentos.update(form.id, dados) : await lancamentos.create(dados)
+  // Editar a situação à mão é o mesmo que dar baixa: o agendamento de origem
+  // precisa saber, senão o rótulo "Pago / A receber" fica mentindo lá.
+  await refletirPagamentoNoAgendamento(salvo)
+  return salvo
 }
 
 export async function excluirLancamento(id) {
@@ -911,11 +1427,12 @@ export function trilhaDeOrigem(registro, limite = 10) {
   return trilha
 }
 
-// O que nasceu de uma atividade: outras atividades, serviços e vendas.
+// O que nasceu de uma atividade: outras atividades, negociações, serviços e vendas.
 export function desdobramentosDe(atividadeId) {
-  if (!atividadeId) return { atividades: [], agendamentos: [], vendas: [] }
+  if (!atividadeId) return { atividades: [], oportunidades: [], agendamentos: [], vendas: [] }
   return {
     atividades: atividades.list().filter((a) => a.origemAtividadeId === atividadeId),
+    oportunidades: oportunidades.list().filter((o) => o.origemAtividadeId === atividadeId),
     agendamentos: agendamentos.list().filter((a) => a.origemAtividadeId === atividadeId),
     vendas: vendas.list().filter((v) => v.origemAtividadeId === atividadeId),
   }
@@ -1091,6 +1608,23 @@ export function linhaDoTempoDoCliente(clienteId) {
       titulo: TIPOS_AGENDAMENTO[ag.tipo] ?? ag.tipo,
       detalhe: ag.observacoes || '',
       registro: ag,
+    })
+  }
+
+  // A negociação entra pela data em que fechou; enquanto está aberta, pela data
+  // em que nasceu — é quando ela de fato aconteceu na história do cliente.
+  for (const o of oportunidades.list().filter((x) => x.clienteId === clienteId)) {
+    itens.push({
+      id: `oportunidade:${o.id}`,
+      quando: o.fechadaEm || String(o.criadoEm || '').slice(0, 10),
+      categoria: 'oportunidade',
+      titulo: o.titulo || 'Negociação',
+      detalhe: [
+        ETAPAS_FUNIL[o.etapa] ?? o.etapa,
+        Number(o.valorEstimado || 0) ? formatBRL(o.valorEstimado) : '',
+        o.motivoPerda ? MOTIVOS_PERDA[o.motivoPerda] ?? o.motivoPerda : '',
+      ].filter(Boolean).join(' · '),
+      registro: o,
     })
   }
 

@@ -94,7 +94,7 @@ export function LinhaEvento({ evento, onAbrir, onConcluir, acoes }) {
             onClick={() => onConcluir(evento)}
             title="Concluir"
             aria-label={`Concluir: ${evento.titulo}`}
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600 cursor-pointer"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl text-slate-400 hover:bg-emerald-50 hover:text-emerald-600 cursor-pointer"
           >
             <IconCheck size={16} />
           </button>

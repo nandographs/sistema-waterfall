@@ -1,0 +1,26 @@
+# Configuração do Supabase CLI (Edge Functions).
+#
+# O `project_id` é o mesmo que aparece no endereço do painel:
+# supabase.com/dashboard/project/<project_id>
+
+project_id = "tvakqrqvnaefubvqewtz"
+
+# ---------------------------------------------------------------------------
+# Funções
+# ---------------------------------------------------------------------------
+# Por padrão toda função exige o JWT do usuário logado — é o que queremos em
+# `wa-enviar` e `wa-status`: só quem entrou no sistema manda mensagem.
+#
+# `wa-webhook` é a exceção obrigatória: quem chama ela é a Evolution Go, que
+# não tem (nem deve ter) um login do Waterfall. Sem JWT, a porta fica aberta —
+# por isso ela valida um segredo próprio (WEBHOOK_TOKEN) logo na primeira
+# linha. Ver o comentário no topo de functions/wa-webhook/index.ts.
+
+[functions.wa-webhook]
+verify_jwt = false
+
+[functions.wa-enviar]
+verify_jwt = true
+
+[functions.wa-status]
+verify_jwt = true

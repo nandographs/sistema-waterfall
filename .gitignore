@@ -9,3 +9,11 @@ dist
 .env
 .env.*
 !.env.example
+
+# Supabase CLI: `link` grava o id do projeto e credenciais temporárias aqui.
+# O resto da pasta supabase/ (config.toml e as functions) É versionado.
+supabase/.temp
+supabase/.branches
+
+# Saída local do fluxo de review de design (impeccable)
+.impeccable/

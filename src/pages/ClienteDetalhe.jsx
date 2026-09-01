@@ -4,18 +4,19 @@ import {
   clientes, produtos, equipamentos, vendas, lancamentos, agendamentos,
   salvarVenda, darBaixa, excluirVenda, itensDaVenda, agendarProximaTroca,
   definirFotoPerfil, removerFotoPerfil,
-  proximoPasso, linhaDoTempoDoCliente,
+  proximoPasso, linhaDoTempoDoCliente, oportunidadesDoCliente,
   proximaTroca, formatBRL, formatData, enderecoCompleto,
-  FORMAS_PAGAMENTO, STATUS_VENDA, RESULTADOS_ATIVIDADE,
+  FORMAS_PAGAMENTO, STATUS_VENDA, RESULTADOS_ATIVIDADE, ETAPAS_FUNIL, ETAPAS_FECHADAS,
 } from '../data/repository.js'
 import { hojeISO, formatHora, diaCurto } from '../lib/datas.js'
-import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge } from '../components/ui.jsx'
+import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge, notificar } from '../components/ui.jsx'
 import { IconPlus, IconFileText, IconChevronLeft, IconUser, IconTrash, IconEye, IconAlert } from '../components/icons.jsx'
 import { IconeDoEvento, estiloDoEvento } from '../components/evento.jsx'
 import AtividadeModal, { atividadeNova } from '../components/AtividadeModal.jsx'
 import OrdemServicoModal from '../components/OrdemServicoModal.jsx'
 import AgendamentoDetalheModal from '../components/AgendamentoDetalheModal.jsx'
 import PedidoModal from '../components/PedidoModal.jsx'
+import OportunidadeModal, { oportunidadeNova } from '../components/OportunidadeModal.jsx'
 import ClienteFormFields from '../components/ClienteFormFields.jsx'
 import FotosCliente from '../components/FotosCliente.jsx'
 import FotoUnica from '../components/FotoUnica.jsx'
@@ -47,6 +48,7 @@ export default function ClienteDetalhe() {
   const [removerEquip, setRemoverEquip] = useState(false)
   const [excluindo, setExcluindo] = useState(false)
   const [atividadeForm, setAtividadeForm] = useState(null)
+  const [oportunidadeForm, setOportunidadeForm] = useState(null)
 
   if (!cliente) {
     return (
@@ -69,6 +71,10 @@ export default function ClienteDetalhe() {
     .filter((l) => l.clienteId === id && l.tipo === 'entrada')
     .sort((a, b) => (a.vencimento || '').localeCompare(b.vencimento || ''))
   const meusAgendamentos = agendamentos.list().filter((a) => a.clienteId === id)
+
+  // As negociações deste cliente — abertas e fechadas, da mais recente para a
+  // mais antiga. É o que o funil mostra em coluna, visto pelo lado do cliente.
+  const minhasOportunidades = oportunidadesDoCliente(id)
 
   // A próxima coisa marcada para este cliente, seja contato ou serviço.
   const passo = proximoPasso(id)
@@ -158,7 +164,7 @@ export default function ClienteDetalhe() {
       setVendaExcluir(null)
       refresh()
     } catch (erro) {
-      alert('Não foi possível excluir a venda: ' + (erro?.message || erro))
+      notificar('Não foi possível excluir a venda: ' + (erro?.message || erro), 'erro')
     } finally {
       setExcluindo(false)
     }
@@ -281,6 +287,49 @@ export default function ClienteDetalhe() {
         </div>
 
         <div className="lg:col-span-2 space-y-6">
+          <Card
+            title="Negociações"
+            action={
+              <Link to="/crm" className="text-xs font-medium text-blue-600 hover:underline">
+                Abrir CRM
+              </Link>
+            }
+          >
+            <div className="mb-3">
+              <Button onClick={() => setOportunidadeForm(oportunidadeNova({ clienteId: id }))}>
+                <IconPlus size={16} /> Nova negociação
+              </Button>
+            </div>
+            {minhasOportunidades.length === 0 && (
+              <Empty>Nenhuma negociação registrada para este cliente.</Empty>
+            )}
+            <ul className="divide-y divide-slate-100">
+              {minhasOportunidades.map((o) => (
+                <li key={o.id} className="py-3 flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-medium">{o.titulo}</p>
+                    <p className="text-xs text-slate-500">
+                      {Number(o.valorEstimado || 0) ? `${formatBRL(o.valorEstimado)} · ` : ''}
+                      {ETAPAS_FECHADAS.includes(o.etapa) && o.fechadaEm
+                        ? `fechada em ${formatData(o.fechadaEm)}`
+                        : (o.dataPrevista ? `previsão ${formatData(o.dataPrevista)}` : 'sem previsão')}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge color={
+                      o.etapa === 'ganho' ? 'green' : (o.etapa === 'perdido' ? 'red' : 'sky')
+                    }>
+                      {ETAPAS_FUNIL[o.etapa] ?? o.etapa}
+                    </Badge>
+                    <Button variant="ghost" onClick={() => setOportunidadeForm(o)} title="Abrir negociação">
+                      <IconEye size={15} /> Ver
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </Card>
+
           <Card title="Produtos e vendas">
             <div className="mb-3">
               <Button onClick={() => setVendaForm({ ...VENDA_VAZIA })}><IconPlus size={16} /> Registrar venda</Button>
@@ -463,6 +512,15 @@ export default function ClienteDetalhe() {
           key={atividadeForm.id || 'nova-atividade'}
           atividade={atividadeForm}
           onFechar={() => setAtividadeForm(null)}
+          onSalvo={refresh}
+        />
+      )}
+
+      {oportunidadeForm && (
+        <OportunidadeModal
+          key={oportunidadeForm.id || 'nova-oportunidade'}
+          oportunidade={oportunidadeForm}
+          onFechar={() => setOportunidadeForm(null)}
           onSalvo={refresh}
         />
       )}

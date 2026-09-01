@@ -1,6 +1,6 @@
 import {
   IconDashboard, IconUsers, IconDroplet, IconCalendar,
-  IconFileText, IconWallet, IconCheckSquare,
+  IconFileText, IconWallet, IconCheckSquare, IconFunil, IconMessage,
 } from './icons.jsx'
 
 // "Agenda" é o seu dia (contatos, tarefas, o calendário); "Serviços" são as
@@ -13,6 +13,15 @@ export const LINKS = [
   { to: '/clientes', label: 'Clientes', Icon: IconUsers },
   { to: '/produtos', label: 'Produtos', Icon: IconDroplet },
   { to: '/agendamentos', label: 'Serviços', Icon: IconCheckSquare },
+  // "CRM" antes de "Vendas" porque é essa a ordem do trabalho: a negociação vem
+  // primeiro, o pedido é o desfecho dela. No código e nos comentários a tela
+  // continua sendo o "funil" (Funil.jsx, resumoDoFunil, ETAPAS_FUNIL) — mesma
+  // separação de "Serviços", cujo arquivo e tabela seguem como agendamentos.
+  { to: '/crm', label: 'CRM', Icon: IconFunil },
+  // PRÉVIA: a tela existe com dados fictícios enquanto a Evolution Go não está
+  // no ar (ver CRM_WHATSAPP.md). Tirar esta linha esconde a tela do menu sem
+  // quebrar nada — a rota continua acessível por endereço.
+  { to: '/whatsapp', label: 'WhatsApp', Icon: IconMessage },
   { to: '/vendas', label: 'Vendas', Icon: IconFileText },
   { to: '/financeiro', label: 'Financeiro', Icon: IconWallet },
 ]

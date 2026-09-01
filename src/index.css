@@ -18,7 +18,7 @@
    ========================================================================== */
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
 
   /* Azul da marca: #009ace (escala derivada dele) */
   --color-blue-50: #e5f6fc;
@@ -54,8 +54,246 @@
   --color-accent-suave: #edf3fc;
 }
 
+/* ============================================================================
+   Cockpit operacional escuro
+   A referência do redesign usa contraste entre um canvas quase preto e painéis
+   grafite. A escala slate é semântica: 50–300 são superfícies e bordas; 400–900
+   são texto, do apoio ao foreground.
+   ========================================================================== */
+@theme {
+  --color-slate-50: #0d0c12;
+  --color-slate-100: #17161c;
+  --color-slate-200: #2b2932;
+  --color-slate-300: #3a3742;
+  --color-slate-400: #9891a2;
+  --color-slate-500: #b1aaba;
+  --color-slate-600: #c9c4cf;
+  --color-slate-700: #dedbe3;
+  --color-slate-800: #efedf3;
+  --color-slate-900: #faf9fc;
+
+  --color-blue-50: #18213b;
+  --color-blue-100: #22315a;
+  --color-blue-200: #b7c7ff;
+  --color-blue-500: #7696ff;
+  --color-blue-600: #5f82ef;
+  --color-blue-700: #cad5ff;
+
+  --color-red-50: #351d22;
+  --color-red-100: #4b242a;
+  --color-red-200: #74333b;
+  --color-red-500: #ff7e7d;
+  --color-red-600: #ff9796;
+  --color-red-700: #ffc2c1;
+
+  --color-emerald-50: #153128;
+  --color-emerald-100: #1b4033;
+  --color-emerald-200: #2c6a52;
+  --color-emerald-400: #68e6aa;
+  --color-emerald-500: #5bdfa0;
+  --color-emerald-600: #74edb6;
+  --color-emerald-700: #a9f5d2;
+
+  --color-amber-50: #342c1d;
+  --color-amber-100: #493a21;
+  --color-amber-200: #735a2d;
+  --color-amber-400: #f1ca70;
+  --color-amber-500: #e7bb55;
+  --color-amber-600: #f3cf7c;
+  --color-amber-700: #f8dfa5;
+
+  --color-violet-50: #271e3c;
+  --color-violet-500: #ae8af1;
+  --color-violet-600: #c1a5f7;
+
+  --color-accent-suave: #202a49;
+}
+
+/* ============================================================================
+   Temas — escuro (padrão, o "cockpit" do redesign) e claro (opt-in)
+   ============================================================================
+   As escalas do Tailwind acima já geram os utilitários (bg-slate-*, text-
+   slate-*, border-*, etc.). Aqui só trocamos os VALORES das variáveis conforme
+   o <html data-theme>. Nenhuma classe muda entre um tema e outro — quem alterna
+   é src/lib/tema.js. Sem data-theme, vale o escuro.
+   ========================================================================== */
+
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --surface-base: #08070d;
+  --surface-nav: #121116;
+  --surface-card: #1a191f;
+  --surface-raised: #222127;
+  --accent-blue: #7696ff;
+  --accent-green: #68e6aa;
+  --accent-coral: #ff8a78;
+  --accent-yellow: #f1cf78;
+
+  --nav-active-bg: #f6f4fb;
+  --nav-active-fg: #0d0b12;
+  --btn-primary-fg: #08070d;
+  --logo-filter: brightness(0) invert(1);
+  --topnav-bg: rgb(8 7 13 / 0.95);
+  --nav-blur-bg: rgb(18 17 22 / 0.98);
+  --scrollbar-thumb: #3a3742;
+  --scrollbar-track: #121116;
+  --focus-ring: #9bb2ff;
+  --card-hover-border: #45414d;
+  --selection-fg: #08070d;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  /* Neutros claros do template "library-dashboard" */
+  --color-slate-50: #f8f8f8;
+  --color-slate-100: #f2f2f2;
+  --color-slate-200: #ededed;
+  --color-slate-300: #e4e4e4;
+  --color-slate-400: #a3a3a3;
+  --color-slate-500: #858585;
+  --color-slate-600: #5c6478;
+  --color-slate-700: #485066;
+  --color-slate-800: #242424;
+  --color-slate-900: #0a1b39;
+
+  --color-blue-50: #e5f6fc;
+  --color-blue-100: #cfeef9;
+  --color-blue-200: #a0def2;
+  --color-blue-500: #00ace6;
+  --color-blue-600: #009ace;
+  --color-blue-700: #007ea8;
+
+  --color-red-50: #fff2f2;
+  --color-red-100: #ffe1e1;
+  --color-red-200: #ffc9c9;
+  --color-red-500: #ff5150;
+  --color-red-600: #ff5150;
+  --color-red-700: #e63b3a;
+
+  --color-emerald-50: #ecfdf5;
+  --color-emerald-100: #d1fae5;
+  --color-emerald-200: #a7f3d0;
+  --color-emerald-400: #34d399;
+  --color-emerald-500: #10b981;
+  --color-emerald-600: #059669;
+  --color-emerald-700: #047857;
+
+  --color-amber-50: #fffbeb;
+  --color-amber-100: #fef3c7;
+  --color-amber-200: #fde68a;
+  --color-amber-400: #fbbf24;
+  --color-amber-500: #f59e0b;
+  --color-amber-600: #d97706;
+  --color-amber-700: #b45309;
+
+  --color-violet-50: #f5f3ff;
+  --color-violet-500: #8b5cf6;
+  --color-violet-600: #7c3aed;
+
+  --color-accent-suave: #edf3fc;
+
+  --surface-base: #f8f8f8;
+  --surface-nav: #ffffff;
+  --surface-card: #ffffff;
+  --surface-raised: #ffffff;
+  --accent-blue: #009ace;
+  --accent-green: #059669;
+  --accent-coral: #ff5150;
+  --accent-yellow: #d97706;
+
+  --nav-active-bg: #edf3fc;
+  --nav-active-fg: #007ea8;
+  --btn-primary-fg: #ffffff;
+  --logo-filter: none;
+  --topnav-bg: rgb(255 255 255 / 0.9);
+  --nav-blur-bg: rgb(255 255 255 / 0.98);
+  --scrollbar-thumb: #cfcfcf;
+  --scrollbar-track: #f2f2f2;
+  --focus-ring: #009ace;
+  --card-hover-border: #d4d4d4;
+  --selection-fg: #ffffff;
+}
+
+html {
+  background: var(--surface-base);
+}
+
 body {
   @apply bg-slate-50 text-slate-900 font-sans antialiased;
+  min-width: 320px;
+  background: var(--surface-base);
+}
+
+::selection {
+  color: var(--selection-fg);
+  background: var(--accent-blue);
+}
+
+* {
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+*:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
+.app-shell {
+  background: var(--surface-base);
+}
+
+/* Classes antigas de superfície continuam aparecendo nas páginas. "Branco" passa
+   a significar o painel principal — grafite no escuro, branco de fato no claro. */
+.app-shell .bg-white {
+  background-color: var(--surface-card);
+}
+
+/* Só no escuro o azul de ação recebe texto quase-preto; no claro ele mantém o
+   texto branco padrão do Tailwind. */
+:root:not([data-theme="light"]) .app-shell .bg-blue-600.text-white {
+  color: #08070d;
+}
+
+.app-shell a,
+.app-shell button,
+.app-shell input,
+.app-shell select,
+.app-shell textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* A logo é um SVG azul: no escuro vira branco por filtro, no claro fica natural. */
+.logo-mark {
+  filter: var(--logo-filter);
+}
+
+.ui-card {
+  background: var(--surface-card);
+}
+
+.ui-card-interativa {
+  transition: border-color 160ms ease, background-color 160ms ease, transform 160ms ease;
+}
+
+.ui-card-interativa:hover {
+  border-color: var(--card-hover-border);
+  transform: translateY(-1px);
+}
+
+.dashboard-painel-claro {
+  color-scheme: light;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
 
 /* Valores monetários e datas alinham melhor com algarismos tabulares */

@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "wallpapers": "node scripts/otimizar-wallpapers.mjs",
-    "test": "node scripts/testar-datas.mjs && node scripts/testar-financeiro.mjs && node scripts/testar-os.mjs && node scripts/testar-pedido.mjs"
+    "test": "node scripts/testar-datas.mjs && node scripts/testar-telefone.mjs && node scripts/testar-financeiro.mjs && node scripts/testar-os.mjs && node scripts/testar-pedido.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.7",

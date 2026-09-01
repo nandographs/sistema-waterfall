@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { Navigate, Route, Routes } from 'react-router-dom'
 import Login from './pages/Login.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import Clientes from './pages/Clientes.jsx'
@@ -7,15 +7,18 @@ import ClienteDetalhe from './pages/ClienteDetalhe.jsx'
 import Produtos from './pages/Produtos.jsx'
 import Agendamentos from './pages/Agendamentos.jsx'
 import Agenda from './pages/Agenda.jsx'
+import Funil from './pages/Funil.jsx'
+import WhatsApp from './pages/WhatsApp.jsx'
 import Vendas from './pages/Vendas.jsx'
 import Financeiro from './pages/Financeiro.jsx'
 import TopNav, { BottomNav } from './components/TopNav.jsx'
 import Sidebar from './components/Sidebar.jsx'
-import WallpaperPicker from './components/WallpaperPicker.jsx'
-import { lerWallpaper, salvarWallpaper, WALLPAPERS } from './data/wallpapers.js'
+import { wallpaperDaSessao } from './data/wallpapers.js'
 import { supabase } from './lib/supabaseClient.js'
 import { carregarDados } from './data/repository.js'
 import { definirUsuarioAtual } from './lib/auth.js'
+import { Toasts } from './components/ui.jsx'
+import { lerTema, salvarTema } from './lib/tema.js'
 
 function TelaCarregando() {
   return (
@@ -43,20 +46,9 @@ function TelaErro({ mensagem, onSair }) {
 }
 
 function AppLayout({ onSair }) {
-  const location = useLocation()
-  const naDashboard = location.pathname === '/'
-
-  // O wallpaper é o fundo apenas do dashboard; o estado vive aqui para o
-  // botão "Mudar wallpaper" do menu superior poder controlá-lo.
-  const [wallpaperId, setWallpaperId] = useState(() => lerWallpaper().id)
-  const [pickerAberto, setPickerAberto] = useState(false)
-  const wallpaper = WALLPAPERS.find((w) => w.id === wallpaperId) ?? WALLPAPERS[0]
-
-  function escolherWallpaper(id) {
-    setWallpaperId(id)
-    salvarWallpaper(id)
-    setPickerAberto(false)
-  }
+  // O wallpaper do hero do dashboard avança sozinho a cada acesso e fica fixo
+  // pela sessão — ver wallpaperDaSessao().
+  const [wallpaper] = useState(wallpaperDaSessao)
 
   // Estrutura do template: sidebar fixa à esquerda no desktop, conteúdo rolando
   // ao lado. O estado de colapso persiste — é preferência de quem usa, não do
@@ -72,21 +64,25 @@ function AppLayout({ onSair }) {
     })
   }
 
+  const [tema, setTema] = useState(lerTema)
+  function alternarTema() {
+    setTema((atual) => {
+      const proximo = atual === 'claro' ? 'escuro' : 'claro'
+      salvarTema(proximo)
+      return proximo
+    })
+  }
+
   return (
-    <div className="min-h-svh flex bg-slate-50">
+    <div className="app-shell min-h-svh flex bg-slate-50">
       <Sidebar
         colapsada={sidebarColapsada}
         onAlternar={alternarSidebar}
-        naDashboard={naDashboard}
-        onMudarWallpaper={() => setPickerAberto(true)}
         onSair={onSair}
       />
 
-      <div className="flex-1 min-w-0 flex flex-col">
-        <TopNav
-          naDashboard={naDashboard}
-          onMudarWallpaper={() => setPickerAberto(true)}
-        />
+      <div className="flex-1 min-w-0 flex flex-col bg-transparent">
+        <TopNav tema={tema} onAlternarTema={alternarTema} />
 
         <main className="flex-1">
           <Routes>
@@ -96,6 +92,8 @@ function AppLayout({ onSair }) {
             <Route path="/produtos" element={<Produtos />} />
             <Route path="/agenda" element={<Agenda />} />
             <Route path="/agendamentos" element={<Agendamentos />} />
+            <Route path="/crm" element={<Funil />} />
+            <Route path="/whatsapp" element={<WhatsApp />} />
             <Route path="/vendas" element={<Vendas />} />
             <Route path="/financeiro" element={<Financeiro />} />
             <Route path="*" element={<Navigate to="/" replace />} />
@@ -103,14 +101,8 @@ function AppLayout({ onSair }) {
         </main>
       </div>
 
-      <WallpaperPicker
-        open={pickerAberto}
-        onClose={() => setPickerAberto(false)}
-        atual={wallpaperId}
-        onSelecionar={escolherWallpaper}
-      />
-
       <BottomNav onSair={onSair} />
+      <Toasts />
     </div>
   )
 }

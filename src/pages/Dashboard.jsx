@@ -5,9 +5,10 @@ import {
   eventosDoDia, eventosPorDia, pendenciasAtrasadas,
   concluirAtividade, mudarStatusAgendamento,
   proximaTroca, formatBRL, formatData, FORMAS_PAGAMENTO, TIPOS_AGENDAMENTO,
+  resumoDoFunil, oportunidadesParadas, ETAPAS_ABERTAS, ETAPAS_FUNIL,
 } from '../data/repository.js'
 import { hojeISO, mesAtual, mesDe, gradeDoMes, diaExtenso } from '../lib/datas.js'
-import { Card, Badge, Empty, Button } from '../components/ui.jsx'
+import { Card, Badge, Empty, Button, notificar } from '../components/ui.jsx'
 import { IconWallet, IconClock, IconCalendar, IconPlus, IconAlert } from '../components/icons.jsx'
 import { LinhaEvento } from '../components/evento.jsx'
 import CapturaRapida from '../components/CapturaRapida.jsx'
@@ -33,16 +34,34 @@ function saudacaoAleatoria() {
   return SAUDACOES[Math.floor(Math.random() * SAUDACOES.length)](nome)
 }
 
-function Kpi({ icon, iconBg, label, value, hint }) {
+function Kpi({ icon, label, value, hint, tone = 'dark' }) {
+  // `light` é o KPI de destaque: azul da marca cheio, contraste garantido nos
+  // dois temas. Os demais tons usam as escalas semânticas (acompanham o tema).
+  const destaque = tone === 'light'
+  const tons = {
+    light: 'bg-[var(--accent-blue)] text-[var(--btn-primary-fg)] border-transparent',
+    blue: 'bg-blue-50 text-blue-700 border-blue-200',
+    green: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    coral: 'bg-red-50 text-red-700 border-red-200',
+    dark: 'ui-card bg-white text-slate-900 border-slate-200',
+  }
+  const secundario = destaque ? 'text-[var(--btn-primary-fg)] opacity-70' : 'text-slate-500'
+
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-5">
-      <div className="flex items-center gap-3">
-        <span className={`flex items-center justify-center w-10 h-10 rounded-lg ${iconBg}`}>{icon}</span>
-        <p className="text-[13px] font-medium text-slate-500">{label}</p>
+    <article className={`min-h-40 rounded-2xl border p-5 flex flex-col justify-between ${tons[tone]}`}>
+      <div className="flex items-start justify-between gap-3">
+        <p className={`text-[13px] font-semibold ${secundario}`}>{label}</p>
+        <span className={`flex h-9 w-9 items-center justify-center rounded-full ${
+          destaque ? 'bg-black/10 text-[var(--btn-primary-fg)]' : 'bg-slate-500/15 text-slate-500'
+        }`}>
+          {icon}
+        </span>
       </div>
-      <p className="text-2xl xl:text-[28px] font-bold text-slate-900 tracking-tight tnum mt-3">{value}</p>
-      <p className="text-xs text-slate-400 mt-0.5">{hint}</p>
-    </div>
+      <div>
+        <p className="text-2xl xl:text-[2rem] font-extrabold tracking-[-0.04em] tnum mt-5">{value}</p>
+        <p className={`text-xs mt-1 ${secundario}`}>{hint}</p>
+      </div>
+    </article>
   )
 }
 
@@ -101,6 +120,14 @@ export default function Dashboard({ wallpaper }) {
 
   const nomeCliente = (id) => clientes.get(id)?.nome ?? '(cliente removido)'
 
+  // ---- Funil ----
+  // O número que interessa aqui não é quantas negociações existem, e sim
+  // quantas pararam: negócio esquecido não avisa que foi esquecido.
+  const resumoFunil = resumoDoFunil()
+  const funilAbertas = ETAPAS_ABERTAS.reduce((s, etapa) => s + resumoFunil[etapa].quantidade, 0)
+  const funilEmJogo = ETAPAS_ABERTAS.reduce((s, etapa) => s + resumoFunil[etapa].valor, 0)
+  const funilParadas = oportunidadesParadas(7)
+
   // ---- O dia ----
   // A pergunta que o dashboard tem que responder às 8h da manhã é uma só:
   // o que eu faço hoje? Atrasados primeiro, porque é o que muda a resposta.
@@ -128,7 +155,7 @@ export default function Dashboard({ wallpaper }) {
       }
       setConcluindo(atividade)
     } catch (erro) {
-      alert('Não foi possível concluir: ' + (erro?.message || erro))
+      notificar('Não foi possível concluir: ' + (erro?.message || erro), 'erro')
     }
   }
 
@@ -162,74 +189,102 @@ export default function Dashboard({ wallpaper }) {
     : 'Nenhuma pendência por aqui. Comece cadastrando um cliente ou agendando uma visita.'
 
   return (
-    <div className="px-4 sm:px-6 py-6 lg:px-8 lg:py-8 pb-28 lg:pb-10 max-w-[1600px] mx-auto w-full">
-      <div className="flex flex-wrap items-stretch gap-6 mb-6">
-        {/* Boas-vindas. O wallpaper era o fundo da página inteira; num shell de
-            sidebar branco isso brigava com tudo. Virou o próprio cartão — a
-            imagem continua sendo a escolha do usuário, agora emoldurada. */}
-        <div className="relative flex-1 min-w-[18rem] overflow-hidden rounded-xl border border-slate-200">
-          <img
-            src={wallpaper.src}
-            alt=""
-            aria-hidden="true"
-            className="absolute inset-0 h-full w-full object-cover"
-          />
-          <div className="absolute inset-0 bg-slate-900/70" />
-          <div className="relative p-6 lg:p-8 max-w-lg">
-            <p className="text-[13px] font-medium text-blue-200 first-letter:uppercase">{dataExtenso}</p>
-            <h2 className="text-2xl lg:text-3xl font-semibold text-white tracking-tight mt-2">
+    <div className="px-4 sm:px-6 py-5 lg:px-8 lg:py-7 pb-28 lg:pb-10 max-w-[1480px] mx-auto w-full">
+      <header className="relative overflow-hidden rounded-2xl border border-slate-200 mb-5 lg:mb-6 min-h-48 flex items-end">
+        <img
+          src={wallpaper.src}
+          alt=""
+          aria-hidden="true"
+          className="absolute inset-0 h-full w-full object-cover opacity-45 saturate-50"
+        />
+        <div className="absolute inset-0 bg-[#0b0a10]/80" />
+        <div className="relative w-full p-5 sm:p-7 lg:p-8 flex flex-col lg:flex-row lg:items-end lg:justify-between gap-5">
+          <div className="max-w-2xl">
+            <p className="text-sm font-semibold text-blue-200 first-letter:uppercase">{dataExtenso}</p>
+            <h2 className="text-3xl lg:text-[2.5rem] font-extrabold text-white tracking-[-0.04em] mt-2">
               {saudacao}
             </h2>
-            <p className="text-sm text-slate-100 mt-2.5 leading-relaxed">{resumoDoMes}</p>
-            <div className="flex flex-wrap gap-2 mt-6">
-              <Link to="/agendamentos">
-                <Button><IconPlus size={16} /> Novo agendamento</Button>
-              </Link>
-              <Link to="/clientes">
-                <Button variant="hero"><IconPlus size={16} /> Novo cliente</Button>
-              </Link>
-            </div>
+            <p className="text-sm text-white/70 mt-2 leading-relaxed max-w-xl">{resumoDoMes}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link to="/agendamentos">
+              <Button><IconPlus size={16} /> Novo agendamento</Button>
+            </Link>
+            <Link to="/clientes">
+              <Button variant="hero"><IconPlus size={16} /> Novo cliente</Button>
+            </Link>
           </div>
         </div>
+      </header>
 
-        {/* O dia de hoje — o que o dashboard precisa responder primeiro */}
-        <div className="w-full lg:w-[400px] rounded-xl bg-white border border-slate-200 p-4">
-          <div className="flex items-center justify-between mb-1">
-            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Hoje</p>
-            <Link to="/agenda" className="text-xs font-medium text-blue-600 hover:underline">
-              Ver agenda
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(390px,0.88fr)] gap-5 lg:gap-6 mb-6">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4">
+          <Kpi
+            tone="light"
+            icon={<IconWallet size={18} />}
+            label="Vendido no mês"
+            value={formatBRL(totalVendidoMes)}
+            hint={`${entradasDoMes.length} lançamento${entradasDoMes.length === 1 ? '' : 's'}`}
+          />
+          <Kpi
+            tone="blue"
+            icon={<IconClock size={18} />}
+            label="A receber"
+            value={formatBRL(totalAReceber)}
+            hint={`${pendentes.length} pagamento${pendentes.length === 1 ? '' : 's'} pendente${pendentes.length === 1 ? '' : 's'}`}
+          />
+          <Kpi
+            tone={vencidasAPagar.length ? 'coral' : 'dark'}
+            icon={<IconWallet size={18} />}
+            label="A pagar"
+            value={formatBRL(totalAPagar)}
+            hint={
+              vencidasAPagar.length
+                ? `${vencidasAPagar.length} conta${vencidasAPagar.length === 1 ? '' : 's'} vencida${vencidasAPagar.length === 1 ? '' : 's'}`
+                : `${aPagar.length} conta${aPagar.length === 1 ? '' : 's'} em aberto`
+            }
+          />
+          <Kpi
+            tone="green"
+            icon={<IconCalendar size={18} />}
+            label="Visitas no mês"
+            value={visitasDoMes.length}
+            hint={`${trocasPrevistas.length} troca${trocasPrevistas.length === 1 ? '' : 's'} de refil prevista${trocasPrevistas.length === 1 ? '' : 's'}`}
+          />
+        </div>
+
+        {/* O dia ocupa o primeiro lugar no mobile e o painel dominante à direita
+            no desktop: é o bloco de decisão, não mais um KPI. */}
+        <section className="ui-card order-first xl:order-none rounded-2xl border border-slate-200 p-5 sm:p-6">
+          <div className="flex items-start justify-between gap-3 mb-2">
+            <div>
+              <p className="text-xs font-semibold text-slate-500">Prioridades</p>
+              <h3 className="text-xl font-bold tracking-[-0.03em] text-slate-900 mt-1">Hoje</h3>
+            </div>
+            <Link to="/agenda" className="rounded-xl bg-[var(--nav-active-bg)] px-3.5 py-2 text-xs font-bold text-[var(--nav-active-fg)] hover:opacity-90">
+              Abrir agenda
             </Link>
           </div>
 
           {atrasados.length > 0 && (
-            <div className="mb-2">
-              <p className="flex items-center gap-1.5 text-[11px] font-semibold text-red-600 uppercase tracking-wide">
-                <IconAlert size={12} /> Atrasados ({atrasados.length})
+            <div className="mb-2 rounded-xl bg-red-50 border border-red-200 px-3">
+              <p className="flex items-center gap-1.5 text-[11px] font-bold text-red-700 pt-3">
+                <IconAlert size={12} /> {atrasados.length} atrasada{atrasados.length === 1 ? '' : 's'}
               </p>
-              <ul className="divide-y divide-slate-100">
-                {atrasados.slice(0, 3).map((evento) => (
-                  <LinhaEvento
-                    key={evento.id}
-                    evento={evento}
-                    onAbrir={abrirEvento}
-                    onConcluir={concluirEvento}
-                  />
+              <ul className="divide-y divide-red-200/60">
+                {atrasados.slice(0, 2).map((evento) => (
+                  <LinhaEvento key={evento.id} evento={evento} onAbrir={abrirEvento} onConcluir={concluirEvento} />
                 ))}
               </ul>
             </div>
           )}
 
           {eventosHoje.length === 0 ? (
-            <p className="text-sm text-slate-400 py-4 text-center">Nada marcado para hoje.</p>
+            <p className="text-sm text-slate-500 py-7 text-center">Nada marcado para hoje.</p>
           ) : (
-            <ul className="divide-y divide-slate-100">
+            <ul className="divide-y divide-slate-200">
               {eventosHoje.slice(0, 5).map((evento) => (
-                <LinhaEvento
-                  key={evento.id}
-                  evento={evento}
-                  onAbrir={abrirEvento}
-                  onConcluir={concluirEvento}
-                />
+                <LinhaEvento key={evento.id} evento={evento} onAbrir={abrirEvento} onConcluir={concluirEvento} />
               ))}
             </ul>
           )}
@@ -238,58 +293,20 @@ export default function Dashboard({ wallpaper }) {
             <button
               type="button"
               onClick={() => setForm(atividadeNova({ data: hoje }))}
-              className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline cursor-pointer"
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-xl px-3 text-sm font-semibold text-blue-700 hover:bg-blue-50 cursor-pointer"
             >
-              <IconPlus size={14} /> Adicionar
+              <IconPlus size={15} /> Adicionar ao dia
             </button>
             {eventosHoje.length > 5 && (
-              <span className="text-xs text-slate-400">
-                +{eventosHoje.length - 5} no restante do dia
-              </span>
+              <span className="text-xs text-slate-500">+{eventosHoje.length - 5} depois</span>
             )}
           </div>
-        </div>
-      </div>
-
-      {/* Indicadores */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-        <Kpi
-          icon={<IconWallet size={20} className="text-emerald-600" />}
-          iconBg="bg-emerald-50"
-          label="Vendido no mês"
-          value={formatBRL(totalVendidoMes)}
-          hint={`${entradasDoMes.length} lançamento(s)`}
-        />
-        <Kpi
-          icon={<IconClock size={20} className="text-amber-600" />}
-          iconBg="bg-amber-50"
-          label="A receber"
-          value={formatBRL(totalAReceber)}
-          hint={`${pendentes.length} pagamento(s) pendente(s)`}
-        />
-        <Kpi
-          icon={<IconWallet size={20} className="text-red-600" />}
-          iconBg="bg-red-50"
-          label="A pagar"
-          value={formatBRL(totalAPagar)}
-          hint={
-            vencidasAPagar.length
-              ? `${vencidasAPagar.length} conta(s) vencida(s)`
-              : `${aPagar.length} conta(s) em aberto`
-          }
-        />
-        <Kpi
-          icon={<IconCalendar size={20} className="text-blue-600" />}
-          iconBg="bg-blue-50"
-          label="Visitas no mês"
-          value={visitasDoMes.length}
-          hint={`${trocasPrevistas.length} troca(s) de refil prevista(s)`}
-        />
+        </section>
       </div>
 
       {/* Registrar é o gesto mais frequente do sistema; ele fica na home, já
           aberto, ao lado do calendário do mês. */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+      <div className="grid grid-cols-1 xl:grid-cols-[1.08fr_.92fr] gap-5 lg:gap-6 mb-6">
         <Card title="Registrar agora">
           <CapturaRapida onRegistrado={recarregar} />
         </Card>
@@ -308,7 +325,7 @@ export default function Dashboard({ wallpaper }) {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-[1.05fr_.95fr] gap-5 lg:gap-6">
         <Card
           title="Próximas visitas"
           action={<Link to="/agendamentos" className="text-xs font-medium text-blue-600 hover:underline">Ver todas</Link>}
@@ -330,6 +347,47 @@ export default function Dashboard({ wallpaper }) {
         </Card>
 
         <div className="space-y-6">
+          <Card
+            title="CRM"
+            action={<Link to="/crm" className="text-xs font-medium text-blue-600 hover:underline">Abrir CRM</Link>}
+          >
+            {funilAbertas === 0 ? (
+              <Empty>Nenhuma negociação aberta.</Empty>
+            ) : (
+              <>
+                <p className="text-sm text-slate-600">
+                  <span className="font-semibold text-slate-900 tnum">{funilAbertas}</span>{' '}
+                  {funilAbertas === 1 ? 'negociação aberta' : 'negociações abertas'} ·{' '}
+                  <span className="font-semibold text-slate-900 tnum">{formatBRL(funilEmJogo)}</span> em jogo
+                </p>
+
+                {funilParadas.length > 0 && (
+                  <>
+                    <p className="mt-3 flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
+                      <IconAlert size={16} className="shrink-0" />
+                      {funilParadas.length === 1
+                        ? '1 negociação parada há mais de 7 dias.'
+                        : `${funilParadas.length} negociações paradas há mais de 7 dias.`}
+                    </p>
+                    <ul className="divide-y divide-slate-100 mt-1">
+                      {funilParadas.slice(0, 5).map((o) => (
+                        <li key={o.id} className="py-3 flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <Link to={`/clientes/${o.clienteId}`} className="text-sm font-medium text-slate-900 hover:text-blue-600">
+                              {nomeCliente(o.clienteId)}
+                            </Link>
+                            <p className="text-xs text-slate-500 mt-0.5 truncate">{o.titulo}</p>
+                          </div>
+                          <Badge color="slate">{ETAPAS_FUNIL[o.etapa] ?? o.etapa}</Badge>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </>
+            )}
+          </Card>
+
           <Card title="Trocas de refil previstas">
             {trocasPrevistas.length === 0 && <Empty>Nenhuma troca prevista até o fim do mês.</Empty>}
             <ul className="divide-y divide-slate-100">

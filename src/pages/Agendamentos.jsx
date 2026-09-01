@@ -5,7 +5,7 @@ import {
   formatData, formatBRL, TIPOS_AGENDAMENTO, FORMAS_PAGAMENTO,
 } from '../data/repository.js'
 import { formatHora } from '../lib/datas.js'
-import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge } from '../components/ui.jsx'
+import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge, notificar } from '../components/ui.jsx'
 import { IconPlus, IconFileText, IconTrash, IconEye, IconSearch, IconFilter, IconMais } from '../components/icons.jsx'
 import OrdemServicoModal from '../components/OrdemServicoModal.jsx'
 import AgendamentoDetalheModal from '../components/AgendamentoDetalheModal.jsx'
@@ -167,7 +167,7 @@ export default function Agendamentos() {
       refresh()
     } catch (erro) {
       const acao = status === 'concluido' ? 'concluir' : 'cancelar'
-      alert(`Não foi possível ${acao} este agendamento: ${erro?.message || erro}`)
+      notificar(`Não foi possível ${acao} este agendamento: ${erro?.message || erro}`, 'erro')
     } finally {
       setMudandoStatus('')
     }
@@ -180,7 +180,7 @@ export default function Agendamentos() {
       setAgExcluir(null)
       refresh()
     } catch (erro) {
-      alert('Não foi possível excluir a ordem de serviço: ' + (erro?.message || erro))
+      notificar('Não foi possível excluir a ordem de serviço: ' + (erro?.message || erro), 'erro')
     } finally {
       setExcluindo(false)
     }
