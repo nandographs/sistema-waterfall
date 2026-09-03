@@ -21,6 +21,29 @@ const normalizar = (s) => String(s || '').trim().toLowerCase()
 
 const selectCls = inputCls + ' cursor-pointer'
 
+// Como a lista é ordenada. Fica FORA do painel "Filtrar por" de propósito:
+// filtro ou está ligado ou não, e o contador diz quantos são; ordem está sempre
+// valendo, então precisa ficar à vista para você saber o que está olhando.
+const ORDENS = {
+  recentes: 'Mais recentes',
+  antigos: 'Mais antigos',
+  nome: 'Nome (A–Z)',
+}
+
+// A ordem do cadastro é `criadoEm` — a data em que o cliente entrou no sistema.
+// Comparação de texto porque o timestamptz do Postgres vem em ISO, e ISO ordena
+// certo como string.
+function compararClientes(ordem) {
+  if (ordem === 'nome') {
+    return (a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR')
+  }
+  return (a, b) => {
+    const chaveA = String(a.criadoEm || '')
+    const chaveB = String(b.criadoEm || '')
+    return ordem === 'antigos' ? chaveA.localeCompare(chaveB) : chaveB.localeCompare(chaveA)
+  }
+}
+
 export default function Clientes() {
   const [lista, setLista] = useState(clientes.list())
   const [busca, setBusca] = useState('')
@@ -31,6 +54,9 @@ export default function Clientes() {
   const [somenteTroca, setSomenteTroca] = useState(false)
   const [somentePendente, setSomentePendente] = useState(false)
   const [visita, setVisita] = useState('todos') // 'todos' | 'com' | 'sem'
+  // O cache vem do banco em ordem de cadastro crescente, o que deixava quem
+  // acabou de ser cadastrado no fim da lista — justamente quem você mais procura.
+  const [ordem, setOrdem] = useState('recentes')
 
   // Painel "Filtrar por" (abre/fecha; fecha ao clicar fora)
   const [painelAberto, setPainelAberto] = useState(false)
@@ -99,18 +125,21 @@ export default function Clientes() {
     setVisita('todos')
   }
 
-  const filtrados = lista.filter((c) => {
-    const q = busca.toLowerCase()
-    const passaBusca = c.nome?.toLowerCase().includes(q) || c.telefone?.toLowerCase().includes(q)
-    if (!passaBusca) return false
-    if (cidade && normalizar(c.cidade) !== normalizar(cidade)) return false
-    if (uf && (c.uf || '').toUpperCase() !== uf) return false
-    if (somenteTroca && !temTrocaPrevista(c.id)) return false
-    if (somentePendente && !temPagamentoPendente(c.id)) return false
-    if (visita === 'com' && !proximaVisita(c.id)) return false
-    if (visita === 'sem' && proximaVisita(c.id)) return false
-    return true
-  })
+  // `filter` já devolve um array novo, então o `sort` aqui não mexe no cache.
+  const filtrados = lista
+    .filter((c) => {
+      const q = busca.toLowerCase()
+      const passaBusca = c.nome?.toLowerCase().includes(q) || c.telefone?.toLowerCase().includes(q)
+      if (!passaBusca) return false
+      if (cidade && normalizar(c.cidade) !== normalizar(cidade)) return false
+      if (uf && (c.uf || '').toUpperCase() !== uf) return false
+      if (somenteTroca && !temTrocaPrevista(c.id)) return false
+      if (somentePendente && !temPagamentoPendente(c.id)) return false
+      if (visita === 'com' && !proximaVisita(c.id)) return false
+      if (visita === 'sem' && proximaVisita(c.id)) return false
+      return true
+    })
+    .sort(compararClientes(ordem))
 
   async function salvar(e) {
     e.preventDefault()
@@ -146,6 +175,20 @@ export default function Clientes() {
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
           />
+        </div>
+
+        {/* A largura mora no wrapper: `inputCls` já traz `w-full`, e como as
+            duas classes têm a mesma especificidade quem manda é a ordem no CSS
+            gerado, não a ordem aqui — um `w-auto` no select seria ignorado. */}
+        <div className="w-40 shrink-0">
+          <select
+            className={selectCls}
+            value={ordem}
+            onChange={(e) => setOrdem(e.target.value)}
+            aria-label="Ordenar clientes por"
+          >
+            {Object.entries(ORDENS).map(([v, r]) => <option key={v} value={v}>{r}</option>)}
+          </select>
         </div>
 
         <div className="relative" ref={painelRef}>
@@ -236,6 +279,10 @@ export default function Clientes() {
                     <p className="text-xs text-slate-500">
                       {c.telefone || 'sem telefone'}
                       {c.cidade ? ` · ${c.cidade}${c.uf ? '/' + c.uf.toUpperCase() : ''}` : ''}
+                      {/* Só quando a ordem é por data: ordenar por algo que não
+                          está na tela deixa a lista sem explicação. Em A–Z a
+                          data não diz nada e viraria ruído. */}
+                      {ordem !== 'nome' && c.criadoEm ? ` · cadastrado em ${formatData(c.criadoEm)}` : ''}
                     </p>
                   </div>
                 </div>
