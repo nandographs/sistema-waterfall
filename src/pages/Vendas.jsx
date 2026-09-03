@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import {
   vendas, clientes, produtos, lancamentos,
   salvarVenda, excluirVenda, itensDaVenda, lancamentosDaVenda, totaisDaVenda,
-  formatData, formatBRL, hojeISO,
+  formatData, formatBRL, hojeISO, resolverPagamentos, normalizarPagamentos,
   FORMAS_PAGAMENTO, STATUS_VENDA, CANAIS_VENDA,
 } from '../data/repository.js'
 import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge, notificar } from '../components/ui.jsx'
@@ -11,6 +11,7 @@ import { IconPlus, IconFileText, IconTrash, IconEye, IconMais } from '../compone
 import ClienteBusca from '../components/ClienteBusca.jsx'
 import ProdutoBusca from '../components/ProdutoBusca.jsx'
 import PedidoModal from '../components/PedidoModal.jsx'
+import PagamentosVenda, { pagamentosIniciais } from '../components/PagamentosVenda.jsx'
 
 const ITEM_VAZIO = { produtoId: '', descricao: '', quantidade: 1, valorUnitario: '', desconto: '' }
 
@@ -76,6 +77,7 @@ export default function Vendas() {
 
   const [form, setForm] = useState(null)
   const [itens, setItens] = useState([])
+  const [pagamentos, setPagamentos] = useState([])
   const [filtro, setFiltro] = useState('todos')
   const [pedidoVenda, setPedidoVenda] = useState(null)
   const [detalhe, setDetalhe] = useState(null)
@@ -99,6 +101,7 @@ export default function Vendas() {
     setErro('')
     setForm({ ...FORM_VAZIO })
     setItens([{ ...ITEM_VAZIO }])
+    setPagamentos(pagamentosIniciais(null, 0))
   }
 
   function abrirEdicao(venda) {
@@ -106,6 +109,7 @@ export default function Vendas() {
     setForm({ ...FORM_VAZIO, ...venda })
     const existentes = itensDaVenda(venda.id)
     setItens(existentes.length ? existentes.map((i) => ({ ...i })) : [{ ...ITEM_VAZIO }])
+    setPagamentos(pagamentosIniciais(venda, venda.total))
   }
 
   async function salvar(e) {
@@ -113,7 +117,10 @@ export default function Vendas() {
     setErro('')
     setSalvando(true)
     try {
-      await salvarVenda(form, itens)
+      // `resolverPagamentos` fecha o campo deixado em branco com o restante do
+      // total — é o que permite salvar sem digitar valor de pagamento nenhum
+      // quando a venda tem uma forma só.
+      await salvarVenda({ ...form, pagamentos: resolverPagamentos(pagamentos, total) }, itens)
       notificar(
         form.status === 'confirmada'
           ? 'Venda confirmada. Financeiro e agenda foram atualizados conforme a condição informada.'
@@ -268,6 +275,30 @@ export default function Vendas() {
                 </span>
               </div>
             </div>
+
+            {/* Como o cliente pagou. Só aparece quando há formas registradas —
+                venda antiga (de antes da migração 015) não tem a lista, e o
+                resumo dela já está nas contas a receber logo abaixo. */}
+            {normalizarPagamentos(detalhe.pagamentos).length > 0 && (
+              <div>
+                <p className="text-[13px] font-semibold text-slate-700 mb-2">Formas de pagamento</p>
+                <ul className="divide-y divide-slate-100 border border-slate-200 rounded-lg">
+                  {normalizarPagamentos(detalhe.pagamentos).map((pg, i) => (
+                    <li key={i} className="flex flex-wrap justify-between gap-3 px-3 py-2">
+                      <span className="text-slate-700">
+                        {FORMAS_PAGAMENTO[pg.forma] ?? pg.forma}
+                        {pg.entrada && <span className="text-slate-400"> · entrada</span>}
+                        {pg.parcelas > 1 && <span className="text-slate-400"> · {pg.parcelas}x</span>}
+                        {pg.primeiroVencimento && (
+                          <span className="text-slate-400"> · a partir de {formatData(pg.primeiroVencimento)}</span>
+                        )}
+                      </span>
+                      <span className="tnum text-slate-900">{formatBRL(pg.valor)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             <div>
               <p className="text-[13px] font-semibold text-slate-700 mb-2">Contas a receber</p>
@@ -428,19 +459,17 @@ export default function Vendas() {
               </Button>
             </div>
 
-            {/* Totais e pagamento */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="rounded-lg border border-slate-200 p-4 space-y-3">
-                <p className="text-[13px] font-semibold text-slate-700">Totais</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <Field label="Desconto geral (R$)">
-                    <input className={inputCls} type="number" min="0" step="0.01" value={form.desconto} onChange={set('desconto')} />
-                  </Field>
-                  <Field label="Frete (R$)">
-                    <input className={inputCls} type="number" min="0" step="0.01" value={form.frete} onChange={set('frete')} />
-                  </Field>
-                </div>
-                <div className="flex justify-between text-sm pt-1 border-t border-slate-100">
+            {/* Totais */}
+            <div className="rounded-lg border border-slate-200 p-4 space-y-3">
+              <p className="text-[13px] font-semibold text-slate-700">Totais</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-end">
+                <Field label="Desconto geral (R$)">
+                  <input className={inputCls} type="number" min="0" step="0.01" value={form.desconto} onChange={set('desconto')} />
+                </Field>
+                <Field label="Frete (R$)">
+                  <input className={inputCls} type="number" min="0" step="0.01" value={form.frete} onChange={set('frete')} />
+                </Field>
+                <div className="flex justify-between text-sm border-t border-slate-100 pt-2 sm:border-0 sm:pt-0">
                   <span className="text-slate-500">Subtotal</span>
                   <span className="tnum">{formatBRL(subtotal)}</span>
                 </div>
@@ -449,55 +478,28 @@ export default function Vendas() {
                   <span className="tnum">{formatBRL(total)}</span>
                 </div>
               </div>
+            </div>
 
-              <div className="rounded-lg border border-slate-200 p-4 space-y-3">
-                <p className="text-[13px] font-semibold text-slate-700">Pagamento</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <Field label="Forma">
-                    <select className={inputCls} value={form.formaPagamento} onChange={set('formaPagamento')}>
-                      {Object.entries(FORMAS_PAGAMENTO).map(([v, r]) => <option key={v} value={v}>{r}</option>)}
-                    </select>
-                  </Field>
-                  <Field label="Condição">
-                    <select className={inputCls} value={form.condicao} onChange={set('condicao')}>
-                      <option value="a_vista">À vista</option>
-                      <option value="parcelado">Parcelado</option>
-                    </select>
-                  </Field>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <Field label="Entrada (R$)">
-                    <input className={inputCls} type="number" min="0" step="0.01" value={form.entrada} onChange={set('entrada')} />
-                  </Field>
-                  <Field label="Parcelas">
-                    <input
-                      className={inputCls} type="number" min="1"
-                      disabled={form.condicao !== 'parcelado'}
-                      value={form.parcelas}
-                      onChange={set('parcelas')}
-                    />
-                  </Field>
-                  <Field label="1º vencimento">
-                    <input className={inputCls} type="date" value={form.primeiroVencimento} onChange={set('primeiroVencimento')} />
-                  </Field>
-                </div>
-                <label className="flex items-start gap-2.5 cursor-pointer rounded-lg bg-slate-50 border border-slate-200 p-3">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600 cursor-pointer"
-                    checked={form.lancarFinanceiro !== false}
-                    onChange={(e) => setForm({ ...form, lancarFinanceiro: e.target.checked })}
-                  />
-                  <span>
-                    <span className="block text-[13px] font-medium text-slate-700">Lançar no financeiro</span>
-                    <span className="block text-xs text-slate-400 mt-0.5">
-                      {form.lancarFinanceiro === false
-                        ? 'Esta venda não gera contas a receber.'
-                        : 'Ao confirmar a venda, cada parcela vira uma conta a receber com o seu vencimento.'}
-                    </span>
+            {/* Pagamento — uma ou várias formas na mesma venda */}
+            <div className="rounded-lg border border-slate-200 p-4 space-y-3">
+              <p className="text-[13px] font-semibold text-slate-700">Pagamento</p>
+              <PagamentosVenda pagamentos={pagamentos} onChange={setPagamentos} total={total} />
+              <label className="flex items-start gap-2.5 cursor-pointer rounded-lg bg-slate-50 border border-slate-200 p-3">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600 cursor-pointer"
+                  checked={form.lancarFinanceiro !== false}
+                  onChange={(e) => setForm({ ...form, lancarFinanceiro: e.target.checked })}
+                />
+                <span>
+                  <span className="block text-[13px] font-medium text-slate-700">Lançar no financeiro</span>
+                  <span className="block text-xs text-slate-400 mt-0.5">
+                    {form.lancarFinanceiro === false
+                      ? 'Esta venda não gera contas a receber.'
+                      : 'Ao confirmar a venda, cada parcela vira uma conta a receber com a forma e o vencimento dela.'}
                   </span>
-                </label>
-              </div>
+                </span>
+              </label>
             </div>
 
             {/* Campos menos frequentes ficam disponíveis sem competir com o

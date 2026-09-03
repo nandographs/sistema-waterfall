@@ -4,6 +4,8 @@
 import {
   somarMeses, dividirCentavos, totaisDaVenda, planoDeParcelas,
   resumoDoMes, variacao, somarMesesNoMes, mesDe,
+  normalizarPagamentos, diferencaDosPagamentos, pagamentosDaCondicao, resolverPagamentos,
+  planoDePagamentos, resumoDosPagamentos,
 } from '../src/data/financeiro.js'
 
 let falhas = 0
@@ -110,6 +112,196 @@ console.log('\n--- planoDeParcelas ---')
     ['2026-01-31', '2026-02-28', '2026-03-31'],
     'vencimentos em fim de mês não escorregam',
   )
+}
+
+console.log('\n--- pagamentos: normalizar e conferir a soma ---')
+{
+  const lista = normalizarPagamentos([
+    { forma: 'dinheiro', valor: '500', entrada: true, parcelas: 3 },
+    { forma: 'cartao', valor: 2500, parcelas: '3' },
+    { forma: 'pix', valor: 0 },
+    { forma: 'pix', valor: '' },
+  ])
+  eq(lista.length, 2, 'linha sem valor não conta como forma de pagamento')
+  eq(lista[0].parcelas, 1, 'entrada nunca parcela, mesmo se vier parcelas na linha')
+  eq(lista[1].parcelas, 3, 'parcelas viram número')
+  eq(lista[0].valor, 500, 'valor vira número')
+}
+eq(normalizarPagamentos(null), [], 'lista ausente vira lista vazia')
+eq(diferencaDosPagamentos(3000, [{ forma: 'dinheiro', valor: 500, entrada: true }, { forma: 'cartao', valor: 2500 }]), 0, 'plano que fecha dá diferença zero')
+eq(diferencaDosPagamentos(3000, [{ forma: 'dinheiro', valor: 500 }]), 250000, 'falta em centavos')
+eq(diferencaDosPagamentos(3000, [{ forma: 'pix', valor: 3200 }]), -20000, 'excesso vem negativo')
+eq(
+  diferencaDosPagamentos(0.3, [{ forma: 'pix', valor: 0.1 }, { forma: 'pix', valor: 0.2 }]),
+  0,
+  'centavos: 0,1 + 0,2 fecha com 0,3 (não dependemos de ponto flutuante)',
+)
+
+console.log('\n--- resolverPagamentos: campo em branco vale "o restante" ---')
+eq(
+  resolverPagamentos([{ forma: 'pix', valor: '' }], 3000),
+  [{ forma: 'pix', valor: 3000 }],
+  'uma forma só, em branco, leva a venda inteira (o caso comum, sem digitar nada)',
+)
+eq(
+  resolverPagamentos([
+    { forma: 'dinheiro', valor: 500, entrada: true },
+    { forma: 'cartao', valor: '', parcelas: 3 },
+  ], 3000),
+  [
+    { forma: 'dinheiro', valor: 500, entrada: true },
+    { forma: 'cartao', valor: 2500, parcelas: 3 },
+  ],
+  'com entrada de 500, o cartão fica com os 2.500 restantes',
+)
+eq(
+  resolverPagamentos([{ forma: 'pix', valor: 100 }, { forma: 'cartao', valor: '' }], 100),
+  [{ forma: 'pix', valor: 100 }, { forma: 'cartao', valor: 0 }],
+  'sem sobra o restante é zero, e não um valor negativo',
+)
+{
+  const duasEmBranco = [{ forma: 'pix', valor: '' }, { forma: 'cartao', valor: '' }]
+  eq(
+    resolverPagamentos(duasEmBranco, 3000),
+    duasEmBranco,
+    'duas em branco são ambíguas: a lista volta como veio, para a soma acusar',
+  )
+}
+eq(
+  resolverPagamentos([{ forma: 'pix', valor: 3000 }], 3000),
+  [{ forma: 'pix', valor: 3000 }],
+  'nada em branco, nada a resolver',
+)
+
+console.log('\n--- planoDePagamentos: várias formas na mesma venda ---')
+{
+  // O caso que motivou tudo: entrada em dinheiro, resto parcelado no cartão.
+  const p = planoDePagamentos({
+    descricao: 'Venda 10',
+    data: '2026-07-25',
+    pagamentos: [
+      { forma: 'dinheiro', valor: 500, entrada: true },
+      { forma: 'cartao', valor: 2500, parcelas: 3, primeiroVencimento: '2026-08-25' },
+    ],
+  })
+  eq(p.length, 4, 'entrada + 3 parcelas = 4 lançamentos')
+  eq(p.map((l) => l.valor), [500, 833.34, 833.33, 833.33], 'cada forma dividida por conta própria')
+  eq(
+    Math.round(p.reduce((s, l) => s + l.valor, 0) * 100) / 100,
+    3000,
+    'a soma de tudo bate com o total da venda',
+  )
+  eq(
+    p.map((l) => l.formaPagamento),
+    ['dinheiro', 'cartao', 'cartao', 'cartao'],
+    'cada lançamento carrega a SUA forma — é o que o caixa soma por forma',
+  )
+  eq(p[0].vencimento, '2026-07-25', 'entrada vence na data da venda')
+  eq(
+    p.slice(1).map((l) => l.vencimento),
+    ['2026-08-25', '2026-09-25', '2026-10-25'],
+    'as parcelas do cartão seguem o vencimento da linha delas',
+  )
+  eq(
+    p.map((l) => l.descricao),
+    ['Venda 10 (entrada · Dinheiro)', 'Venda 10 (1/3 · Cartão)', 'Venda 10 (2/3 · Cartão)', 'Venda 10 (3/3 · Cartão)'],
+    'com formas diferentes, o nome do lançamento diz qual é',
+  )
+  eq(p.map((l) => l.parcela), [1, 2, 3, 4], 'parcela é a posição no plano inteiro')
+  eq(p.every((l) => l.parcelas === 4), true, 'e todos sabem que o plano tem 4')
+}
+{
+  // Três formas, uma delas também parcelada.
+  const p = planoDePagamentos({
+    descricao: 'V',
+    data: '2026-07-25',
+    pagamentos: [
+      { forma: 'dinheiro', valor: 300, entrada: true },
+      { forma: 'pix', valor: 700 },
+      { forma: 'cartao', valor: 1000, parcelas: 2, primeiroVencimento: '2026-09-10' },
+    ],
+  })
+  eq(p.length, 4, 'entrada + pix à vista + 2 no cartão')
+  eq(p.map((l) => l.valor), [300, 700, 500, 500], 'valores por forma')
+  eq(
+    p.map((l) => l.vencimento),
+    ['2026-07-25', '2026-07-25', '2026-09-10', '2026-10-10'],
+    'forma sem vencimento próprio cai na data da venda',
+  )
+  eq(p[1].descricao, 'V (Pix)', 'forma à vista de uma só parcela é rotulada só pela forma')
+}
+{
+  // Forma repetida não precisa de rótulo: não há o que desambiguar.
+  const p = planoDePagamentos({
+    descricao: 'V', data: '2026-07-25',
+    pagamentos: [
+      { forma: 'pix', valor: 100, entrada: true },
+      { forma: 'pix', valor: 200, parcelas: 2, primeiroVencimento: '2026-08-25' },
+    ],
+  })
+  eq(
+    p.map((l) => l.descricao),
+    ['V (entrada)', 'V (1/2)', 'V (2/2)'],
+    'formas iguais: nada de "· Pix" repetido em toda linha',
+  )
+}
+eq(planoDePagamentos({ descricao: 'V', pagamentos: [] }), [], 'sem forma nenhuma não há o que lançar')
+eq(planoDePagamentos({ descricao: 'V', pagamentos: [{ forma: 'pix', valor: 0 }] }), [], 'só valor zero também não lança')
+
+console.log('\n--- pagamentosDaCondicao: a condição antiga vira lista ---')
+eq(
+  pagamentosDaCondicao({ total: 3000, formaPagamento: 'cartao', condicao: 'parcelado', entrada: 600, parcelas: 3, primeiroVencimento: '2026-08-25' }),
+  [
+    { forma: 'cartao', valor: 600, parcelas: 1, primeiroVencimento: '', entrada: true },
+    { forma: 'cartao', valor: 2400, parcelas: 3, primeiroVencimento: '2026-08-25', entrada: false },
+  ],
+  'entrada + restante parcelado, tudo na mesma forma',
+)
+eq(
+  pagamentosDaCondicao({ total: 500, formaPagamento: 'pix', entrada: 900 }),
+  [{ forma: 'pix', valor: 500, parcelas: 1, primeiroVencimento: '', entrada: true }],
+  'entrada maior que o total é limitada ao total e não sobra parcela',
+)
+eq(pagamentosDaCondicao({ total: 0, formaPagamento: 'pix' }), [], 'total zero não vira pagamento')
+
+console.log('\n--- resumoDosPagamentos: o resumo que a venda guarda ---')
+{
+  const r = resumoDosPagamentos([
+    { forma: 'dinheiro', valor: 500, entrada: true },
+    { forma: 'cartao', valor: 2500, parcelas: 3, primeiroVencimento: '2026-08-25' },
+  ], '2026-07-25')
+  eq(r.formaPagamento, 'cartao', 'a forma principal é a de maior valor fora a entrada')
+  eq(r.entrada, 500, 'entrada é a soma das linhas de entrada')
+  eq(r.parcelas, 3, 'o maior parcelamento manda no resumo')
+  eq(r.condicao, 'parcelado', 'ter parcelamento faz a condição ser parcelado')
+  eq(r.primeiroVencimento, '2026-08-25', 'o vencimento mais próximo entre as formas financiadas')
+}
+{
+  const r = resumoDosPagamentos([{ forma: 'dinheiro', valor: 800, entrada: true }], '2026-07-25')
+  eq(r.formaPagamento, 'dinheiro', 'venda paga só na entrada usa a forma da entrada')
+  eq(r.condicao, 'a_vista', 'sem parcelamento, à vista')
+  eq(r.primeiroVencimento, '2026-07-25', 'sem financiada, o vencimento é a data da venda')
+}
+eq(resumoDosPagamentos([], '2026-07-25'), null, 'sem pagamento não há resumo')
+
+console.log('\n--- planoDeParcelas continua idêntico (a forma única não regrediu) ---')
+{
+  // A condição antiga tem que gerar EXATAMENTE o mesmo plano que a lista nova
+  // gera para a mesma cobrança — é o que garante que nada foi quebrado ao
+  // reescrever planoDeParcelas por cima de planoDePagamentos.
+  const antigo = planoDeParcelas({
+    descricao: 'Venda 3', total: 3000, entrada: 600, parcelas: 3,
+    data: '2026-07-25', primeiroVencimento: '2026-08-25', formaPagamento: 'cartao',
+  })
+  const novo = planoDePagamentos({
+    descricao: 'Venda 3', data: '2026-07-25',
+    pagamentos: pagamentosDaCondicao({
+      total: 3000, formaPagamento: 'cartao', condicao: 'parcelado',
+      entrada: 600, parcelas: 3, primeiroVencimento: '2026-08-25',
+    }),
+  })
+  eq(antigo, novo, 'os dois caminhos produzem o mesmo plano')
+  eq(antigo.every((l) => l.formaPagamento === 'cartao'), true, 'forma única em todas as parcelas')
 }
 
 console.log('\n--- mesDe / somarMesesNoMes ---')

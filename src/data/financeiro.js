@@ -106,32 +106,155 @@ export function variacao(atual, anterior) {
   return ((Number(atual || 0) - a) / Math.abs(a)) * 100
 }
 
-// Monta a lista de lançamentos a receber de uma cobrança.
-// Entrada (se houver) vence na data da venda; as demais parcelas vencem de mês
-// em mês a partir do primeiro vencimento. Valor zero não gera lançamento.
-export function planoDeParcelas({
-  descricao, clienteId, total, entrada = 0, parcelas = 1,
-  primeiroVencimento, data, formaPagamento, origem = 'venda', categoria = 'venda',
+// ------------------------------------------------------------- formas de pagamento
+
+// O vocabulário do dinheiro. Mora aqui, e não no repositório, porque o plano de
+// parcelas precisa do rótulo para nomear os lançamentos — e o repositório
+// importa daqui, nunca o contrário. O repositório reexporta para as telas.
+export const FORMAS_PAGAMENTO = {
+  dinheiro: 'Dinheiro',
+  pix: 'Pix',
+  cartao: 'Cartão',
+  boleto: 'Boleto',
+}
+
+// ---------------------------------------------------------------- pagamentos
+//
+// Uma venda pode ser paga de VÁRIAS formas ao mesmo tempo: R$ 500 de entrada em
+// dinheiro, mais R$ 2.500 em 3x no cartão. Cada uma dessas é um PAGAMENTO:
+//
+//   { forma, valor, parcelas, primeiroVencimento, entrada }
+//
+// `entrada: true` é só um pagamento com um papel especial — é o dinheiro da
+// hora, então vence na data da venda e não se parcela. Não é um campo separado
+// da venda porque não é uma coisa diferente: é a primeira forma de pagamento,
+// e tratá-la como tal é o que faz "entrada no dinheiro + resto no cartão"
+// funcionar sem nenhum caso especial abaixo desta linha.
+//
+// A venda continua guardando `formaPagamento`/`condicao`/`entrada`/`parcelas`
+// como RESUMO (ver resumoDosPagamentos): é o que o Pedido em DOCX/PDF sabe ler,
+// e é o que mantém funcionando tudo que foi escrito antes desta lista existir.
+
+// Descarta linha sem valor e normaliza os tipos. Tudo daqui para baixo assume
+// que passou por aqui.
+export function normalizarPagamentos(pagamentos) {
+  return (Array.isArray(pagamentos) ? pagamentos : [])
+    .map((p) => ({
+      forma: p.forma || 'pix',
+      valor: Number(p.valor || 0),
+      // Entrada não parcela: é o que se paga na hora, por definição.
+      parcelas: p.entrada ? 1 : Math.max(1, Number(p.parcelas || 1)),
+      primeiroVencimento: p.primeiroVencimento || '',
+      entrada: !!p.entrada,
+    }))
+    .filter((p) => p.valor > 0)
+}
+
+// Quanto falta distribuir entre as formas, EM CENTAVOS. Positivo = falta;
+// negativo = passou do total; zero = fecha.
+//
+// Em centavos e não em reais porque 0,1 + 0,2 não dá 0,3 em ponto flutuante, e
+// uma venda que "não fecha por R$ 0,00000000004" seria impossível de salvar.
+export function diferencaDosPagamentos(total, pagamentos) {
+  const totalCent = Math.round(Number(total || 0) * 100)
+  const somaCent = normalizarPagamentos(pagamentos)
+    .reduce((soma, p) => soma + Math.round(p.valor * 100), 0)
+  return totalCent - somaCent
+}
+
+// Uma linha com o valor EM BRANCO quer dizer "o que sobrar do total".
+//
+// É o que mantém o caso mais comum sem digitação nenhuma: uma forma só, a venda
+// inteira — exatamente como era antes desta lista existir. Também é o que faz
+// "entrada de 500" preencher o cartão com o resto sozinho.
+//
+// Com duas linhas em branco não há o que resolver (o restante caberia nas duas),
+// então a lista volta como veio e a conferência de soma reclama — que é o certo:
+// adivinhar aí seria inventar dinheiro.
+export function resolverPagamentos(pagamentos, total) {
+  const lista = Array.isArray(pagamentos) ? pagamentos : []
+  const emBranco = (p) => String(p?.valor ?? '').trim() === ''
+  if (lista.filter(emBranco).length !== 1) return lista
+
+  const somaCent = lista
+    .filter((p) => !emBranco(p))
+    .reduce((soma, p) => soma + Math.round(Number(p.valor || 0) * 100), 0)
+  const restanteCent = Math.max(0, Math.round(Number(total || 0) * 100) - somaCent)
+
+  return lista.map((p) => (emBranco(p) ? { ...p, valor: restanteCent / 100 } : p))
+}
+
+// A condição de pagamento antiga (uma forma só) vista como lista de pagamentos.
+//
+// É o que permite existir UM caminho só daqui para baixo: quem não conhece a
+// lista — a venda gravada antes desta mudança, o agendamento, a proposta criada
+// pelo funil — é convertido aqui e segue pelo mesmo lugar que todo o resto.
+export function pagamentosDaCondicao({
+  total, formaPagamento, condicao, entrada = 0, parcelas = 1, primeiroVencimento,
 }) {
   const totalCent = Math.round(Number(total || 0) * 100)
   if (totalCent <= 0) return []
 
+  const forma = formaPagamento || 'pix'
+  // Entrada maior que o total vira pagamento único: não se deve o que já pagou.
   const entradaCent = Math.min(Math.max(Math.round(Number(entrada || 0) * 100), 0), totalCent)
-  const linhas = []
+  const lista = []
 
   if (entradaCent > 0) {
-    linhas.push({ sufixo: '(entrada)', centavos: entradaCent, vencimento: data || primeiroVencimento })
+    lista.push({ forma, valor: entradaCent / 100, parcelas: 1, primeiroVencimento: '', entrada: true })
   }
 
   const restanteCent = totalCent - entradaCent
   if (restanteCent > 0) {
-    const n = Math.max(1, Number(parcelas || 1))
-    const inicio = primeiroVencimento || data
-    dividirCentavos(restanteCent, n).forEach((centavos, i) => {
+    lista.push({
+      forma,
+      valor: restanteCent / 100,
+      parcelas: condicao === 'parcelado' ? Math.max(1, Number(parcelas || 1)) : 1,
+      primeiroVencimento: primeiroVencimento || '',
+      entrada: false,
+    })
+  }
+
+  return lista
+}
+
+// Monta os lançamentos a receber de uma cobrança paga em uma ou mais formas.
+//
+// Cada pagamento gera as SUAS parcelas, com a SUA forma e o SEU vencimento —
+// é isso que faz o caixa saber que R$ 500 entraram em dinheiro hoje e R$ 2.500
+// entram no cartão em três vezes, em vez de somar tudo num borrão só.
+//
+// `parcela`/`parcelas` no lançamento continuam sendo a posição no plano INTEIRO
+// (1..N de N), e não dentro da forma: é por essa ordem que sincronizarLancamentos
+// casa o plano novo com o antigo para preservar as baixas já dadas.
+export function planoDePagamentos({
+  descricao, clienteId, pagamentos, data,
+  origem = 'venda', categoria = 'venda',
+}) {
+  const lista = normalizarPagamentos(pagamentos)
+  if (!lista.length) return []
+
+  // O rótulo da forma só entra quando as formas de fato DIFEREM. Numa venda
+  // paga só no cartão, "(1/3 · Cartão)" repete em toda parcela o que o cabeçalho
+  // já diz — e uma entrada no dinheiro seguida do resto no dinheiro também não
+  // precisa ser desambiguada.
+  const rotularForma = new Set(lista.map((p) => p.forma)).size > 1
+
+  const linhas = []
+  for (const pg of lista) {
+    const inicio = pg.primeiroVencimento || data
+    dividirCentavos(Math.round(pg.valor * 100), pg.parcelas).forEach((centavos, i) => {
+      const marca = pg.entrada ? 'entrada' : (pg.parcelas > 1 ? `${i + 1}/${pg.parcelas}` : '')
+      const rotulo = rotularForma ? (FORMAS_PAGAMENTO[pg.forma] ?? pg.forma) : ''
+      const partes = [marca, rotulo].filter(Boolean)
       linhas.push({
-        sufixo: n > 1 ? `(${i + 1}/${n})` : '',
+        sufixo: partes.length ? `(${partes.join(' · ')})` : '',
         centavos,
-        vencimento: inicio ? somarMeses(inicio, i) : '',
+        // A entrada vence na data da venda: é o dinheiro que já está na mão.
+        vencimento: pg.entrada
+          ? (pg.primeiroVencimento || data || '')
+          : (inicio ? somarMeses(inicio, i) : ''),
+        forma: pg.forma,
       })
     })
   }
@@ -144,10 +267,64 @@ export function planoDeParcelas({
     valor: linha.centavos / 100,
     vencimento: linha.vencimento || '',
     dataPagamento: '',
-    formaPagamento: formaPagamento || 'pix',
+    formaPagamento: linha.forma,
     parcela: i + 1,
     parcelas: linhas.length,
     origem,
     clienteId: clienteId || '',
   }))
+}
+
+// O resumo de uma linha só de um plano com várias formas.
+//
+// Existe porque metade do sistema foi escrita quando a venda tinha UMA forma: a
+// coluna `forma_pagamento`, o campo "Forma:" do Pedido em DOCX, o agendamento
+// gerado pela venda. Em vez de sair mexendo em tudo isso, a venda continua
+// guardando o resumo — derivado da lista, e não digitado à parte, para os dois
+// nunca discordarem.
+//
+// A forma PRINCIPAL é a de maior valor entre as que não são entrada: é a que o
+// cliente lembra como "paguei no cartão". Se só houve entrada, é a dela.
+export function resumoDosPagamentos(pagamentos, data) {
+  const lista = normalizarPagamentos(pagamentos)
+  if (!lista.length) return null
+
+  const entradas = lista.filter((p) => p.entrada)
+  const financiados = lista.filter((p) => !p.entrada)
+  const base = financiados.length ? financiados : entradas
+  const principal = [...base].sort((a, b) => b.valor - a.valor)[0]
+  const maiorParcelamento = Math.max(1, ...financiados.map((p) => p.parcelas))
+  const vencimentos = financiados.map((p) => p.primeiroVencimento).filter(Boolean).sort()
+
+  return {
+    formaPagamento: principal.forma,
+    condicao: maiorParcelamento > 1 ? 'parcelado' : 'a_vista',
+    entrada: entradas.reduce((soma, p) => soma + p.valor, 0),
+    parcelas: maiorParcelamento,
+    primeiroVencimento: vencimentos[0] || data || '',
+  }
+}
+
+// A cobrança de uma forma só — o formato antigo, mantido porque o agendamento
+// avulso continua sendo assim (um valor, uma forma) e não há motivo para ele
+// carregar uma lista de um item.
+export function planoDeParcelas({
+  descricao, clienteId, total, entrada = 0, parcelas = 1,
+  primeiroVencimento, data, formaPagamento, origem = 'venda', categoria = 'venda',
+}) {
+  return planoDePagamentos({
+    descricao,
+    clienteId,
+    data,
+    origem,
+    categoria,
+    pagamentos: pagamentosDaCondicao({
+      total,
+      formaPagamento,
+      condicao: Number(parcelas || 1) > 1 ? 'parcelado' : 'a_vista',
+      entrada,
+      parcelas,
+      primeiroVencimento,
+    }),
+  })
 }

@@ -9,11 +9,19 @@ import { BUCKET, BUCKET_WHATSAPP, comprimir, assinarUrl, assinarVarias } from '.
 import { somarDias, chaveOrdem } from '../lib/datas.js'
 import { formatarE164, mesmoNumero } from '../lib/telefone.js'
 import { usuarioAtual } from '../lib/auth.js'
-import { somarMeses, hojeISO, planoDeParcelas, totaisDaVenda } from './financeiro.js'
+import {
+  somarMeses, hojeISO, planoDeParcelas, totaisDaVenda,
+  normalizarPagamentos, pagamentosDaCondicao, planoDePagamentos,
+  resumoDosPagamentos, diferencaDosPagamentos,
+} from './financeiro.js'
 
 // Reexportados: as telas importam tudo do repositório.
 export { somarMeses, hojeISO, planoDeParcelas, totaisDaVenda }
 export { resumoDoMes, variacao, somarMesesNoMes, mesDe } from './financeiro.js'
+export {
+  FORMAS_PAGAMENTO, normalizarPagamentos, pagamentosDaCondicao, resolverPagamentos,
+  diferencaDosPagamentos, resumoDosPagamentos,
+} from './financeiro.js'
 
 const TABELAS = [
   'clientes', 'produtos', 'equipamentos', 'agendamentos',
@@ -244,12 +252,8 @@ export const agendamentos = makeStore('agendamentos')
 
 // ---- Helpers de domínio ----
 
-export const FORMAS_PAGAMENTO = {
-  dinheiro: 'Dinheiro',
-  pix: 'Pix',
-  cartao: 'Cartão',
-  boleto: 'Boleto',
-}
+// FORMAS_PAGAMENTO mora em financeiro.js (o plano de parcelas precisa do rótulo
+// para nomear os lançamentos) e é reexportado lá em cima, junto com o resto.
 
 export const TIPOS_AGENDAMENTO = {
   instalacao: 'Instalação',
@@ -423,9 +427,62 @@ async function sincronizarLancamentos(vinculo, plano) {
 // `opcoes.agendarServicos = false` para quando a tela já cuida do serviço por
 // conta própria (ex.: o cadastro rápido do cliente, que registra um aparelho
 // que JÁ está instalado e portanto não precisa de visita de instalação).
+// A migração 015 é feita à mão, no SQL Editor. Se ela ainda não rodou, o
+// PostgREST recusa a gravação com um "Could not find the 'pagamentos' column"
+// que não diz o que fazer. Aqui ele vira a instrução.
+function explicarColunaPagamentos(erro) {
+  const texto = `${erro?.message || ''} ${erro?.details || ''}`
+  if (erro?.code === 'PGRST204' && texto.includes('pagamentos')) {
+    throw new Error(
+      'A coluna "pagamentos" ainda não existe no banco. Rode sql/015_pagamentos_da_venda.sql ' +
+      'no SQL Editor do Supabase. Se já rodou, o cache da API está desatualizado: ' +
+      "execute NOTIFY pgrst, 'reload schema'; e recarregue esta página.",
+    )
+  }
+  throw erro
+}
+
 export async function salvarVenda(form, itensForm, opcoes = {}) {
   const itens = (itensForm || []).filter((item) => item.produtoId || String(item.descricao || '').trim())
   const { subtotal, total } = totaisDaVenda(itens, form.desconto, form.frete)
+
+  // AS FORMAS DE PAGAMENTO (migração 015).
+  //
+  // Quem manda a lista (o formulário de venda) segue com ela. Quem não manda —
+  // a proposta criada pelo funil, uma venda gravada antes da migração — tem a
+  // condição antiga convertida em lista aqui. Daqui para baixo existe um
+  // caminho só, e nenhum "se tem lista, senão…" espalhado pelo resto.
+  const informados = normalizarPagamentos(form.pagamentos)
+  const pagamentos = informados.length
+    ? informados
+    : pagamentosDaCondicao({
+        total,
+        formaPagamento: form.formaPagamento,
+        condicao: form.condicao,
+        entrada: form.entrada,
+        parcelas: form.parcelas,
+        primeiroVencimento: form.primeiroVencimento,
+      })
+
+  // Um plano que não fecha com o total gera contas a receber que somam menos
+  // (ou mais) que a venda — e aí o cliente aparece devendo o que não deve, ou o
+  // relatório do mês conta dinheiro que não existe. É erro de dinheiro: para
+  // aqui, em vez de gravar torto e descobrir no fechamento.
+  const diferenca = diferencaDosPagamentos(total, pagamentos)
+  if (pagamentos.length && diferenca !== 0) {
+    const falta = Math.abs(diferenca) / 100
+    throw new Error(
+      diferenca > 0
+        ? `As formas de pagamento somam ${formatBRL(total - falta)}, ${formatBRL(falta)} a menos que o total da venda (${formatBRL(total)}). Distribua o restante antes de salvar.`
+        : `As formas de pagamento somam ${formatBRL(total + falta)}, ${formatBRL(falta)} a mais que o total da venda (${formatBRL(total)}).`,
+    )
+  }
+
+  // O resumo (forma principal, condição, entrada, parcelas) é DERIVADO da lista,
+  // nunca digitado à parte — é o que impede a coluna `forma_pagamento` de
+  // discordar das formas de fato registradas. Sem pagamento nenhum (orçamento
+  // zerado), os campos antigos passam como estão.
+  const resumo = resumoDosPagamentos(pagamentos, form.data)
 
   const dados = {
     ...form,
@@ -433,13 +490,18 @@ export async function salvarVenda(form, itensForm, opcoes = {}) {
     total,
     desconto: Number(form.desconto || 0),
     frete: Number(form.frete || 0),
-    entrada: Number(form.entrada || 0),
-    parcelas: Math.max(1, Number(form.parcelas || 1)),
     validadeDias: form.validadeDias === '' ? '' : Number(form.validadeDias),
+    pagamentos,
+    ...(resumo ?? {
+      entrada: Number(form.entrada || 0),
+      parcelas: Math.max(1, Number(form.parcelas || 1)),
+    }),
   }
   delete dados.itens
 
-  const venda = form.id ? await vendas.update(form.id, dados) : await vendas.create(dados)
+  const venda = form.id
+    ? await vendas.update(form.id, dados).catch(explicarColunaPagamentos)
+    : await vendas.create(dados).catch(explicarColunaPagamentos)
 
   // Itens não têm estado próprio (nada de pagamento neles), então regravar é
   // mais simples e seguro do que reconciliar linha a linha.
@@ -461,16 +523,16 @@ export async function salvarVenda(form, itensForm, opcoes = {}) {
     })
   }
 
+  // Cada forma de pagamento gera as SUAS parcelas, com a forma dela — é assim
+  // que o caixa sabe que R$ 500 entraram em dinheiro hoje e R$ 2.500 entram no
+  // cartão em três vezes. Usa a lista local, e não `venda.pagamentos`, para o
+  // financeiro sair certo mesmo se o banco ainda não tiver a coluna nova.
   const plano = venda.status === 'confirmada' && venda.lancarFinanceiro !== false
-    ? planoDeParcelas({
+    ? planoDePagamentos({
         descricao: `Venda ${venda.numero || ''}`.trim(),
         clienteId: venda.clienteId,
-        total: venda.total,
-        entrada: venda.entrada,
-        parcelas: venda.condicao === 'parcelado' ? venda.parcelas : 1,
-        primeiroVencimento: venda.primeiroVencimento,
+        pagamentos,
         data: venda.data,
-        formaPagamento: venda.formaPagamento,
         origem: 'venda',
       })
     : []

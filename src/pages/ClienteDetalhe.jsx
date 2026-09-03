@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   clientes, produtos, equipamentos, vendas, lancamentos, agendamentos,
   salvarVenda, darBaixa, excluirVenda, itensDaVenda, agendarProximaTroca,
-  registrarEquipamento, definirFotoPerfil, removerFotoPerfil,
+  registrarEquipamento, definirFotoPerfil, removerFotoPerfil, resolverPagamentos,
   proximoPasso, linhaDoTempoDoCliente, oportunidadesDoCliente, conversaDoCliente,
   proximaTroca, formatBRL, formatData, enderecoCompleto,
   FORMAS_PAGAMENTO, STATUS_VENDA, RESULTADOS_ATIVIDADE, ETAPAS_FUNIL, ETAPAS_FECHADAS,
@@ -19,6 +19,7 @@ import AgendamentoDetalheModal from '../components/AgendamentoDetalheModal.jsx'
 import PedidoModal from '../components/PedidoModal.jsx'
 import OportunidadeModal, { oportunidadeNova } from '../components/OportunidadeModal.jsx'
 import ClienteFormFields from '../components/ClienteFormFields.jsx'
+import PagamentosVenda, { pagamentosIniciais } from '../components/PagamentosVenda.jsx'
 import FotosCliente from '../components/FotosCliente.jsx'
 import FotoUnica from '../components/FotoUnica.jsx'
 
@@ -29,7 +30,7 @@ const CLIENTE_VAZIO = {
 }
 
 const VENDA_VAZIA = {
-  produtoId: '', valor: '', formaPagamento: 'pix', parcelas: 1,
+  produtoId: '', valor: '',
   status: 'pago', data: hojeISO(), dataInstalacao: '',
 }
 
@@ -61,6 +62,7 @@ export default function ClienteDetalhe() {
   const [atividadeForm, setAtividadeForm] = useState(null)
   const [oportunidadeForm, setOportunidadeForm] = useState(null)
   const [equipForm, setEquipForm] = useState(null)
+  const [pagamentos, setPagamentos] = useState([])
 
   if (!cliente) {
     return (
@@ -106,50 +108,57 @@ export default function ClienteDetalhe() {
   async function registrarVenda(e) {
     e.preventDefault()
     const produto = produtos.get(vendaForm.produtoId)
-    const parcelas = Math.max(1, Number(vendaForm.parcelas || 1))
 
-    const venda = await salvarVenda(
-      {
-        clienteId: id,
-        data: vendaForm.data,
-        tipo: 'venda',
-        status: 'confirmada',
-        formaPagamento: vendaForm.formaPagamento,
-        condicao: parcelas > 1 ? 'parcelado' : 'a_vista',
-        parcelas,
-        primeiroVencimento: vendaForm.data,
-      },
-      [{
-        produtoId: vendaForm.produtoId,
-        descricao: produto?.nome || '',
-        quantidade: 1,
-        valorUnitario: Number(vendaForm.valor || 0),
-        desconto: 0,
-      }],
-      { agendarServicos: false },
-    )
+    try {
+      const venda = await salvarVenda(
+        {
+          clienteId: id,
+          data: vendaForm.data,
+          tipo: 'venda',
+          status: 'confirmada',
+          // As formas de pagamento mandam; a condição antiga (forma, parcelas,
+          // 1º vencimento) é derivada delas ao salvar.
+          pagamentos: resolverPagamentos(pagamentos, Number(vendaForm.valor || 0)),
+        },
+        [{
+          produtoId: vendaForm.produtoId,
+          descricao: produto?.nome || '',
+          quantidade: 1,
+          valorUnitario: Number(vendaForm.valor || 0),
+          desconto: 0,
+        }],
+        { agendarServicos: false },
+      )
 
-    if (vendaForm.status === 'pago') {
-      for (const l of lancamentos.list().filter((l) => l.vendaId === venda.id)) {
-        await darBaixa(l.id, vendaForm.data)
+      if (vendaForm.status === 'pago') {
+        for (const l of lancamentos.list().filter((l) => l.vendaId === venda.id)) {
+          await darBaixa(l.id, vendaForm.data)
+        }
       }
-    }
 
-    if (produto?.tipo === 'aparelho') {
-      const jaTem = equipamentos
-        .list()
-        .find((eq) => eq.clienteId === id && eq.produtoId === produto.id)
-      const equipamento = jaTem ?? await equipamentos.create({
-        clienteId: id,
-        produtoId: produto.id,
-        dataInstalacao: vendaForm.dataInstalacao || vendaForm.data,
-        dataUltimaTroca: '',
-      })
-      await agendarProximaTroca(equipamento)
-    }
+      if (produto?.tipo === 'aparelho') {
+        const jaTem = equipamentos
+          .list()
+          .find((eq) => eq.clienteId === id && eq.produtoId === produto.id)
+        const equipamento = jaTem ?? await equipamentos.create({
+          clienteId: id,
+          produtoId: produto.id,
+          dataInstalacao: vendaForm.dataInstalacao || vendaForm.data,
+          dataUltimaTroca: '',
+        })
+        await agendarProximaTroca(equipamento)
+      }
 
-    setVendaForm(null)
-    refresh()
+      setVendaForm(null)
+      refresh()
+    } catch (erro) {
+      notificar('Não foi possível registrar a venda: ' + (erro?.message || erro), 'erro')
+    }
+  }
+
+  function abrirRegistrarVenda() {
+    setPagamentos(pagamentosIniciais(null, 0))
+    setVendaForm({ ...VENDA_VAZIA })
   }
 
   // Coloca um aparelho na ficha sem venda: é o que já está na casa do cliente e
@@ -437,7 +446,7 @@ export default function ClienteDetalhe() {
 
           <Card title="Produtos e vendas">
             <div className="mb-3">
-              <Button onClick={() => setVendaForm({ ...VENDA_VAZIA })}><IconPlus size={16} /> Registrar venda</Button>
+              <Button onClick={abrirRegistrarVenda}><IconPlus size={16} /> Registrar venda</Button>
             </div>
             {minhasVendas.length === 0 && <Empty>Nenhuma venda registrada para este cliente.</Empty>}
             <ul className="divide-y divide-slate-100">
@@ -738,17 +747,13 @@ export default function ClienteDetalhe() {
                 <input className={inputCls} type="date" required value={vendaForm.data} onChange={setV('data')} />
               </Field>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Field label="Forma de pagamento">
-                <select className={inputCls} value={vendaForm.formaPagamento} onChange={setV('formaPagamento')}>
-                  {Object.entries(FORMAS_PAGAMENTO).map(([v, r]) => (
-                    <option key={v} value={v}>{r}</option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Parcelas">
-                <input className={inputCls} type="number" min="1" value={vendaForm.parcelas} onChange={setV('parcelas')} />
-              </Field>
+            <div className="rounded-lg border border-slate-200 p-3">
+              <p className="text-[13px] font-semibold text-slate-700 mb-3">Pagamento</p>
+              <PagamentosVenda
+                pagamentos={pagamentos}
+                onChange={setPagamentos}
+                total={Number(vendaForm.valor || 0)}
+              />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field label="Status do pagamento">

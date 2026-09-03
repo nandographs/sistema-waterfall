@@ -128,6 +128,12 @@ Pontos-chave:
   sobreviver como histórico. Ver `sql/009` e `CRM_WHATSAPP.md`.
 - **`vendas` + `venda_itens`** com `tipo` (venda/orçamento), `canal`, `status`
   (proposta/confirmada/cancelada), totais gravados, condição de pagamento.
+  A coluna `pagamentos` (jsonb, `sql/015`) guarda as **várias formas de pagamento**
+  de uma mesma venda — R$ 500 de entrada em dinheiro mais R$ 2.500 em 3x no
+  cartão. É jsonb e não tabela filha porque um pagamento não tem vida própria:
+  nunca é lido nem editado sozinho, e é regravado junto com a venda. As colunas
+  antigas (`forma_pagamento`, `condicao`, `entrada`, `parcelas`) continuam, agora
+  **derivadas** dessa lista — é o que mantém o Pedido em DOCX/PDF funcionando.
 - **`lancamentos`** = o caixa. `tipo` entrada/saída, `status` previsto/realizado,
   `vencimento` × `data_pagamento`, `parcela`/`parcelas`, e `origem`
   (`venda` | `agendamento` | `manual`) com o vínculo correspondente.
@@ -170,6 +176,12 @@ isso testável direto no Node):
   a soma das parcelas bate **exatamente** com o total.
 - `totaisDaVenda()`: por linha, `quantidade × unitário − desconto da linha`;
   depois `subtotal − desconto geral + frete`, nunca negativo.
+- `planoDePagamentos()`: cada forma de pagamento gera as **suas** parcelas, com a
+  forma dela — é assim que o caixa sabe quanto entrou em dinheiro e quanto no
+  cartão. `resolverPagamentos()`: valor em branco vale "o restante", o que mantém
+  a venda de uma forma só sem digitação. A soma das formas **tem** que fechar com
+  o total: `salvarVenda` recusa o que não fecha, porque conta a receber que não
+  bate com a venda é erro que só aparece no fechamento do mês.
 - `resumoDoMes()` usa **dois critérios distintos, de propósito**:
   - *realizado* → dinheiro que se moveu, pela `data_pagamento`;
   - *previsto* → o que vence no mês e ainda não foi quitado, pelo `vencimento`.
