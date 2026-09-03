@@ -1,13 +1,14 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  vendas, clientes, produtos, lancamentos,
+  vendas, vendaItens, clientes, produtos, lancamentos,
   salvarVenda, excluirVenda, itensDaVenda, lancamentosDaVenda, totaisDaVenda,
   formatData, formatBRL, hojeISO, resolverPagamentos, normalizarPagamentos,
   FORMAS_PAGAMENTO, STATUS_VENDA, CANAIS_VENDA,
 } from '../data/repository.js'
+import { PERIODOS, dentroDoPeriodo } from '../lib/datas.js'
 import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge, notificar } from '../components/ui.jsx'
-import { IconPlus, IconFileText, IconTrash, IconEye, IconMais } from '../components/icons.jsx'
+import { IconPlus, IconFileText, IconTrash, IconEye, IconMais, IconSearch } from '../components/icons.jsx'
 import ClienteBusca from '../components/ClienteBusca.jsx'
 import ProdutoBusca from '../components/ProdutoBusca.jsx'
 import PedidoModal from '../components/PedidoModal.jsx'
@@ -31,6 +32,17 @@ const STATUS_BADGE = {
   confirmada: 'green',
   cancelada: 'red',
 }
+
+// Busca sem acento e sem caixa: "sao jose" acha "São José", e "PURIFICADOR"
+// acha "purificador". Num cadastro de centenas de nomes ninguém acerta o acento
+// na primeira, e uma busca que exige isso é uma busca que não se usa.
+const semAcento = (texto) =>
+  String(texto || '')
+    // NFD separa o acento da letra; \p{Diacritic} então descarta só o acento.
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .trim()
 
 function AcoesVenda({ venda, onVer, onPedido, onEditar, onConfirmar, onCancelar, onExcluir }) {
   function fechar(e) {
@@ -79,6 +91,11 @@ export default function Vendas() {
   const [itens, setItens] = useState([])
   const [pagamentos, setPagamentos] = useState([])
   const [filtro, setFiltro] = useState('todos')
+  const [busca, setBusca] = useState('')
+  // Começa em "todo o período" de propósito: um recorte padrão esconderia
+  // vendas antigas sem ninguém ter pedido, e some com histórico é o tipo de
+  // ausência que passa despercebida.
+  const [periodo, setPeriodo] = useState('todos')
   const [pedidoVenda, setPedidoVenda] = useState(null)
   const [detalhe, setDetalhe] = useState(null)
   const [excluir, setExcluir] = useState(null)
@@ -86,10 +103,51 @@ export default function Vendas() {
   const [erro, setErro] = useState('')
 
   const listaProdutos = produtos.list()
+
+  // O texto pesquisável de cada venda: cliente, cidade/UF, nº do pedido e os
+  // produtos vendidos.
+  //
+  // Montado de uma vez, e não a cada tecla: `itensDaVenda` varre a tabela
+  // inteira de itens, e chamá-la por venda a cada letra digitada é
+  // O(vendas × itens) — com centenas de vendas a busca engasgaria. Aqui os
+  // itens são agrupados numa passada só.
+  const indiceBusca = useMemo(() => {
+    const produtosPorVenda = new Map()
+    for (const item of vendaItens.list()) {
+      const atual = produtosPorVenda.get(item.vendaId)
+      if (atual) atual.push(item.descricao)
+      else produtosPorVenda.set(item.vendaId, [item.descricao])
+    }
+
+    const indice = new Map()
+    for (const v of vendas.list()) {
+      const cliente = clientes.get(v.clienteId)
+      indice.set(v.id, semAcento([
+        cliente?.nome,
+        cliente?.cidade,
+        cliente?.uf,
+        v.numero,
+        ...(produtosPorVenda.get(v.id) || []),
+      ].filter(Boolean).join(' ')))
+    }
+    return indice
+  }, [vendas.list(), vendaItens.list(), clientes.list()])
+
+  const termo = semAcento(busca)
   const lista = vendas
     .list()
     .filter((v) => (filtro === 'todos' ? true : v.status === filtro))
+    .filter((v) => dentroDoPeriodo(v.data, periodo))
+    .filter((v) => !termo || (indiceBusca.get(v.id) || '').includes(termo))
     .sort((a, b) => (b.data || '').localeCompare(a.data || ''))
+
+  // Quanto o que está na tela representa. Venda CANCELADA fica na lista (você
+  // pode querer vê-la) mas fora da soma: ela não é receita, e somá-la faria o
+  // total do mês mentir.
+  const canceladasNaLista = lista.filter((v) => v.status === 'cancelada').length
+  const somaListada = lista
+    .filter((v) => v.status !== 'cancelada')
+    .reduce((soma, v) => soma + Number(v.total || 0), 0)
 
   // Totais recalculados a cada tecla, para o rodapé do formulário mostrar
   // exatamente o que será gravado.
@@ -180,6 +238,30 @@ export default function Vendas() {
         Vendas
       </PageTitle>
 
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <div className="relative flex-1 min-w-[220px] max-w-sm">
+          <IconSearch size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            className={inputCls + ' pl-9'}
+            placeholder="Buscar por cliente, produto ou cidade…"
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+          />
+        </div>
+        {/* A largura mora no wrapper: `inputCls` já traz `w-full`, e entre duas
+            classes de mesma especificidade quem manda é a ordem do CSS gerado. */}
+        <div className="w-44 shrink-0">
+          <select
+            className={inputCls + ' cursor-pointer'}
+            value={periodo}
+            onChange={(e) => setPeriodo(e.target.value)}
+            aria-label="Filtrar vendas por período"
+          >
+            {Object.entries(PERIODOS).map(([v, r]) => <option key={v} value={v}>{r}</option>)}
+          </select>
+        </div>
+      </div>
+
       <div className="flex gap-2 mb-4 flex-wrap">
         {[['todos', 'Todas'], ['proposta', 'Propostas'], ['confirmada', 'Confirmadas'], ['cancelada', 'Canceladas']].map(
           ([valor, rotulo]) => (
@@ -197,7 +279,18 @@ export default function Vendas() {
       </div>
 
       <Card>
-        {lista.length === 0 && <Empty>Nenhuma venda por aqui.</Empty>}
+        <p className="text-xs text-slate-400 mb-3">
+          {lista.length} venda{lista.length === 1 ? '' : 's'}
+          {somaListada > 0 && <> · <span className="tnum">{formatBRL(somaListada)}</span></>}
+          {canceladasNaLista > 0 && ' (canceladas fora da soma)'}
+        </p>
+        {lista.length === 0 && (
+          <Empty>
+            {busca || periodo !== 'todos' || filtro !== 'todos'
+              ? 'Nenhuma venda encontrada com esses filtros.'
+              : 'Nenhuma venda por aqui.'}
+          </Empty>
+        )}
         <ul className="divide-y divide-slate-100">
           {lista.map((v) => {
             const itensVenda = itensDaVenda(v.id)

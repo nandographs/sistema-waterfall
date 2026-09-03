@@ -10,6 +10,7 @@ import {
   partesISO, paraDate, paraISO, hojeISO, somarDias, diferencaEmDias, diaDaSemana,
   ehFimDeSemana, mesDe, mudarMes, diasNoMes, inicioDaSemana, semanaDe, gradeDoMes,
   rotuloMes, diaExtenso, diaCurto, formatHora, chaveOrdem, DIAS_CURTOS,
+  intervaloDoPeriodo, dentroDoPeriodo,
 } from '../src/lib/datas.js'
 
 let falhas = 0
@@ -138,6 +139,86 @@ console.log('\n--- chaveOrdem ---')
     ordenado,
     ['31/07 —', '01/08 09:00', '01/08 14:00', '01/08 —'],
     'ordena por dia, depois por hora, com os sem-hora no fim do dia',
+  )
+}
+
+console.log('\n--- períodos (o recorte de data dos filtros) ---')
+{
+  // Quarta-feira, 12/08/2026. Ancorado num dia fixo de propósito: um período
+  // que só acerta no dia em que o teste rodou não prova nada.
+  const quarta = '2026-08-12'
+
+  eq(intervaloDoPeriodo('todos', quarta), null, 'sem recorte não é um intervalo')
+  eq(intervaloDoPeriodo('hoje', quarta), { de: '2026-08-12', ate: '2026-08-12' }, 'hoje é um dia só')
+  eq(
+    intervaloDoPeriodo('semana', quarta),
+    { de: '2026-08-09', ate: '2026-08-15' },
+    'a semana da quarta vai do domingo ao sábado',
+  )
+  eq(
+    intervaloDoPeriodo('mes', quarta),
+    { de: '2026-08-01', ate: '2026-08-31' },
+    'este mês pega o mês inteiro, até o último dia',
+  )
+  eq(
+    intervaloDoPeriodo('mes_passado', quarta),
+    { de: '2026-07-01', ate: '2026-07-31' },
+    'mês passado',
+  )
+  eq(
+    intervaloDoPeriodo('ano', quarta),
+    { de: '2026-01-01', ate: '2026-12-31' },
+    'este ano',
+  )
+}
+{
+  // Os cantos: virada de ano, fevereiro (com e sem bissexto) e a semana que
+  // atravessa dois meses — onde um cálculo ingênuo erra.
+  eq(
+    intervaloDoPeriodo('mes_passado', '2026-01-15'),
+    { de: '2025-12-01', ate: '2025-12-31' },
+    'mês passado em janeiro volta para dezembro do ano anterior',
+  )
+  eq(
+    intervaloDoPeriodo('mes', '2026-02-10'),
+    { de: '2026-02-01', ate: '2026-02-28' },
+    'fevereiro comum termina no dia 28',
+  )
+  eq(
+    intervaloDoPeriodo('mes', '2028-02-10'),
+    { de: '2028-02-01', ate: '2028-02-29' },
+    'fevereiro bissexto termina no dia 29',
+  )
+  eq(
+    intervaloDoPeriodo('semana', '2026-08-31'),
+    { de: '2026-08-30', ate: '2026-09-05' },
+    'a semana pode atravessar a virada do mês',
+  )
+  eq(
+    intervaloDoPeriodo('semana', '2026-08-09'),
+    { de: '2026-08-09', ate: '2026-08-15' },
+    'domingo é o primeiro dia da própria semana',
+  )
+  eq(
+    intervaloDoPeriodo('semana', '2026-08-15'),
+    { de: '2026-08-09', ate: '2026-08-15' },
+    'sábado é o último dia da própria semana',
+  )
+}
+{
+  const quarta = '2026-08-12'
+  eq(dentroDoPeriodo('2026-08-12', 'hoje', quarta), true, 'o próprio dia cai em hoje')
+  eq(dentroDoPeriodo('2026-08-11', 'hoje', quarta), false, 'ontem não cai em hoje')
+  eq(dentroDoPeriodo('2026-08-09', 'semana', quarta), true, 'a borda de baixo é inclusiva')
+  eq(dentroDoPeriodo('2026-08-15', 'semana', quarta), true, 'a borda de cima é inclusiva')
+  eq(dentroDoPeriodo('2026-08-16', 'semana', quarta), false, 'o domingo seguinte já é outra semana')
+  eq(dentroDoPeriodo('2020-01-01', 'todos', quarta), true, 'sem recorte tudo passa')
+  eq(dentroDoPeriodo('', 'todos', quarta), true, 'sem recorte, até o sem-data passa')
+  eq(dentroDoPeriodo('', 'mes', quarta), false, 'registro sem data não cai em recorte nenhum')
+  eq(
+    dentroDoPeriodo('2026-08-12T15:30:00Z', 'hoje', quarta),
+    true,
+    'timestamp completo é cortado no dia antes de comparar',
   )
 }
 

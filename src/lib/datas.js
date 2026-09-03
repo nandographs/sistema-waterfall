@@ -87,6 +87,61 @@ export function diasNoMes(mes) {
   return new Date(ano, m, 0).getDate()
 }
 
+// ---- Períodos ----
+//
+// O recorte de data que as telas oferecem ("este mês", "esta semana"…). O
+// rótulo mora junto do cálculo de propósito: são a mesma decisão, e separá-los
+// é como a tela acaba dizendo "Este mês" enquanto filtra outra coisa.
+
+export const PERIODOS = {
+  todos: 'Todo o período',
+  hoje: 'Hoje',
+  semana: 'Esta semana',
+  mes: 'Este mês',
+  mes_passado: 'Mês passado',
+  ano: 'Este ano',
+}
+
+// O intervalo { de, ate } de um período, INCLUSIVO nas duas pontas — as telas
+// comparam com texto ISO, que ordena corretamente como string.
+//
+// `todos` devolve null: "sem recorte" não é um intervalo, e inventar um
+// intervalo gigante faria a tela filtrar à toa.
+//
+// `hoje` é parâmetro em vez de hojeISO() lá dentro para isto ser testável: um
+// período que só acerta no dia em que o teste rodou não prova nada.
+export function intervaloDoPeriodo(periodo, hoje = hojeISO()) {
+  if (periodo === 'hoje') return { de: hoje, ate: hoje }
+
+  if (periodo === 'semana') {
+    // Semana de domingo a sábado, igual à grade do calendário desta casa.
+    const inicio = inicioDaSemana(hoje)
+    return { de: inicio, ate: somarDias(inicio, 6) }
+  }
+
+  if (periodo === 'mes' || periodo === 'mes_passado') {
+    const mes = periodo === 'mes' ? mesDe(hoje) : mudarMes(mesDe(hoje), -1)
+    return { de: `${mes}-01`, ate: `${mes}-${p2(diasNoMes(mes))}` }
+  }
+
+  if (periodo === 'ano') {
+    const ano = String(hoje).slice(0, 4)
+    return { de: `${ano}-01-01`, ate: `${ano}-12-31` }
+  }
+
+  return null
+}
+
+// Uma data cai dentro do período? Sem recorte, tudo cai. Registro SEM data não
+// cai em recorte nenhum: ele não aconteceu em momento algum que se possa
+// filtrar, e deixá-lo passar faria "Hoje" mostrar coisa de data desconhecida.
+export function dentroDoPeriodo(iso, periodo, hoje = hojeISO()) {
+  const intervalo = intervaloDoPeriodo(periodo, hoje)
+  if (!intervalo) return true
+  const dia = String(iso || '').slice(0, 10)
+  return !!dia && dia >= intervalo.de && dia <= intervalo.ate
+}
+
 // ---- Grades do calendário ----
 
 export const inicioDaSemana = (iso) => somarDias(iso, -diaDaSemana(iso))
