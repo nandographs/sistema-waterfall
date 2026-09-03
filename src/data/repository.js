@@ -56,12 +56,24 @@ function snakeParaCamel(s) {
   return s.replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase())
 }
 
+// Campos que o app ANEXA ao item depois de carregar e que NÃO existem como
+// coluna: as URLs assinadas das imagens, geradas em carregarDados() a partir do
+// caminho no bucket (`fotoPerfil` -> `fotoPerfilUrl`, `foto` -> `fotoUrl`,
+// `avatarPath` -> `avatarUrl`).
+//
+// Precisam sair aqui porque as telas devolvem o item INTEIRO para update() — a
+// ficha do cliente faz exatamente isso ao editar os dados. Sem esta lista o
+// PostgREST recebia `foto_perfil_url`, não achava a coluna e recusava a
+// gravação inteira: o cadastro simplesmente não salvava.
+const CAMPOS_SO_DO_APP = ['fotoPerfilUrl', 'fotoUrl', 'avatarUrl']
+
 // Objeto do app -> linha do banco. Strings vazias viram null (colunas de
-// data/uuid/numero não aceitam ''); id e criadoEm nunca são enviados.
+// data/uuid/numero não aceitam ''); id, criadoEm e os campos calculados acima
+// nunca são enviados.
 function paraColuna(dados) {
   const linha = {}
   for (const [chave, valor] of Object.entries(dados)) {
-    if (chave === 'id' || chave === 'criadoEm') continue
+    if (chave === 'id' || chave === 'criadoEm' || CAMPOS_SO_DO_APP.includes(chave)) continue
     linha[camelParaSnake(chave)] = valor === '' ? null : valor
   }
   return linha

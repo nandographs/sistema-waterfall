@@ -94,11 +94,18 @@ export default function ClienteDetalhe() {
   const passo = proximoPasso(id)
   const historicoCompleto = linhaDoTempoDoCliente(id)
 
+  // O try/catch não é decoração: sem ele a gravação recusada pelo banco virava
+  // uma promise rejeitada e nada mais — o modal continuava aberto, sem aviso, e
+  // a única leitura possível era "o sistema não salva".
   async function salvarEdicao(e) {
     e.preventDefault()
-    await clientes.update(id, editando)
-    setEditando(null)
-    refresh()
+    try {
+      await clientes.update(id, editando)
+      setEditando(null)
+      refresh()
+    } catch (erro) {
+      notificar('Não foi possível salvar os dados: ' + (erro?.message || erro), 'erro')
+    }
   }
 
   // Cadastro rápido: registra uma venda de um produto só, de algo que já foi

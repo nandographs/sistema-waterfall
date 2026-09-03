@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import {
   clientes, agendamentos, equipamentos, lancamentos, proximaTroca, formatData,
 } from '../data/repository.js'
-import { Card, Page, PageTitle, Button, inputCls, Empty, Modal, Badge } from '../components/ui.jsx'
+import { Card, Page, PageTitle, Button, inputCls, Empty, Modal, Badge, notificar } from '../components/ui.jsx'
 import { IconPlus, IconSearch, IconUser, IconFilter } from '../components/icons.jsx'
 import ClienteFormFields from '../components/ClienteFormFields.jsx'
 import { usuarioAtual } from '../lib/auth.js'
@@ -114,11 +114,15 @@ export default function Clientes() {
 
   async function salvar(e) {
     e.preventDefault()
-    // Ao criar, registra quem cadastrou (usuário logado). Ao editar, não mexe.
-    if (form.id) await clientes.update(form.id, form)
-    else await clientes.create({ ...form, criadoPor: usuarioAtual() })
-    setForm(null)
-    setLista(clientes.list())
+    try {
+      // Ao criar, registra quem cadastrou (usuário logado). Ao editar, não mexe.
+      if (form.id) await clientes.update(form.id, form)
+      else await clientes.create({ ...form, criadoPor: usuarioAtual() })
+      setForm(null)
+      setLista(clientes.list())
+    } catch (erro) {
+      notificar('Não foi possível salvar o cliente: ' + (erro?.message || erro), 'erro')
+    }
   }
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
