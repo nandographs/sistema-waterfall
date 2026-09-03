@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   clientes, produtos, equipamentos, vendas, lancamentos, agendamentos,
   salvarVenda, darBaixa, excluirVenda, itensDaVenda, agendarProximaTroca,
-  definirFotoPerfil, removerFotoPerfil,
+  registrarEquipamento, definirFotoPerfil, removerFotoPerfil,
   proximoPasso, linhaDoTempoDoCliente, oportunidadesDoCliente, conversaDoCliente,
   proximaTroca, formatBRL, formatData, enderecoCompleto,
   FORMAS_PAGAMENTO, STATUS_VENDA, RESULTADOS_ATIVIDADE, ETAPAS_FUNIL, ETAPAS_FECHADAS,
@@ -33,6 +33,8 @@ const VENDA_VAZIA = {
   status: 'pago', data: hojeISO(), dataInstalacao: '',
 }
 
+const EQUIPAMENTO_VAZIO = { produtoId: '', dataInstalacao: hojeISO() }
+
 export default function ClienteDetalhe() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -58,6 +60,7 @@ export default function ClienteDetalhe() {
   const [excluindo, setExcluindo] = useState(false)
   const [atividadeForm, setAtividadeForm] = useState(null)
   const [oportunidadeForm, setOportunidadeForm] = useState(null)
+  const [equipForm, setEquipForm] = useState(null)
 
   if (!cliente) {
     return (
@@ -146,6 +149,30 @@ export default function ClienteDetalhe() {
     }
 
     setVendaForm(null)
+    refresh()
+  }
+
+  // Coloca um aparelho na ficha sem venda: é o que já está na casa do cliente e
+  // nunca passou pelo caixa. A troca de refil já sai agendada no repositório.
+  async function adicionarEquipamento(e) {
+    e.preventDefault()
+    try {
+      await registrarEquipamento({
+        clienteId: id,
+        produtoId: equipForm.produtoId,
+        dataInstalacao: equipForm.dataInstalacao,
+      })
+      setEquipForm(null)
+      refresh()
+    } catch (erro) {
+      notificar('Não foi possível adicionar o produto: ' + (erro?.message || erro), 'erro')
+    }
+  }
+
+  async function removerEquipamento(equipamento) {
+    const nome = produtos.get(equipamento.produtoId)?.nome || 'este produto'
+    if (!confirm(`Remover "${nome}" da ficha do cliente? As vendas e o histórico não são afetados.`)) return
+    await equipamentos.remove(equipamento.id)
     refresh()
   }
 
@@ -370,6 +397,41 @@ export default function ClienteDetalhe() {
                   </div>
                 </li>
               ))}
+            </ul>
+          </Card>
+
+          {/* O que está instalado na casa do cliente — venha de venda daqui ou
+              de um aparelho que já era dele. É desta lista que sai a agenda de
+              troca de refil. */}
+          <Card title="Equipamentos do cliente">
+            <div className="mb-3">
+              <Button variant="secondary" onClick={() => setEquipForm({ ...EQUIPAMENTO_VAZIO })}>
+                <IconPlus size={16} /> Adicionar produto (sem venda)
+              </Button>
+            </div>
+            {meusEquipamentos.length === 0 && (
+              <Empty>Nenhum equipamento registrado na ficha deste cliente.</Empty>
+            )}
+            <ul className="divide-y divide-slate-100">
+              {meusEquipamentos.map((eq) => {
+                const produto = produtos.get(eq.produtoId)
+                const troca = proximaTroca(eq)
+                return (
+                  <li key={eq.id} className="py-3 flex flex-wrap items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium">{produto?.nome || 'Produto removido do catálogo'}</p>
+                      <p className="text-xs text-slate-500">
+                        Instalado em {formatData(eq.dataInstalacao)}
+                        {eq.dataUltimaTroca ? ` · última troca ${formatData(eq.dataUltimaTroca)}` : ''}
+                        {troca ? ` · próxima troca de refil: ${formatData(troca)}` : ''}
+                      </p>
+                    </div>
+                    <Button variant="danger" onClick={() => removerEquipamento(eq)} title="Remover da ficha">
+                      <IconTrash size={15} />
+                    </Button>
+                  </li>
+                )
+              })}
             </ul>
           </Card>
 
@@ -615,6 +677,44 @@ export default function ClienteDetalhe() {
             </div>
           )
         })()}
+      </Modal>
+
+      <Modal title="Adicionar produto à ficha" open={!!equipForm} onClose={() => setEquipForm(null)}>
+        {equipForm && (
+          <form onSubmit={adicionarEquipamento} className="space-y-4">
+            <p className="text-sm text-slate-600">
+              Registra um aparelho que já está com o cliente, sem gerar venda nem
+              conta a receber. A troca de refil já fica programada a partir da
+              data de instalação.
+            </p>
+            <Field label="Produto">
+              <select
+                className={inputCls}
+                required
+                value={equipForm.produtoId}
+                onChange={(e) => setEquipForm({ ...equipForm, produtoId: e.target.value })}
+              >
+                <option value="">Selecione…</option>
+                {produtos.list().filter((p) => p.tipo === 'aparelho').map((p) => (
+                  <option key={p.id} value={p.id}>{p.nome}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Data de instalação">
+              <input
+                className={inputCls}
+                type="date"
+                required
+                value={equipForm.dataInstalacao}
+                onChange={(e) => setEquipForm({ ...equipForm, dataInstalacao: e.target.value })}
+              />
+            </Field>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="secondary" onClick={() => setEquipForm(null)}>Cancelar</Button>
+              <Button type="submit">Adicionar</Button>
+            </div>
+          </form>
+        )}
       </Modal>
 
       <Modal title="Registrar venda" open={!!vendaForm} onClose={() => setVendaForm(null)}>

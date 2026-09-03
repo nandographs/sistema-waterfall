@@ -1509,6 +1509,35 @@ export async function agendarProximaTroca(equipamento) {
   })
 }
 
+// Coloca um aparelho na ficha do cliente SEM gerar venda, item nem financeiro.
+//
+// É para o aparelho que já está na casa da pessoa e não passou por aqui: veio
+// de brinde, foi instalado por outra empresa, sobrou de um contrato antigo. O
+// que interessa é acompanhá-lo — o ciclo de troca de refil já sai agendado a
+// partir da data de instalação —, e inventar uma venda que nunca houve só suja
+// o faturamento do mês.
+//
+// Não duplica: se o cliente já tem esse mesmo produto na ficha, devolve o
+// equipamento existente em vez de criar um segundo.
+export async function registrarEquipamento({ clienteId, produtoId, dataInstalacao }) {
+  if (!clienteId || !produtoId) throw new Error('cliente e produto são obrigatórios')
+
+  const base = dataInstalacao || hojeISO()
+  const jaTem = equipamentos
+    .list()
+    .find((eq) => eq.clienteId === clienteId && eq.produtoId === produtoId)
+
+  const equipamento = jaTem ?? await equipamentos.create({
+    clienteId,
+    produtoId,
+    dataInstalacao: base,
+    dataUltimaTroca: '',
+  })
+
+  await agendarProximaTroca(equipamento)
+  return equipamento
+}
+
 // Exclui uma ordem de serviço (agendamento). Só é permitido para as canceladas.
 // Os lançamentos vinculados são removidos junto (uma OS cancelada normalmente
 // já não tem nenhum, pois o cancelamento os tirou do caixa).
