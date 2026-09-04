@@ -7,7 +7,7 @@
 import { supabase } from '../lib/supabaseClient.js'
 import { BUCKET, BUCKET_WHATSAPP, comprimir, assinarUrl, assinarVarias } from '../lib/imagem.js'
 import { somarDias, chaveOrdem } from '../lib/datas.js'
-import { formatarE164, mesmoNumero } from '../lib/telefone.js'
+import { formatarE164, mesmoNumero, clienteTemNumero } from '../lib/telefone.js'
 import { usuarioAtual } from '../lib/auth.js'
 import {
   somarMeses, hojeISO, planoDeParcelas, totaisDaVenda,
@@ -679,9 +679,31 @@ export function conversasRecentes({ incluirArquivadas = false } = {}) {
     .sort(ordenarPorRecente)
 }
 
+// A conversa de um cliente.
+//
+// Duas passadas, e a ordem importa. Primeiro pelo VÍNCULO (`cliente_id`), que é
+// o que o webhook grava quando reconhece o número. Se não houver nenhuma
+// vinculada, procura por QUALQUER UM dos telefones dele — a conversa pode ter
+// chegado do fixo de casa ou do celular da esposa, ou ter nascido antes de a
+// pessoa virar cadastro, e nesses casos ela existe sem `cliente_id`.
+//
+// Sem a segunda passada, sair da ficha e escrever abriria uma conversa nova ao
+// lado de uma que já existe, partindo o histórico em dois.
 export function conversaDoCliente(clienteId) {
   if (!clienteId) return null
-  return conversas.list().filter((c) => c.clienteId === clienteId).sort(ordenarPorRecente)[0] ?? null
+
+  const vinculada = conversas
+    .list()
+    .filter((c) => c.clienteId === clienteId)
+    .sort(ordenarPorRecente)[0]
+  if (vinculada) return vinculada
+
+  const cliente = clientes.get(clienteId)
+  if (!cliente) return null
+  return conversas
+    .list()
+    .filter((c) => !c.clienteId && clienteTemNumero(cliente, c.numero))
+    .sort(ordenarPorRecente)[0] ?? null
 }
 
 // A conversa de um telefone solto — o lead do funil, que ainda não tem cadastro
@@ -714,10 +736,13 @@ export function fotoDoContato({ clienteId, conversaId, telefone } = {}) {
   const cliente = clienteId ? clientes.get(clienteId) : null
   if (cliente?.fotoPerfilUrl) return cliente.fotoPerfilUrl
 
+  // `conversaDoCliente` já procura por todos os telefones do cadastro; o
+  // `conversaDoNumero` que sobra é para o LEAD — o número solto do funil, que
+  // ainda não é cliente e por isso não tem de onde tirar uma lista.
   const conversa =
     (conversaId ? conversas.get(conversaId) : null) ??
     conversaDoCliente(clienteId) ??
-    conversaDoNumero(telefone || cliente?.telefone)
+    conversaDoNumero(telefone)
 
   return conversa?.avatarUrl || ''
 }

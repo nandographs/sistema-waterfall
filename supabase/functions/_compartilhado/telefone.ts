@@ -90,3 +90,41 @@ export function mesmoNumero(a: unknown, b: unknown): boolean {
   const doPrimeiro = new Set(variantesBR(um))
   return variantesBR(outro).some((v) => doPrimeiro.has(v))
 }
+
+// ---- A lista de telefones do cliente (migração 016) ----
+//
+// Gêmeos de src/lib/telefone.js. O cliente pode ter o celular dele, o fixo de
+// casa e o da esposa; o webhook precisa reconhecer a pessoa venha a mensagem de
+// qual deles for. Sem isso, quem escreve do segundo número entra como lead —
+// um contato novo, com cartão novo, ao lado da ficha que já existia.
+
+export type TelefoneDoCliente = { numero?: unknown; rotulo?: unknown }
+
+export function normalizarTelefones(telefones: unknown): { numero: string; rotulo: string }[] {
+  return (Array.isArray(telefones) ? telefones : [])
+    .map((t: TelefoneDoCliente) => ({
+      numero: String(t?.numero ?? '').trim(),
+      rotulo: String(t?.rotulo ?? '').trim(),
+    }))
+    .filter((t) => t.numero)
+}
+
+// Os telefones de um cliente, venha ele da lista nova ou da coluna antiga.
+export function telefonesDoCliente(
+  cliente: { telefones?: unknown; telefone?: unknown } | null | undefined,
+): { numero: string; rotulo: string }[] {
+  const lista = normalizarTelefones(cliente?.telefones)
+  if (lista.length) return lista
+  const unico = String(cliente?.telefone ?? '').trim()
+  return unico ? [{ numero: unico, rotulo: '' }] : []
+}
+
+// Algum telefone do cliente é este número? Compara com `mesmoNumero`, que
+// converte os dois lados para E.164 antes — é o que faz o cadastro com máscara
+// casar com o que a Evolution entrega, com ou sem o nono dígito.
+export function clienteTemNumero(
+  cliente: { telefones?: unknown; telefone?: unknown } | null | undefined,
+  numero: unknown,
+): boolean {
+  return telefonesDoCliente(cliente).some((t) => mesmoNumero(t.numero, numero))
+}

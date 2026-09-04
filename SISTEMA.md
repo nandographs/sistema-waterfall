@@ -119,6 +119,9 @@ Pontos-chave:
   eles, porque quem atende o telefone muitas vezes é o cônjuge e quem procura a
   ficha só lembra do nome dele. O titular tem `nascimento` (`sql/017`), que
   preenche sozinho o campo correspondente do Pedido de Venda.
+  O webhook do WhatsApp reconhece o cliente por QUALQUER um dos telefones
+  (`clienteTemNumero`), não só pelo principal — senão quem escreve do segundo
+  número entra como lead, com cartão novo ao lado da ficha que já existe.
 - **`equipamentos`** = o aparelho instalado na casa do cliente; dele sai a
   previsão da próxima troca (`proximaTroca`).
 - **`agendamentos`** = serviço em campo. Gera OS, pode entrar no caixa, cria o

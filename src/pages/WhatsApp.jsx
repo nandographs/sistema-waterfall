@@ -106,7 +106,9 @@ export default function WhatsApp() {
     definirParametros({}, { replace: true })
     if (!cliente) return
 
-    const existente = conversaDoCliente(alvo) ?? conversaDoNumero(cliente.telefone)
+    // Sem `conversaDoNumero` aqui: `conversaDoCliente` já varre todos os
+    // telefones do cadastro, e não só o principal.
+    const existente = conversaDoCliente(alvo)
     if (existente) {
       setRascunho(null)
       setAbertaId(existente.id)

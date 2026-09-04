@@ -30,7 +30,7 @@
 //             Message: { conversation: "texto" } } }
 
 import { createClient } from 'jsr:@supabase/supabase-js@2'
-import { jidParaNumero, ehGrupo, ehStatus, mesmoNumero } from '../_compartilhado/telefone.ts'
+import { jidParaNumero, ehGrupo, ehStatus, clienteTemNumero } from '../_compartilhado/telefone.ts'
 import { sincronizarAvatar } from '../_compartilhado/avatar.ts'
 
 const TOKEN_ESPERADO = Deno.env.get('WEBHOOK_TOKEN') ?? ''
@@ -74,11 +74,12 @@ function tipoDaMensagem(info: any, mensagem: any): string {
 
 // Acha o cliente dono deste número.
 //
-// A comparação é `mesmoNumero`, e não uma montagem própria de variantes: ela
-// converte OS DOIS LADOS para E.164 antes de comparar. Foi exatamente isso que
-// faltou na primeira versão — o cadastro guarda "(47) 99233-0354" e o WhatsApp
-// entrega "554792330354" (sem o nono dígito), e comparar o número local cru
-// contra o internacional nunca casa. Ver scripts/testar-telefone.mjs.
+// A comparação sai de `clienteTemNumero`, que por baixo usa `mesmoNumero` — e
+// não uma montagem própria de variantes. `mesmoNumero` converte OS DOIS LADOS
+// para E.164 antes de comparar. Foi exatamente isso que faltou na primeira
+// versão: o cadastro guarda "(47) 99233-0354" e o WhatsApp entrega
+// "554792330354" (sem o nono dígito), e comparar o número local cru contra o
+// internacional nunca casa. Ver scripts/testar-telefone.mjs.
 async function acharCliente(numero: string): Promise<string | null> {
   if (!numero) return null
 
@@ -86,12 +87,16 @@ async function acharCliente(numero: string): Promise<string | null> {
   // no banco por igualdade. São poucas centenas de clientes: trazer os
   // telefones e comparar aqui é mais simples e mais correto do que um LIKE que
   // erraria em "(47) 9123-4567".
-  const { data, error } = await supabase.from('clientes').select('id, telefone')
+  //
+  // Traz `telefones` (a lista da migração 016) junto com a coluna antiga: o
+  // cliente pode ter o celular dele, o fixo de casa e o da esposa, e a mensagem
+  // pode chegar de qualquer um deles. `clienteTemNumero` olha todos e cai na
+  // coluna `telefone` quando o cadastro é anterior à migração.
+  const { data, error } = await supabase.from('clientes').select('id, telefone, telefones')
   if (error || !data) return null
 
   for (const cliente of data) {
-    if (!cliente.telefone) continue
-    if (mesmoNumero(numero, cliente.telefone)) return cliente.id
+    if (clienteTemNumero(cliente, numero)) return cliente.id
   }
   return null
 }
