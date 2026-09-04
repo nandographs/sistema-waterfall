@@ -27,7 +27,7 @@ import FotoUnica from '../components/FotoUnica.jsx'
 const CLIENTE_VAZIO = {
   telefones: [],
   conjugeNome: '', conjugeTelefone: '', conjugeCpf: '', conjugeNascimento: '',
-  nome: '', telefone: '', email: '', cpfCnpj: '',
+  nome: '', telefone: '', email: '', cpfCnpj: '', nascimento: '',
   endereco: '', numeroComplemento: '', bairro: '', cidade: '', uf: '', cep: '',
   observacoes: '',
 }
@@ -324,6 +324,10 @@ export default function ClienteDetalhe() {
               </div>
               <div><dt className="text-xs text-slate-500">E-mail</dt><dd>{cliente.email || '—'}</dd></div>
               <div><dt className="text-xs text-slate-500">CPF / CNPJ</dt><dd>{cliente.cpfCnpj || '—'}</dd></div>
+              <div>
+                <dt className="text-xs text-slate-500">Nascimento</dt>
+                <dd>{cliente.nascimento ? formatData(cliente.nascimento) : '—'}</dd>
+              </div>
               <div><dt className="text-xs text-slate-500">Endereço</dt><dd>{enderecoCompleto(cliente) || '—'}</dd></div>
               <div><dt className="text-xs text-slate-500">Observações</dt><dd>{cliente.observacoes || '—'}</dd></div>
               <div><dt className="text-xs text-slate-500">Cadastrado por</dt><dd>{cliente.criadoPor || '—'}</dd></div>

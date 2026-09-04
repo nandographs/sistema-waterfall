@@ -39,7 +39,9 @@ function montarInicial(venda) {
     nome_contato: cliente.nome || '',
     cpf_cnpj: cliente.cpfCnpj || '',
     rg_inscricao: '',
-    data_nascimento: '',
+    // Vem do cadastro (migração 017). Antes era sempre em branco e alguém
+    // redigitava a data a cada pedido emitido.
+    data_nascimento: cliente.nascimento ? formatData(cliente.nascimento) : '',
     endereco: cliente.endereco || '',
     numero_complemento: cliente.numeroComplemento || '',
     cep: cliente.cep || '',

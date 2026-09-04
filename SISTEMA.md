@@ -117,7 +117,8 @@ Pontos-chave:
   precisou ser reescrito. Os campos do **cônjuge** (nome, telefone, CPF,
   nascimento) são do cliente, não do documento: a busca de clientes procura por
   eles, porque quem atende o telefone muitas vezes é o cônjuge e quem procura a
-  ficha só lembra do nome dele.
+  ficha só lembra do nome dele. O titular tem `nascimento` (`sql/017`), que
+  preenche sozinho o campo correspondente do Pedido de Venda.
 - **`equipamentos`** = o aparelho instalado na casa do cliente; dele sai a
   previsão da próxima troca (`proximaTroca`).
 - **`agendamentos`** = serviço em campo. Gera OS, pode entrar no caixa, cria o

@@ -12,7 +12,7 @@ import { telefonesDoCliente, comTelefonePrincipal } from '../lib/telefone.js'
 import { combina } from '../lib/texto.js'
 
 const FORM_VAZIO = {
-  nome: '', telefone: '', telefones: [], email: '', cpfCnpj: '',
+  nome: '', telefone: '', telefones: [], email: '', cpfCnpj: '', nascimento: '',
   conjugeNome: '', conjugeTelefone: '', conjugeCpf: '', conjugeNascimento: '',
   endereco: '', numeroComplemento: '', bairro: '', cidade: '', uf: '', cep: '',
   observacoes: '',

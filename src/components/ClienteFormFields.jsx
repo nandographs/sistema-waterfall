@@ -132,15 +132,27 @@ export default function ClienteFormFields({ form, set, onEnderecoEncontrado }) {
       <Field label="E-mail">
         <input className={inputCls} type="email" value={form.email} onChange={set('email')} />
       </Field>
-      <Field label="CPF / CNPJ">
-        <input
-          className={inputCls}
-          inputMode="numeric"
-          placeholder="000.000.000-00"
-          value={form.cpfCnpj}
-          onChange={comMascara('cpfCnpj', mascararCpfCnpj)}
-        />
-      </Field>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <Field label="CPF / CNPJ">
+          <input
+            className={inputCls}
+            inputMode="numeric"
+            placeholder="000.000.000-00"
+            value={form.cpfCnpj}
+            onChange={comMascara('cpfCnpj', mascararCpfCnpj)}
+          />
+        </Field>
+        {/* O Pedido de Venda tem esse campo desde sempre; sem ele no cadastro,
+            era redigitado a cada emissão. */}
+        <Field label="Data de nascimento">
+          <input
+            className={inputCls}
+            type="date"
+            value={form.nascimento || ''}
+            onChange={set('nascimento')}
+          />
+        </Field>
+      </div>
 
       {/* Cônjuge — informação do CLIENTE, e não do documento: é por ela que se
           acha a ficha quando quem atende é a esposa e quem procura só lembra do

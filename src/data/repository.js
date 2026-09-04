@@ -449,6 +449,7 @@ const MIGRACAO_DA_COLUNA = {
   conjuge_telefone: 'sql/016_telefones_e_conjuge.sql',
   conjuge_cpf: 'sql/016_telefones_e_conjuge.sql',
   conjuge_nascimento: 'sql/016_telefones_e_conjuge.sql',
+  nascimento: 'sql/017_nascimento_do_cliente.sql',
 }
 
 export function explicarColunaFaltante(erro) {
