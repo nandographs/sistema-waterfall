@@ -10,7 +10,8 @@ import {
   partesISO, paraDate, paraISO, hojeISO, somarDias, diferencaEmDias, diaDaSemana,
   ehFimDeSemana, mesDe, mudarMes, diasNoMes, inicioDaSemana, semanaDe, gradeDoMes,
   rotuloMes, diaExtenso, diaCurto, formatHora, chaveOrdem, DIAS_CURTOS,
-  intervaloDoPeriodo, dentroDoPeriodo,
+  intervaloDoPeriodo, dentroDoPeriodo, dataBR,
+  intervaloDoRelatorio, andarNoRelatorio, rotuloDoRelatorio, periodoEmCurso,
 } from '../src/lib/datas.js'
 
 let falhas = 0
@@ -221,6 +222,61 @@ console.log('\n--- períodos (o recorte de data dos filtros) ---')
     'timestamp completo é cortado no dia antes de comparar',
   )
 }
+
+console.log('\n--- escala do relatório (semanal / mensal / anual) ---')
+{
+  const quarta = '2026-08-12' // quarta-feira
+
+  eq(intervaloDoRelatorio('semanal', quarta), { de: '2026-08-09', ate: '2026-08-15' }, 'semana de domingo a sábado')
+  eq(intervaloDoRelatorio('mensal', quarta), { de: '2026-08-01', ate: '2026-08-31' }, 'mês inteiro')
+  eq(intervaloDoRelatorio('anual', quarta), { de: '2026-01-01', ate: '2026-12-31' }, 'ano inteiro')
+  eq(intervaloDoRelatorio('mensal', '2026-02-10'), { de: '2026-02-01', ate: '2026-02-28' }, 'fevereiro comum')
+  eq(intervaloDoRelatorio('mensal', '2028-02-10'), { de: '2028-02-01', ate: '2028-02-29' }, 'fevereiro bissexto')
+}
+{
+  // Andar no tempo. O caso que motiva a âncora no dia 1: partir do dia 31 e
+  // voltar um mês não pode fazer o mês "andar" sozinho nas idas e vindas.
+  eq(andarNoRelatorio('mensal', '2026-03-31', -1), '2026-02-01', 'de 31/03 voltar um mês ancora em 01/02')
+  eq(
+    intervaloDoRelatorio('mensal', andarNoRelatorio('mensal', andarNoRelatorio('mensal', '2026-03-31', -1), 1)),
+    { de: '2026-03-01', ate: '2026-03-31' },
+    'voltar e avançar devolve MARÇO, e não fevereiro deslocado',
+  )
+  eq(andarNoRelatorio('mensal', '2026-01-15', -1), '2025-12-01', 'janeiro volta para dezembro do ano anterior')
+  eq(andarNoRelatorio('semanal', '2026-08-12', -1), '2026-08-05', 'uma semana atrás')
+  eq(andarNoRelatorio('semanal', '2026-08-12', 2), '2026-08-26', 'duas semanas à frente')
+  eq(andarNoRelatorio('anual', '2026-08-12', -1), '2025-01-01', 'ano anterior')
+  eq(andarNoRelatorio('anual', '2026-08-12', 1), '2027-01-01', 'ano seguinte')
+  // Andar N vezes de um em um tem que dar no mesmo que andar N de uma vez.
+  let passo = '2026-08-12'
+  for (let i = 0; i < 5; i++) passo = andarNoRelatorio('semanal', passo, -1)
+  eq(passo, andarNoRelatorio('semanal', '2026-08-12', -5), 'cinco passos semanais não acumulam desvio')
+}
+{
+  eq(rotuloDoRelatorio('mensal', '2026-08-12'), 'Agosto de 2026', 'rótulo mensal')
+  eq(rotuloDoRelatorio('anual', '2026-08-12'), '2026', 'rótulo anual')
+  eq(
+    rotuloDoRelatorio('semanal', '2026-08-12'),
+    '09/08/2026 a 15/08/2026',
+    'rótulo semanal traz o ano nas duas pontas (a semana atravessa mês)',
+  )
+  eq(
+    rotuloDoRelatorio('semanal', '2026-12-31'),
+    '27/12/2026 a 02/01/2027',
+    'e fica legível quando a semana atravessa o ano',
+  )
+}
+{
+  eq(periodoEmCurso('mensal', '2026-08-12', '2026-08-30'), true, 'agosto está em curso em 30/08')
+  eq(periodoEmCurso('mensal', '2026-08-12', '2026-09-01'), false, 'em setembro, agosto já fechou')
+  eq(periodoEmCurso('semanal', '2026-08-12', '2026-08-15'), true, 'o sábado ainda é da semana')
+  eq(periodoEmCurso('anual', '2026-08-12', '2026-01-01'), true, 'o ano corre desde 1º de janeiro')
+}
+
+console.log('\n--- dataBR ---')
+eq(dataBR('2026-08-01'), '01/08/2026', 'data por extenso curta')
+eq(dataBR('2026-08-01T10:00:00Z'), '01/08/2026', 'ignora a hora')
+eq(dataBR(''), '', 'vazio devolve vazio (quem mostra decide o traço)')
 
 console.log(`\n${falhas === 0 ? 'TUDO OK' : `${falhas} FALHA(S)`}`)
 process.exit(falhas === 0 ? 0 : 1)

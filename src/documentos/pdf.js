@@ -140,3 +140,76 @@ export async function gerarPdfDeHtml({ html, css, seletor, nome }) {
   }
   return nome
 }
+
+// Renderiza VÁRIAS folhas num PDF de várias páginas.
+//
+// O `gerarPdfDeHtml` acima encaixa tudo numa página só, encolhendo se precisar —
+// certo para a OS e o Pedido, que são formulários de uma folha. O relatório
+// financeiro não tem tamanho fixo: um mês movimentado tem dezenas de linhas, e
+// espremer isso numa página produziria letra ilegível.
+//
+// A quebra é decidida no HTML, não na imagem: quem monta o relatório já entrega
+// as folhas prontas (uma `<div class="pagina">` cada), e aqui cada folha vira
+// uma página. Fatiar o canvas por altura seria mais simples e cortaria linhas
+// ao meio — um número partido no fim da página é pior que uma página a mais.
+export async function gerarPdfDePaginas({ html, css, seletorPagina, nome }) {
+  const iframe = document.createElement('iframe')
+  iframe.style.position = 'fixed'
+  iframe.style.left = '-10000px'
+  iframe.style.top = '0'
+  iframe.style.width = '210mm'
+  iframe.style.height = '297mm'
+  iframe.style.border = '0'
+  document.body.appendChild(iframe)
+
+  const doc = iframe.contentDocument
+  doc.open()
+  doc.write(
+    '<!doctype html><html><head><meta charset="utf-8">' +
+    `<style>*{margin:0;padding:0}html,body{background:#fff}${css}</style></head>` +
+    `<body>${html}</body></html>`,
+  )
+  doc.close()
+
+  // Mesmo motivo do gerador de uma página: o logo é data URI, mas ainda assim
+  // precisa terminar de decodificar antes de rasterizar.
+  const img = doc.querySelector('img')
+  if (img && !img.complete) {
+    await new Promise((res) => { img.onload = res; img.onerror = res })
+  }
+
+  try {
+    const folhas = [...doc.querySelectorAll(seletorPagina)]
+    if (!folhas.length) throw new Error('o relatório saiu sem nenhuma página')
+
+    const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
+    const larguraPagina = pdf.internal.pageSize.getWidth()
+    const alturaPagina = pdf.internal.pageSize.getHeight()
+
+    for (let i = 0; i < folhas.length; i++) {
+      const canvas = await html2canvas(folhas[i], {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+      })
+
+      let largura = larguraPagina
+      let altura = (canvas.height * larguraPagina) / canvas.width
+      if (altura > alturaPagina) {
+        altura = alturaPagina
+        largura = (canvas.width * alturaPagina) / canvas.height
+      }
+
+      if (i > 0) pdf.addPage()
+      pdf.addImage(
+        canvas.toDataURL('image/jpeg', 0.95), 'JPEG',
+        (larguraPagina - largura) / 2, 0, largura, altura,
+      )
+    }
+
+    pdf.save(nome)
+  } finally {
+    document.body.removeChild(iframe)
+  }
+  return nome
+}

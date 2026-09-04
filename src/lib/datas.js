@@ -142,6 +142,70 @@ export function dentroDoPeriodo(iso, periodo, hoje = hojeISO()) {
   return !!dia && dia >= intervalo.de && dia <= intervalo.ate
 }
 
+// ---- Escala do relatório ----
+//
+// O recorte acima (`PERIODOS`) é fixo no presente: "este mês", "esta semana".
+// O relatório precisa de outra coisa — uma ESCALA que se possa navegar para
+// trás e para frente, para comparar setembro com agosto ou 2026 com 2025.
+//
+// Por isso o par (escala, âncora): a escala diz o tamanho da janela e a âncora
+// é qualquer dia dentro dela. Andar no tempo é mexer só na âncora, e a janela
+// se recalcula sozinha — é o que impede o clássico "31 de março menos um mês".
+
+export const ESCALAS_RELATORIO = {
+  semanal: 'Semanal',
+  mensal: 'Mensal',
+  anual: 'Anual',
+}
+
+// A janela { de, ate } daquela escala, inclusiva nas duas pontas.
+export function intervaloDoRelatorio(escala, ancora) {
+  if (escala === 'semanal') {
+    const inicio = inicioDaSemana(ancora)
+    return { de: inicio, ate: somarDias(inicio, 6) }
+  }
+  if (escala === 'anual') {
+    const ano = String(ancora || '').slice(0, 4)
+    return { de: `${ano}-01-01`, ate: `${ano}-12-31` }
+  }
+  const mes = mesDe(ancora)
+  return { de: `${mes}-01`, ate: `${mes}-${p2(diasNoMes(mes))}` }
+}
+
+// Anda `n` períodos (negativo volta). Devolve a âncora nova.
+//
+// No mensal a âncora nova é sempre o DIA 1: partir do dia 31 e voltar um mês
+// cairia em 28/02 e, ao avançar de novo, em 28/03 — o mês "andaria" sozinho.
+export function andarNoRelatorio(escala, ancora, n) {
+  const passos = Number(n || 0)
+  if (escala === 'semanal') return somarDias(ancora, 7 * passos)
+  if (escala === 'anual') {
+    const ano = Number(String(ancora || '').slice(0, 4))
+    return Number.isFinite(ano) ? `${ano + passos}-01-01` : ''
+  }
+  const mes = mudarMes(mesDe(ancora), passos)
+  return mes ? `${mes}-01` : ''
+}
+
+// Como o período se chama na tela e no PDF.
+export function rotuloDoRelatorio(escala, ancora) {
+  if (escala === 'semanal') {
+    const { de, ate } = intervaloDoRelatorio('semanal', ancora)
+    // Data cheia nas duas pontas: a semana atravessa mês (e às vezes ano), e
+    // "30/08 a 05/09" sem o ano vira dúvida em qualquer relatório arquivado.
+    return `${dataBR(de)} a ${dataBR(ate)}`
+  }
+  if (escala === 'anual') return String(ancora || '').slice(0, 4)
+  return rotuloMes(mesDe(ancora))
+}
+
+// O período atual é o que contém hoje? Serve para a tela não oferecer "próximo"
+// e para o PDF avisar que o período ainda está correndo.
+export function periodoEmCurso(escala, ancora, hoje = hojeISO()) {
+  const { de, ate } = intervaloDoRelatorio(escala, ancora)
+  return hoje >= de && hoje <= ate
+}
+
 // ---- Grades do calendário ----
 
 export const inicioDaSemana = (iso) => somarDias(iso, -diaDaSemana(iso))
@@ -194,6 +258,14 @@ export function diaExtenso(iso) {
 export function diaCurto(iso) {
   const partes = partesISO(iso)
   return partes ? `${p2(partes[2])}/${p2(partes[1])}` : ''
+}
+
+// '2026-08-01' -> '01/08/2026'. É a mesma conta do `formatData` do repositório,
+// que passou a chamar esta — a diferença é só o que cada um devolve para vazio:
+// aqui '' (para concatenar), lá '—' (para mostrar na tela).
+export function dataBR(iso) {
+  const partes = partesISO(iso)
+  return partes ? `${p2(partes[2])}/${p2(partes[1])}/${partes[0]}` : ''
 }
 
 // Rótulo relativo para datas próximas: 'Hoje', 'Amanhã', 'Ontem'.

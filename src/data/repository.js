@@ -6,20 +6,20 @@
 
 import { supabase } from '../lib/supabaseClient.js'
 import { BUCKET, BUCKET_WHATSAPP, comprimir, assinarUrl, assinarVarias } from '../lib/imagem.js'
-import { somarDias, chaveOrdem } from '../lib/datas.js'
+import { somarDias, chaveOrdem, dataBR } from '../lib/datas.js'
 import { formatarE164, mesmoNumero, clienteTemNumero } from '../lib/telefone.js'
 import { usuarioAtual } from '../lib/auth.js'
 import {
-  somarMeses, hojeISO, planoDeParcelas, totaisDaVenda,
+  somarMeses, hojeISO, planoDeParcelas, totaisDaVenda, dividirCentavos,
   normalizarPagamentos, pagamentosDaCondicao, planoDePagamentos,
   resumoDosPagamentos, diferencaDosPagamentos,
 } from './financeiro.js'
 
 // Reexportados: as telas importam tudo do repositório.
 export { somarMeses, hojeISO, planoDeParcelas, totaisDaVenda }
-export { resumoDoMes, variacao, somarMesesNoMes, mesDe } from './financeiro.js'
+export { resumoDoMes, resumoDoPeriodo, variacao, somarMesesNoMes, mesDe } from './financeiro.js'
 export {
-  FORMAS_PAGAMENTO, normalizarPagamentos, pagamentosDaCondicao, resolverPagamentos,
+  FORMAS_PAGAMENTO, formatBRL, normalizarPagamentos, pagamentosDaCondicao, resolverPagamentos,
   diferencaDosPagamentos, resumoDosPagamentos,
 } from './financeiro.js'
 
@@ -361,14 +361,10 @@ export const CATEGORIAS_SAIDA = {
   outros: 'Outros',
 }
 
-export function formatBRL(valor) {
-  return Number(valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-}
+// formatBRL mora em financeiro.js (ver a reexportação no topo).
 
 export function formatData(iso) {
-  if (!iso) return '—'
-  const [y, m, d] = iso.slice(0, 10).split('-')
-  return `${d}/${m}/${y}`
+  return dataBR(iso) || '—'
 }
 
 
@@ -1397,6 +1393,63 @@ export async function salvarLancamento(form) {
   // precisa saber, senão o rótulo "Pago / A receber" fica mentindo lá.
   await refletirPagamentoNoAgendamento(salvo)
   return salvo
+}
+
+// Uma conta que se repete: aluguel todo mês, uma compra parcelada em 20x.
+//
+// Vira N lançamentos independentes, um por vencimento, e não um lançamento
+// "recorrente" com regra própria: assim cada parcela recebe baixa, edição e
+// exclusão sozinha, e todo o resto do financeiro (fluxo de caixa, relatório do
+// mês, vencidos) continua funcionando sem saber que a recorrência existe.
+//
+// `dividir` diz o que o valor digitado significa: o total a repartir entre as
+// parcelas (R$ 2.000 em 20x = R$ 100 cada) ou o valor de CADA uma (aluguel de
+// R$ 2.000 por 20 meses). A divisão é em centavos, então a soma das parcelas
+// bate exatamente com o total.
+//
+// `jaPagas` é para a dívida que já estava correndo antes de entrar no sistema:
+// um 20x na 6ª parcela é `repeticoes: 20, jaPagas: 5`, e o vencimento informado
+// continua sendo o da PRIMEIRA parcela — é dele que sai o calendário inteiro,
+// inclusive o das que faltam. `lancarPagas` decide o que fazer com as antigas:
+// gravá-las como realizadas (o histórico entra no caixa, e os relatórios dos
+// meses passados mudam) ou simplesmente não criá-las, deixando no sistema só o
+// que ainda se deve — com a numeração 6/20 preservada nos dois casos.
+export async function salvarLancamentosRepetidos(form, {
+  repeticoes = 1, dividir = false, jaPagas = 0, lancarPagas = false,
+} = {}) {
+  const n = Math.max(1, Number(repeticoes || 1))
+  const pagas = Math.min(Math.max(0, Number(jaPagas || 0)), n - 1)
+  if (n === 1) return [await salvarLancamento(form)]
+
+  const totalCent = Math.round(Number(form.valor || 0) * 100)
+  const valores = dividir
+    ? dividirCentavos(totalCent, n)
+    : Array.from({ length: n }, () => totalCent)
+
+  const salvos = []
+  for (let i = 0; i < n; i++) {
+    if (i < pagas && !lancarPagas) continue
+    const vencimento = form.vencimento ? somarMeses(form.vencimento, i) : ''
+    // As já pagas nascem quitadas na data em que venceram — é a única data que
+    // o sistema tem para elas, e é a que põe cada uma no mês certo do caixa.
+    const quitada = i < pagas
+    salvos.push(await salvarLancamento({
+      ...form,
+      id: undefined,
+      descricao: [form.descricao, `(${i + 1}/${n})`].filter(Boolean).join(' '),
+      valor: valores[i] / 100,
+      vencimento,
+      // Só a primeira em aberto pode herdar o "já pago" digitado no formulário;
+      // as seguintes ainda vão vencer.
+      status: quitada ? 'realizado' : (i === pagas ? form.status : 'previsto'),
+      dataPagamento: quitada
+        ? (vencimento || form.dataPagamento || '')
+        : (i === pagas ? form.dataPagamento : ''),
+      parcela: i + 1,
+      parcelas: n,
+    }))
+  }
+  return salvos
 }
 
 export async function excluirLancamento(id) {

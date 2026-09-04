@@ -193,6 +193,10 @@ isso testável direto no Node):
   a venda de uma forma só sem digitação. A soma das formas **tem** que fechar com
   o total: `salvarVenda` recusa o que não fecha, porque conta a receber que não
   bate com a venda é erro que só aparece no fechamento do mês.
+- `resumoDoPeriodo()` fecha um intervalo qualquer — é o que faz o relatório ser
+  semanal, mensal ou anual sem três funções quase iguais. `resumoDoMes()` virou
+  um atalho dele. Devolve também as LINHAS que compõem os totais, que é o que o
+  relatório em PDF imprime.
 - `resumoDoMes()` usa **dois critérios distintos, de propósito**:
   - *realizado* → dinheiro que se moveu, pela `data_pagamento`;
   - *previsto* → o que vence no mês e ainda não foi quitado, pelo `vencimento`.

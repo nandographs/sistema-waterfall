@@ -2,26 +2,25 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   lancamentos, clientes,
-  salvarLancamento, excluirLancamento, darBaixa, estornarLancamento,
+  salvarLancamento, salvarLancamentosRepetidos, excluirLancamento, darBaixa, estornarLancamento,
   removerDoFinanceiro, lancamentosDaOrigem,
   formatBRL, formatData, hojeISO, somarMeses,
-  resumoDoMes, variacao, somarMesesNoMes, mesDe,
+  resumoDoMes, resumoDoPeriodo, variacao, somarMesesNoMes, mesDe,
   FORMAS_PAGAMENTO, CATEGORIAS_SAIDA,
 } from '../data/repository.js'
+import {
+  ESCALAS_RELATORIO, intervaloDoRelatorio, andarNoRelatorio,
+  rotuloDoRelatorio, periodoEmCurso,
+} from '../lib/datas.js'
+import { gerarRelatorioPdf } from '../relatorio/gerarPdf.js'
 import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge, notificar } from '../components/ui.jsx'
 import {
   IconPlus, IconPencil, IconTrash, IconWallet, IconClock, IconAlert,
-  IconChevronLeft, IconChevronRight, IconSearch,
+  IconChevronLeft, IconChevronRight, IconSearch, IconFileText,
 } from '../components/icons.jsx'
 
 const CATEGORIAS_ENTRADA = { venda: 'Venda', servico: 'Serviço', outros: 'Outros' }
 const nomeCategoria = (c) => CATEGORIAS_SAIDA[c] ?? CATEGORIAS_ENTRADA[c] ?? c
-
-function nomeDoMes(mes) {
-  const [ano, m] = mes.split('-')
-  return new Date(Number(ano), Number(m) - 1, 1)
-    .toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
-}
 
 // Variação percentual ao lado de um número. Sem base no mês anterior não há
 // percentual — mostra "—" em vez de inventar um "+100%".
@@ -52,6 +51,8 @@ function LinhaRelatorio({ label, valor, anterior, cor = 'text-slate-900', invert
   )
 }
 
+const REPETICAO_VAZIA = { ativo: false, vezes: 12, dividir: false, jaPagas: 0, lancarPagas: false }
+
 const FORM_VAZIO = {
   tipo: 'saida', status: 'previsto', descricao: '', categoria: 'fornecedor',
   valor: '', vencimento: hojeISO(), dataPagamento: '', formaPagamento: 'pix',
@@ -79,6 +80,9 @@ export default function Financeiro() {
   const [busca, setBusca] = useState('')
   const [form, setForm] = useState(null)
   const [excluir, setExcluir] = useState(null)
+  // Repetição fica FORA do form porque não é campo do lançamento: é instrução
+  // de como criá-lo. Vai para o banco a consequência (N lançamentos), não a regra.
+  const [repeticao, setRepeticao] = useState(REPETICAO_VAZIA)
   const [removendo, setRemovendo] = useState(false)
 
   const hoje = hojeISO()
@@ -113,17 +117,71 @@ export default function Financeiro() {
 
   const maiorMovimento = Math.max(1, ...fluxo.map((f) => Math.max(f.entra, f.sai)))
 
-  // ---- Relatório do mês (com o mês anterior lado a lado) ----
-  const [mesRelatorio, setMesRelatorio] = useState(() => mesDe(hojeISO()))
-  const mesAnterior = somarMesesNoMes(mesRelatorio, -1)
-  const relatorio = useMemo(() => resumoDoMes(todos, mesRelatorio), [todos, mesRelatorio])
-  const relatorioAnterior = useMemo(() => resumoDoMes(todos, mesAnterior), [todos, mesAnterior])
-  const ehMesAtual = mesRelatorio === mesDe(hoje)
+  // ---- Relatório (com o período anterior lado a lado) ----
+  //
+  // O par (escala, âncora): a escala diz o tamanho da janela — semana, mês, ano
+  // — e a âncora é um dia qualquer dentro dela. Navegar é mexer só na âncora.
+  const [escala, setEscala] = useState('mensal')
+  const [ancora, setAncora] = useState(() => hojeISO())
+
+  const periodo = intervaloDoRelatorio(escala, ancora)
+  const ancoraAnterior = andarNoRelatorio(escala, ancora, -1)
+  const periodoAnterior = intervaloDoRelatorio(escala, ancoraAnterior)
+
+  const relatorio = useMemo(() => resumoDoPeriodo(todos, periodo), [todos, periodo.de, periodo.ate])
+  const relatorioAnterior = useMemo(
+    () => resumoDoPeriodo(todos, periodoAnterior),
+    [todos, periodoAnterior.de, periodoAnterior.ate],
+  )
+  const noPeriodoAtual = periodoEmCurso(escala, ancora, hoje)
+  const [baixandoPdf, setBaixandoPdf] = useState(false)
+
+  // Trocar de escala NÃO mexe na âncora, de propósito. Normalizá-la para o
+  // início do período novo parece inofensivo e não é: ir de Setembro para Anual
+  // levaria a âncora para 1º de janeiro, e voltar para Mensal cairia em Janeiro
+  // em vez de Setembro — você perde o lugar só de espiar o ano.
+  //
+  // Mantendo o dia, as três escalas são três janelas sobre o MESMO ponto no
+  // tempo, e ir e voltar entre elas não muda nada.
+  const trocarEscala = setEscala
+
+  async function baixarRelatorio() {
+    setBaixandoPdf(true)
+    try {
+      await gerarRelatorioPdf({
+        rotuloEscala: ESCALAS_RELATORIO[escala],
+        rotuloPeriodo: rotuloDoRelatorio(escala, ancora),
+        emCurso: noPeriodoAtual,
+        emitidoEm: hoje,
+        resumo: relatorio,
+        resumoAnterior: relatorioAnterior,
+        nomeCategoria,
+        nomeCliente: (id) => clientes.get(id)?.nome || '',
+      })
+    } catch (erro) {
+      notificar('Não foi possível gerar o PDF: ' + (erro?.message || erro), 'erro')
+    } finally {
+      setBaixandoPdf(false)
+    }
+  }
 
   async function salvar(e) {
     e.preventDefault()
-    await salvarLancamento(form)
+    // Repetir só faz sentido ao criar: editar uma parcela mexe naquela parcela,
+    // não gera outras vinte.
+    if (!form.id && repeticao.ativo && Number(repeticao.vezes) > 1) {
+      const criados = await salvarLancamentosRepetidos(form, {
+        repeticoes: Number(repeticao.vezes),
+        dividir: repeticao.dividir,
+        jaPagas: Number(repeticao.jaPagas) || 0,
+        lancarPagas: repeticao.lancarPagas,
+      })
+      notificar(`${criados.length} lançamentos criados.`)
+    } else {
+      await salvarLancamento(form)
+    }
     setForm(null)
+    setRepeticao(REPETICAO_VAZIA)
     refresh()
   }
 
@@ -158,6 +216,7 @@ export default function Financeiro() {
   // existem em lançamentos antigos (ou gerados) são normalizados para o form
   // controlado não trocar de "uncontrolled" para "controlled" no meio do caminho.
   function editar(l) {
+    setRepeticao(REPETICAO_VAZIA)
     setForm({
       ...FORM_VAZIO,
       ...l,
@@ -250,7 +309,7 @@ export default function Financeiro() {
       <PageTitle
         subtitle="Entradas, saídas e o caixa dos próximos meses"
         action={
-          <Button onClick={() => setForm({ ...FORM_VAZIO })}>
+          <Button onClick={() => { setRepeticao(REPETICAO_VAZIA); setForm({ ...FORM_VAZIO }) }}>
             <IconPlus size={16} /> Novo lançamento
           </Button>
         }
@@ -289,36 +348,53 @@ export default function Financeiro() {
         />
       </div>
 
-      {/* Relatório mensal */}
+      {/* Relatório — semanal, mensal ou anual, com download em PDF */}
       <Card
         className="mb-6"
-        title="Relatório do mês"
+        title="Relatório"
         action={
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => setMesRelatorio(somarMesesNoMes(mesRelatorio, -1))}
-              className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 cursor-pointer"
-              aria-label="Mês anterior"
-              title="Mês anterior"
-            >
-              <IconChevronLeft size={16} />
-            </button>
-            <span className="text-sm font-semibold text-slate-900 min-w-[9rem] text-center first-letter:uppercase">
-              {nomeDoMes(mesRelatorio)}
-            </span>
-            <button
-              type="button"
-              onClick={() => setMesRelatorio(somarMesesNoMes(mesRelatorio, 1))}
-              className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 cursor-pointer"
-              aria-label="Próximo mês"
-              title="Próximo mês"
-            >
-              <IconChevronRight size={16} />
-            </button>
-            {!ehMesAtual && (
-              <Button variant="ghost" onClick={() => setMesRelatorio(mesDe(hoje))}>Mês atual</Button>
-            )}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="w-28 shrink-0">
+              <select
+                className={inputCls + ' cursor-pointer'}
+                value={escala}
+                onChange={(e) => trocarEscala(e.target.value)}
+                aria-label="Escala do relatório"
+              >
+                {Object.entries(ESCALAS_RELATORIO).map(([v, r]) => <option key={v} value={v}>{r}</option>)}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setAncora(andarNoRelatorio(escala, ancora, -1))}
+                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 cursor-pointer"
+                aria-label="Período anterior"
+                title="Período anterior"
+              >
+                <IconChevronLeft size={16} />
+              </button>
+              <span className="text-sm font-semibold text-slate-900 min-w-[11rem] text-center first-letter:uppercase">
+                {rotuloDoRelatorio(escala, ancora)}
+              </span>
+              <button
+                type="button"
+                onClick={() => setAncora(andarNoRelatorio(escala, ancora, 1))}
+                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 cursor-pointer"
+                aria-label="Próximo período"
+                title="Próximo período"
+              >
+                <IconChevronRight size={16} />
+              </button>
+              {!noPeriodoAtual && (
+                <Button variant="ghost" onClick={() => setAncora(hoje)}>Hoje</Button>
+              )}
+            </div>
+
+            <Button variant="secondary" onClick={baixarRelatorio} disabled={baixandoPdf}>
+              <IconFileText size={16} /> {baixandoPdf ? 'Gerando…' : 'Baixar PDF'}
+            </Button>
           </div>
         }
       >
@@ -372,15 +448,15 @@ export default function Financeiro() {
                 forte
               />
               <LinhaRelatorio
-                label={ehMesAtual ? 'Projeção de fechamento' : 'Resultado com o previsto'}
+                label={noPeriodoAtual ? 'Projeção de fechamento' : 'Resultado com o previsto'}
                 valor={relatorio.projetado}
                 anterior={relatorioAnterior.projetado}
                 cor="text-slate-500"
               />
               <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
-                O resultado conta o dinheiro que de fato se moveu no mês (pela data da baixa).
-                O previsto conta o que vence no mês e ainda está em aberto.
-                A comparação é com {nomeDoMes(mesAnterior)}.
+                O resultado conta o dinheiro que de fato se moveu no período (pela data da baixa).
+                O previsto conta o que vence nele e ainda está em aberto.
+                A comparação é com {rotuloDoRelatorio(escala, ancoraAnterior)}.
               </p>
             </div>
           </div>
@@ -659,11 +735,95 @@ export default function Financeiro() {
                 <input className={inputCls} type="date" value={form.dataPagamento} onChange={set('dataPagamento')} />
               </Field>
             )}
+            {!form.id && (
+              <div className="rounded-lg border border-slate-200 p-3 space-y-3">
+                <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 accent-slate-900"
+                    checked={repeticao.ativo}
+                    onChange={(e) => setRepeticao({ ...repeticao, ativo: e.target.checked })}
+                  />
+                  Repetir todo mês (parcelado / conta fixa)
+                </label>
+                {repeticao.ativo && (
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <Field label="Quantas vezes">
+                        <input
+                          className={inputCls}
+                          type="number" min="2" max="360" step="1"
+                          value={repeticao.vezes}
+                          onChange={(e) => setRepeticao({ ...repeticao, vezes: e.target.value })}
+                        />
+                      </Field>
+                      <Field label="O valor informado é">
+                        <select
+                          className={inputCls}
+                          value={repeticao.dividir ? 'total' : 'parcela'}
+                          onChange={(e) => setRepeticao({ ...repeticao, dividir: e.target.value === 'total' })}
+                        >
+                          <option value="parcela">O valor de cada parcela</option>
+                          <option value="total">O total, a dividir entre as parcelas</option>
+                        </select>
+                      </Field>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <Field label="Parcelas já pagas">
+                        <input
+                          className={inputCls}
+                          type="number" min="0" max="359" step="1"
+                          value={repeticao.jaPagas}
+                          onChange={(e) => setRepeticao({ ...repeticao, jaPagas: e.target.value })}
+                        />
+                      </Field>
+                      {Number(repeticao.jaPagas) > 0 && (
+                        <Field label="As já pagas">
+                          <select
+                            className={inputCls}
+                            value={repeticao.lancarPagas ? 'lancar' : 'ignorar'}
+                            onChange={(e) => setRepeticao({ ...repeticao, lancarPagas: e.target.value === 'lancar' })}
+                          >
+                            <option value="ignorar">Não lançar — só o que falta pagar</option>
+                            <option value="lancar">Lançar como pagas (entra no histórico)</option>
+                          </select>
+                        </Field>
+                      )}
+                    </div>
+                    {/* O vencimento é sempre o da 1ª parcela: é dele que sai o
+                        calendário inteiro. Como isso não é óbvio numa dívida que
+                        já vinha correndo, a prévia diz as duas datas. */}
+                    <p className="text-xs text-slate-500 leading-relaxed">
+                      {(() => {
+                        const n = Math.max(2, Math.min(360, Number(repeticao.vezes) || 2))
+                        const pagas = Math.min(Math.max(0, Number(repeticao.jaPagas) || 0), n - 1)
+                        const valor = Number(form.valor || 0)
+                        const cada = repeticao.dividir ? valor / n : valor
+                        const total = repeticao.dividir ? valor : valor * n
+                        const linhas = [
+                          `${n}× de ${formatBRL(cada)} = ${formatBRL(total)}.`,
+                          `A 1ª parcela vence em ${formatData(form.vencimento)} e a ${n}ª em ${formatData(somarMeses(form.vencimento, n - 1))}.`,
+                        ]
+                        if (pagas > 0) {
+                          linhas.push(
+                            `Em aberto: da ${pagas + 1}ª à ${n}ª (${n - pagas} lançamentos, ${formatBRL(cada * (n - pagas))}), a partir de ${formatData(somarMeses(form.vencimento, pagas))}.`,
+                            repeticao.lancarPagas
+                              ? `As ${pagas} já pagas entram como realizadas, cada uma no mês em que venceu.`
+                              : `As ${pagas} já pagas não serão lançadas.`,
+                          )
+                        }
+                        return linhas.join(' ')
+                      })()}
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
             <Field label="Observações">
               <textarea className={inputCls} rows="2" value={form.observacoes} onChange={set('observacoes')} />
             </Field>
             <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="secondary" onClick={() => setForm(null)}>Cancelar</Button>
+              <Button type="button" variant="secondary" onClick={() => { setForm(null); setRepeticao(REPETICAO_VAZIA) }}>Cancelar</Button>
               <Button type="submit">Salvar</Button>
             </div>
           </form>

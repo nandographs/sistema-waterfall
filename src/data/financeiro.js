@@ -43,6 +43,13 @@ export function totaisDaVenda(itens, descontoGeral = 0, frete = 0) {
   return { subtotal, total }
 }
 
+// Dinheiro na forma como o Brasil escreve. Mora aqui, e não no repositório,
+// porque o relatório em PDF precisa dela e não deve arrastar a camada de banco
+// junto — este arquivo é JavaScript puro, sem React e sem Supabase.
+export function formatBRL(valor) {
+  return Number(valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
 // ---------------------------------------------------------------- relatório
 
 // O mês vizinho a um mês 'AAAA-MM' (o `mesDe` vem de lib/datas.js, acima).
@@ -71,10 +78,24 @@ function porCategoria(lista) {
 // `resultado` é o do caixa de verdade (realizado); `projetado` é como o mês
 // termina se tudo que está previsto se confirmar.
 export function resumoDoMes(lista, mes) {
-  const noMes = (iso) => String(iso || '').startsWith(mes)
+  return resumoDoPeriodo(lista, { de: `${mes}-01`, ate: `${mes}-31` })
+}
 
-  const realizados = (lista || []).filter((l) => l.status === 'realizado' && noMes(l.dataPagamento))
-  const previstos = (lista || []).filter((l) => l.status === 'previsto' && noMes(l.vencimento))
+// O mesmo fechamento, para um intervalo qualquer — é o que permite o relatório
+// ser semanal, mensal ou anual sem três funções quase iguais. `resumoDoMes`
+// virou um atalho para o mês, e continua sendo o que o Dashboard chama.
+//
+// O intervalo é INCLUSIVO nas duas pontas e comparado como texto ISO. Por isso
+// `${mes}-31` funciona como fim de mês mesmo em fevereiro: nenhuma data real do
+// mês é maior que isso na ordem alfabética.
+export function resumoDoPeriodo(lista, { de, ate } = {}) {
+  const dentro = (iso) => {
+    const dia = String(iso || '').slice(0, 10)
+    return !!dia && dia >= de && dia <= ate
+  }
+
+  const realizados = (lista || []).filter((l) => l.status === 'realizado' && dentro(l.dataPagamento))
+  const previstos = (lista || []).filter((l) => l.status === 'previsto' && dentro(l.vencimento))
 
   const doTipo = (arr, tipo) => arr.filter((l) => l.tipo === tipo)
   const entradasR = doTipo(realizados, 'entrada')
@@ -85,8 +106,13 @@ export function resumoDoMes(lista, mes) {
   const entradas = { realizado: somar(entradasR), previsto: somar(entradasP), quantidade: entradasR.length }
   const saidas = { realizado: somar(saidasR), previsto: somar(saidasP), quantidade: saidasR.length }
 
+  // Ordena por data para o relatório imprimir na ordem em que aconteceu.
+  const porData = (campo) => (a, b) =>
+    String(a[campo] || '').localeCompare(String(b[campo] || ''))
+
   return {
-    mes,
+    de,
+    ate,
     entradas,
     saidas,
     resultado: entradas.realizado - saidas.realizado,
@@ -94,6 +120,13 @@ export function resumoDoMes(lista, mes) {
     categorias: {
       entradas: porCategoria(entradasR),
       saidas: porCategoria(saidasR),
+    },
+    // As linhas que compõem os números acima. A tela não usa; o PDF lista, e é
+    // o que separa um relatório de um cartão de totais — sem elas não dá para
+    // conferir de onde veio o resultado.
+    movimentos: {
+      realizados: [...realizados].sort(porData('dataPagamento')),
+      previstos: [...previstos].sort(porData('vencimento')),
     },
   }
 }
