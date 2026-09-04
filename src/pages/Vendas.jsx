@@ -7,6 +7,7 @@ import {
   FORMAS_PAGAMENTO, STATUS_VENDA, CANAIS_VENDA,
 } from '../data/repository.js'
 import { PERIODOS, dentroDoPeriodo } from '../lib/datas.js'
+import { semAcento } from '../lib/texto.js'
 import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge, notificar } from '../components/ui.jsx'
 import { IconPlus, IconFileText, IconTrash, IconEye, IconMais, IconSearch } from '../components/icons.jsx'
 import ClienteBusca from '../components/ClienteBusca.jsx'
@@ -33,16 +34,7 @@ const STATUS_BADGE = {
   cancelada: 'red',
 }
 
-// Busca sem acento e sem caixa: "sao jose" acha "São José", e "PURIFICADOR"
-// acha "purificador". Num cadastro de centenas de nomes ninguém acerta o acento
-// na primeira, e uma busca que exige isso é uma busca que não se usa.
-const semAcento = (texto) =>
-  String(texto || '')
-    // NFD separa o acento da letra; \p{Diacritic} então descarta só o acento.
-    .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '')
-    .toLowerCase()
-    .trim()
+
 
 function AcoesVenda({ venda, onVer, onPedido, onEditar, onConfirmar, onCancelar, onExcluir }) {
   function fechar(e) {

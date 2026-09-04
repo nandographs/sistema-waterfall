@@ -1,14 +1,13 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { inputCls } from './ui.jsx'
 import { IconSearch, IconX } from './icons.jsx'
+import { semAcento, combina } from '../lib/texto.js'
+import { telefonesDoCliente } from '../lib/telefone.js'
 
-// Remove acentos e caixa para busca tolerante ("João" casa com "joao").
-const normalizar = (s) =>
-  String(s || '')
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .trim()
-    .toLowerCase()
+// Busca tolerante a acento e caixa ("João" casa com "joao"). A implementação
+// mora em lib/texto.js, compartilhada com as buscas de Clientes e de Vendas —
+// três cópias da mesma regra é como elas passam a discordar entre si.
+const normalizar = semAcento
 
 // Campo de seleção de cliente com busca dinâmica: em vez de rolar um <select>
 // gigante, o usuário digita o nome e vê as opções que começam com o texto ou
@@ -40,7 +39,10 @@ export default function ClienteBusca({ clientes, value, onChange, required, plac
     if (!q) return clientes
     const casam = clientes.filter((c) => {
       const nome = normalizar(c.nome)
-      return nome.includes(q) || nome.split(/\s+/).some((p) => p.startsWith(q))
+      if (nome.includes(q) || nome.split(/\s+/).some((p) => p.startsWith(q))) return true
+      // Também pelo cônjuge e por qualquer um dos telefones: quem monta a venda
+      // às vezes só tem o número que ligou, ou o nome de quem atendeu.
+      return combina(q, c.conjugeNome, ...telefonesDoCliente(c).map((t) => t.numero))
     })
     // Quem começa com o texto vem primeiro.
     return casam.sort((a, b) => {
@@ -151,7 +153,7 @@ export default function ClienteBusca({ clientes, value, onChange, required, plac
                   } ${c.id === value ? 'font-semibold' : ''}`}
                 >
                   {c.nome}
-                  {c.telefone && <span className="text-xs text-slate-400 ml-2">{c.telefone}</span>}
+                  {telefonesDoCliente(c)[0] && <span className="text-xs text-slate-400 ml-2">{telefonesDoCliente(c)[0].numero}</span>}
                 </button>
               </li>
             ))

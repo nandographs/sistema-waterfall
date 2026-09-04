@@ -2,14 +2,18 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   clientes, agendamentos, equipamentos, lancamentos, proximaTroca, formatData,
+  explicarColunaFaltante,
 } from '../data/repository.js'
 import { Card, Page, PageTitle, Button, inputCls, Empty, Modal, Badge, notificar } from '../components/ui.jsx'
 import { IconPlus, IconSearch, IconUser, IconFilter } from '../components/icons.jsx'
 import ClienteFormFields from '../components/ClienteFormFields.jsx'
 import { usuarioAtual } from '../lib/auth.js'
+import { telefonesDoCliente, comTelefonePrincipal } from '../lib/telefone.js'
+import { combina } from '../lib/texto.js'
 
 const FORM_VAZIO = {
-  nome: '', telefone: '', email: '', cpfCnpj: '',
+  nome: '', telefone: '', telefones: [], email: '', cpfCnpj: '',
+  conjugeNome: '', conjugeTelefone: '', conjugeCpf: '', conjugeNascimento: '',
   endereco: '', numeroComplemento: '', bairro: '', cidade: '', uf: '', cep: '',
   observacoes: '',
 }
@@ -128,9 +132,16 @@ export default function Clientes() {
   // `filter` já devolve um array novo, então o `sort` aqui não mexe no cache.
   const filtrados = lista
     .filter((c) => {
-      const q = busca.toLowerCase()
-      const passaBusca = c.nome?.toLowerCase().includes(q) || c.telefone?.toLowerCase().includes(q)
-      if (!passaBusca) return false
+      // A busca olha o nome, TODOS os telefones e o cônjuge — quem liga muitas
+      // vezes é a esposa, e quem procura a ficha só lembra do nome dela.
+      // Sem acento e sem caixa: "joao" acha João.
+      if (!combina(
+        busca,
+        c.nome,
+        c.conjugeNome,
+        c.conjugeTelefone,
+        ...telefonesDoCliente(c).map((t) => t.numero),
+      )) return false
       if (cidade && normalizar(c.cidade) !== normalizar(cidade)) return false
       if (uf && (c.uf || '').toUpperCase() !== uf) return false
       if (somenteTroca && !temTrocaPrevista(c.id)) return false
@@ -145,8 +156,8 @@ export default function Clientes() {
     e.preventDefault()
     try {
       // Ao criar, registra quem cadastrou (usuário logado). Ao editar, não mexe.
-      if (form.id) await clientes.update(form.id, form)
-      else await clientes.create({ ...form, criadoPor: usuarioAtual() })
+      if (form.id) await clientes.update(form.id, comTelefonePrincipal(form)).catch(explicarColunaFaltante)
+      else await clientes.create(comTelefonePrincipal({ ...form, criadoPor: usuarioAtual() })).catch(explicarColunaFaltante)
       setForm(null)
       setLista(clientes.list())
     } catch (erro) {
@@ -171,7 +182,7 @@ export default function Clientes() {
           <IconSearch size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             className={inputCls + ' pl-9'}
-            placeholder="Buscar por nome ou telefone…"
+            placeholder="Buscar por nome, telefone ou cônjuge…"
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
           />
@@ -277,7 +288,12 @@ export default function Clientes() {
                       {c.nome}
                     </Link>
                     <p className="text-xs text-slate-500">
-                      {c.telefone || 'sem telefone'}
+                      {telefonesDoCliente(c)[0]?.numero || 'sem telefone'}
+                      {/* Quantos outros existem — sem isso, quem buscou pelo
+                          telefone da esposa não entende por que este cliente
+                          apareceu com outro número na tela. */}
+                      {telefonesDoCliente(c).length > 1 && ` +${telefonesDoCliente(c).length - 1}`}
+                      {c.conjugeNome ? ` · cônjuge: ${c.conjugeNome}` : ''}
                       {c.cidade ? ` · ${c.cidade}${c.uf ? '/' + c.uf.toUpperCase() : ''}` : ''}
                       {/* Só quando a ordem é por data: ordenar por algo que não
                           está na tela deixa a lista sem explicação. Em A–Z a

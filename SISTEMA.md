@@ -111,6 +111,13 @@ Pontos-chave:
 
 - **`produtos`** tem `tipo` (`aparelho` | `refil`), `intervalo_troca_meses` e
   `aparelho_compativel_id` — o refil aponta para o aparelho que ele serve.
+- **`clientes`** guarda VÁRIOS telefones em `telefones` (jsonb, `sql/016`):
+  `[{numero, rotulo}]`. A coluna `telefone` continua e vale o PRIMEIRO da lista —
+  é ela que o WhatsApp, a Ordem de Serviço e o Pedido leem, então nada disso
+  precisou ser reescrito. Os campos do **cônjuge** (nome, telefone, CPF,
+  nascimento) são do cliente, não do documento: a busca de clientes procura por
+  eles, porque quem atende o telefone muitas vezes é o cônjuge e quem procura a
+  ficha só lembra do nome dele.
 - **`equipamentos`** = o aparelho instalado na casa do cliente; dele sai a
   previsão da próxima troca (`proximaTroca`).
 - **`agendamentos`** = serviço em campo. Gera OS, pode entrar no caixa, cria o

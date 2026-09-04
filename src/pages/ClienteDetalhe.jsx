@@ -4,6 +4,7 @@ import {
   clientes, produtos, equipamentos, vendas, lancamentos, agendamentos,
   salvarVenda, darBaixa, excluirVenda, itensDaVenda, agendarProximaTroca,
   registrarEquipamento, definirFotoPerfil, removerFotoPerfil, resolverPagamentos,
+  explicarColunaFaltante,
   proximoPasso, linhaDoTempoDoCliente, oportunidadesDoCliente, conversaDoCliente,
   proximaTroca, formatBRL, formatData, enderecoCompleto,
   FORMAS_PAGAMENTO, STATUS_VENDA, RESULTADOS_ATIVIDADE, ETAPAS_FUNIL, ETAPAS_FECHADAS,
@@ -11,7 +12,7 @@ import {
 import { hojeISO, formatHora, diaCurto } from '../lib/datas.js'
 import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge, notificar } from '../components/ui.jsx'
 import { IconPlus, IconFileText, IconChevronLeft, IconUser, IconTrash, IconEye, IconAlert, IconMessage } from '../components/icons.jsx'
-import { paraE164 } from '../lib/telefone.js'
+import { paraE164, telefonesDoCliente, comTelefonePrincipal } from '../lib/telefone.js'
 import { IconeDoEvento, estiloDoEvento } from '../components/evento.jsx'
 import AtividadeModal, { atividadeNova } from '../components/AtividadeModal.jsx'
 import OrdemServicoModal from '../components/OrdemServicoModal.jsx'
@@ -24,6 +25,8 @@ import FotosCliente from '../components/FotosCliente.jsx'
 import FotoUnica from '../components/FotoUnica.jsx'
 
 const CLIENTE_VAZIO = {
+  telefones: [],
+  conjugeNome: '', conjugeTelefone: '', conjugeCpf: '', conjugeNascimento: '',
   nome: '', telefone: '', email: '', cpfCnpj: '',
   endereco: '', numeroComplemento: '', bairro: '', cidade: '', uf: '', cep: '',
   observacoes: '',
@@ -100,7 +103,7 @@ export default function ClienteDetalhe() {
   async function salvarEdicao(e) {
     e.preventDefault()
     try {
-      await clientes.update(id, editando)
+      await clientes.update(id, comTelefonePrincipal(editando)).catch(explicarColunaFaltante)
       setEditando(null)
       refresh()
     } catch (erro) {
@@ -305,13 +308,44 @@ export default function ClienteDetalhe() {
             )}
 
             <dl className="space-y-2 text-sm">
-              <div><dt className="text-xs text-slate-500">Telefone</dt><dd>{cliente.telefone || '—'}</dd></div>
+              <div>
+                <dt className="text-xs text-slate-500">
+                  {telefonesDoCliente(cliente).length > 1 ? 'Telefones' : 'Telefone'}
+                </dt>
+                <dd>
+                  {telefonesDoCliente(cliente).length === 0 && '—'}
+                  {telefonesDoCliente(cliente).map((t, i) => (
+                    <span key={i} className="block">
+                      {t.numero}
+                      {t.rotulo && <span className="text-xs text-slate-500"> · {t.rotulo}</span>}
+                    </span>
+                  ))}
+                </dd>
+              </div>
               <div><dt className="text-xs text-slate-500">E-mail</dt><dd>{cliente.email || '—'}</dd></div>
               <div><dt className="text-xs text-slate-500">CPF / CNPJ</dt><dd>{cliente.cpfCnpj || '—'}</dd></div>
               <div><dt className="text-xs text-slate-500">Endereço</dt><dd>{enderecoCompleto(cliente) || '—'}</dd></div>
               <div><dt className="text-xs text-slate-500">Observações</dt><dd>{cliente.observacoes || '—'}</dd></div>
               <div><dt className="text-xs text-slate-500">Cadastrado por</dt><dd>{cliente.criadoPor || '—'}</dd></div>
             </dl>
+
+            {/* Cônjuge — só aparece quando existe. Um bloco fixo com quatro
+                traços em toda ficha de solteiro seria ruído em cima do que
+                importa. */}
+            {(cliente.conjugeNome || cliente.conjugeTelefone) && (
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <p className="text-xs font-semibold text-slate-500 mb-2">Cônjuge</p>
+                <dl className="space-y-2 text-sm">
+                  <div><dt className="text-xs text-slate-500">Nome</dt><dd>{cliente.conjugeNome || '—'}</dd></div>
+                  <div><dt className="text-xs text-slate-500">Telefone</dt><dd>{cliente.conjugeTelefone || '—'}</dd></div>
+                  <div><dt className="text-xs text-slate-500">CPF</dt><dd>{cliente.conjugeCpf || '—'}</dd></div>
+                  <div>
+                    <dt className="text-xs text-slate-500">Nascimento</dt>
+                    <dd>{cliente.conjugeNascimento ? formatData(cliente.conjugeNascimento) : '—'}</dd>
+                  </div>
+                </dl>
+              </div>
+            )}
           </Card>
 
           {/* Um cliente sem próximo passo é um cliente que você vai esquecer.

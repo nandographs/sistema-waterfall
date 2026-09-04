@@ -439,17 +439,29 @@ async function sincronizarLancamentos(vinculo, plano) {
 // `opcoes.agendarServicos = false` para quando a tela já cuida do serviço por
 // conta própria (ex.: o cadastro rápido do cliente, que registra um aparelho
 // que JÁ está instalado e portanto não precisa de visita de instalação).
-// A migração 015 é feita à mão, no SQL Editor. Se ela ainda não rodou, o
-// PostgREST recusa a gravação com um "Could not find the 'pagamentos' column"
-// que não diz o que fazer. Aqui ele vira a instrução.
-function explicarColunaPagamentos(erro) {
+// As migrações são rodadas à mão, no SQL Editor. Quando uma delas ainda não
+// rodou, o PostgREST recusa a gravação com um "Could not find the 'x' column"
+// que não diz o que fazer a respeito. Aqui isso vira a instrução.
+const MIGRACAO_DA_COLUNA = {
+  pagamentos: 'sql/015_pagamentos_da_venda.sql',
+  telefones: 'sql/016_telefones_e_conjuge.sql',
+  conjuge_nome: 'sql/016_telefones_e_conjuge.sql',
+  conjuge_telefone: 'sql/016_telefones_e_conjuge.sql',
+  conjuge_cpf: 'sql/016_telefones_e_conjuge.sql',
+  conjuge_nascimento: 'sql/016_telefones_e_conjuge.sql',
+}
+
+export function explicarColunaFaltante(erro) {
   const texto = `${erro?.message || ''} ${erro?.details || ''}`
-  if (erro?.code === 'PGRST204' && texto.includes('pagamentos')) {
-    throw new Error(
-      'A coluna "pagamentos" ainda não existe no banco. Rode sql/015_pagamentos_da_venda.sql ' +
-      'no SQL Editor do Supabase. Se já rodou, o cache da API está desatualizado: ' +
-      "execute NOTIFY pgrst, 'reload schema'; e recarregue esta página.",
-    )
+  if (erro?.code === 'PGRST204') {
+    const coluna = Object.keys(MIGRACAO_DA_COLUNA).find((c) => texto.includes(`'${c}'`))
+    if (coluna) {
+      throw new Error(
+        `A coluna "${coluna}" ainda não existe no banco. Rode ${MIGRACAO_DA_COLUNA[coluna]} ` +
+        'no SQL Editor do Supabase. Se já rodou, o cache da API está desatualizado: ' +
+        "execute NOTIFY pgrst, 'reload schema'; e recarregue esta página.",
+      )
+    }
   }
   throw erro
 }
@@ -512,8 +524,8 @@ export async function salvarVenda(form, itensForm, opcoes = {}) {
   delete dados.itens
 
   const venda = form.id
-    ? await vendas.update(form.id, dados).catch(explicarColunaPagamentos)
-    : await vendas.create(dados).catch(explicarColunaPagamentos)
+    ? await vendas.update(form.id, dados).catch(explicarColunaFaltante)
+    : await vendas.create(dados).catch(explicarColunaFaltante)
 
   // Itens não têm estado próprio (nada de pagamento neles), então regravar é
   // mais simples e seguro do que reconciliar linha a linha.

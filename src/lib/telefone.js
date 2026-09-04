@@ -142,3 +142,53 @@ export function numeroParaJid(telefone) {
   const e164 = paraE164(telefone)
   return e164 ? `${e164}@s.whatsapp.net` : ''
 }
+
+// ---- A lista de telefones do cliente (migração 016) ----
+//
+// Um cliente tem o celular dele, o fixo de casa e o da esposa. A coluna
+// `telefones` guarda a lista; `telefone` continua existindo e vale o PRIMEIRO
+// da lista, porque é ela que o WhatsApp, a Ordem de Serviço e o Pedido leem.
+
+// Descarta linha sem número e normaliza os campos. Tudo daqui para baixo assume
+// que passou por aqui.
+export function normalizarTelefones(telefones) {
+  return (Array.isArray(telefones) ? telefones : [])
+    .map((t) => ({
+      numero: String(t?.numero ?? '').trim(),
+      rotulo: String(t?.rotulo ?? '').trim(),
+    }))
+    .filter((t) => t.numero)
+}
+
+// Os telefones de um cliente, venha ele da lista nova ou da coluna antiga.
+//
+// É o único lugar que responde "quais são os números desta pessoa?", e existe
+// para as telas não precisarem saber se aquele cadastro é anterior à migração.
+export function telefonesDoCliente(cliente) {
+  const lista = normalizarTelefones(cliente?.telefones)
+  if (lista.length) return lista
+  const unico = String(cliente?.telefone ?? '').trim()
+  return unico ? [{ numero: unico, rotulo: '' }] : []
+}
+
+// O número que representa o cliente: o primeiro da lista.
+export function telefonePrincipal(cliente) {
+  return telefonesDoCliente(cliente)[0]?.numero || ''
+}
+
+// Prepara o cadastro para gravar: a lista limpa e a coluna `telefone` alinhada
+// com o primeiro item.
+//
+// A coluna é DERIVADA, nunca digitada à parte — é isso que impede o principal da
+// ficha de discordar do número que o WhatsApp usa para casar a conversa.
+export function comTelefonePrincipal(cliente) {
+  const telefones = normalizarTelefones(cliente?.telefones)
+  if (!telefones.length) return { ...cliente, telefones }
+  return { ...cliente, telefones, telefone: telefones[0].numero }
+}
+
+// Algum telefone do cliente é este número? Compara pelas variantes com e sem o
+// nono dígito (ver mesmoNumero), então funciona com o que o WhatsApp devolve.
+export function clienteTemNumero(cliente, numero) {
+  return telefonesDoCliente(cliente).some((t) => mesmoNumero(t.numero, numero))
+}

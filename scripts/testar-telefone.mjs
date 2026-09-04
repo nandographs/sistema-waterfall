@@ -12,6 +12,7 @@
 import {
   soDigitos, jidParaNumero, ehGrupo, ehStatus,
   paraE164, partesBR, variantesBR, mesmoNumero, formatarE164, numeroParaJid,
+  normalizarTelefones, telefonesDoCliente, telefonePrincipal, comTelefonePrincipal, clienteTemNumero,
 } from '../src/lib/telefone.js'
 
 let falhas = 0
@@ -119,6 +120,64 @@ console.log('\n--- ida e volta ---')
 console.log('\n--- soDigitos ---')
 eq(soDigitos('(47) 99123-4567'), '47991234567', 'remove tudo que não é dígito')
 eq(soDigitos(undefined), '', 'undefined vira vazio')
+
+
+console.log('\n--- lista de telefones do cliente ---')
+{
+  const lista = normalizarTelefones([
+    { numero: '  (47) 99123-4567 ', rotulo: ' WhatsApp ' },
+    { numero: '', rotulo: 'Casa' },
+    { numero: '(47) 3333-4444' },
+    null,
+  ])
+  eq(lista.length, 2, 'linha sem número não é um telefone')
+  eq(lista[0], { numero: '(47) 99123-4567', rotulo: 'WhatsApp' }, 'apara os espaços das duas pontas')
+  eq(lista[1], { numero: '(47) 3333-4444', rotulo: '' }, 'telefone sem rótulo continua valendo')
+}
+eq(normalizarTelefones(null), [], 'lista ausente vira lista vazia')
+
+console.log('\n--- telefonesDoCliente: lista nova e cadastro antigo ---')
+eq(
+  telefonesDoCliente({ telefones: [{ numero: '(47) 99123-4567', rotulo: 'Celular' }], telefone: '(11) 1111-1111' }),
+  [{ numero: '(47) 99123-4567', rotulo: 'Celular' }],
+  'tendo lista, a lista manda',
+)
+eq(
+  telefonesDoCliente({ telefone: '(47) 99123-4567' }),
+  [{ numero: '(47) 99123-4567', rotulo: '' }],
+  'cadastro anterior à migração 016 vira uma lista de um',
+)
+eq(telefonesDoCliente({ telefones: [], telefone: '' }), [], 'cliente sem telefone nenhum')
+eq(telefonesDoCliente(null), [], 'sem cliente, lista vazia')
+eq(telefonePrincipal({ telefones: [{ numero: 'A' }, { numero: 'B' }] }), 'A', 'o principal é o primeiro')
+eq(telefonePrincipal({}), '', 'sem telefone, principal vazio')
+
+console.log('\n--- comTelefonePrincipal: a coluna telefone é derivada ---')
+{
+  const gravar = comTelefonePrincipal({
+    nome: 'Maria',
+    telefone: '(11) 0000-0000',
+    telefones: [{ numero: '(47) 99123-4567', rotulo: 'WhatsApp' }, { numero: '', rotulo: 'Casa' }],
+  })
+  eq(gravar.telefone, '(47) 99123-4567', 'a coluna passa a valer o primeiro da lista')
+  eq(gravar.telefones.length, 1, 'a linha vazia não vai para o banco')
+  eq(gravar.nome, 'Maria', 'o resto do cadastro passa intacto')
+}
+{
+  const semLista = comTelefonePrincipal({ telefone: '(47) 99123-4567', telefones: [] })
+  eq(semLista.telefone, '(47) 99123-4567', 'sem lista, a coluna antiga não é apagada')
+}
+
+console.log('\n--- clienteTemNumero: casa com o que o WhatsApp devolve ---')
+{
+  const cliente = { telefones: [{ numero: '(47) 3333-4444' }, { numero: '(47) 99123-4567' }] }
+  check(clienteTemNumero(cliente, '5547991234567'), 'acha o SEGUNDO telefone pelo E.164')
+  check(clienteTemNumero(cliente, '554733334444'), 'acha o fixo também')
+  // O nono dígito: cadastrado com 9, o WhatsApp responde sem (ou o contrário).
+  check(clienteTemNumero(cliente, '554791234567'), 'casa mesmo sem o nono dígito')
+  check(!clienteTemNumero(cliente, '5511988887777'), 'número de outra pessoa não casa')
+  check(!clienteTemNumero({}, '5547991234567'), 'cliente sem telefone não casa com nada')
+}
 
 console.log(`\n${falhas === 0 ? 'TUDO OK' : `${falhas} FALHA(S)`}`)
 process.exit(falhas === 0 ? 0 : 1)
