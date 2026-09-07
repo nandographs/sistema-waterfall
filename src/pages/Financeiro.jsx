@@ -112,6 +112,10 @@ export default function Financeiro() {
   const [mostrarInativos, setMostrarInativos] = useState(false)
   const [formFuncionario, setFormFuncionario] = useState(null)
   const [excluirFunc, setExcluirFunc] = useState(null)
+  // Quando o cadastro é aberto de DENTRO do lançamento ("não tem ninguém aqui,
+  // deixa eu cadastrar agora"), o recém-cadastrado já volta escolhido no
+  // formulário — senão o usuário cadastraria e cairia de novo na lista vazia.
+  const [cadastroVoltaAoLancamento, setCadastroVoltaAoLancamento] = useState(false)
 
   const hoje = hojeISO()
   const todos = lancamentos.list()
@@ -245,11 +249,35 @@ export default function Financeiro() {
     [todos, competencia, mostrarInativos, funcionarios.list()],
   )
 
+  const [salvandoFuncionario, setSalvandoFuncionario] = useState(false)
+
   async function salvarCadastroFuncionario(e) {
     e.preventDefault()
-    await salvarFuncionario(formFuncionario)
-    setFormFuncionario(null)
-    refresh()
+    setSalvandoFuncionario(true)
+    try {
+      const salvo = await salvarFuncionario(formFuncionario)
+      // Veio do formulário de lançamento: já deixa ele escolhido lá.
+      if (cadastroVoltaAoLancamento && form) setForm(comFuncionario(form, salvo))
+      setFormFuncionario(null)
+      setCadastroVoltaAoLancamento(false)
+      notificar(`${salvo.nome} entrou na folha.`)
+    } catch (erro) {
+      // Sem isto, um erro do banco (a migração 019 não rodada, por exemplo)
+      // não dizia nada: o modal ficava aberto e parecia que o botão não fazia
+      // nada. Erro de gravação tem que aparecer.
+      notificar('Não foi possível salvar o funcionário: ' + (erro?.message || erro), 'erro')
+    } finally {
+      setSalvandoFuncionario(false)
+      refresh()
+    }
+  }
+
+  // Abre o cadastro de funcionário. `voltando` marca que veio do lançamento.
+  function abrirCadastroFuncionario(funcionario = null, voltando = false) {
+    setCadastroVoltaAoLancamento(voltando)
+    setFormFuncionario(funcionario
+      ? { ...FUNCIONARIO_VAZIO, ...funcionario, salario: String(funcionario.salario ?? '') }
+      : { ...FUNCIONARIO_VAZIO })
   }
 
   // Quem já tem lançamento não some: é desligado (ver excluirFuncionario).
@@ -292,22 +320,23 @@ export default function Financeiro() {
   // Escolher o funcionário no formulário preenche o resto do que dá para saber:
   // a descrição (se ainda estiver vazia) e, no pagamento do salário, o valor que
   // falta — que é justamente o número que ninguém quer calcular à mão.
-  function escolherFuncionarioNoForm(e) {
-    const id = e.target.value
-    const f = id ? funcionarios.get(id) : null
-    const mes = form.competencia || competenciaDe(form)
-    const conta = f ? contaSalario(f, todos.filter((l) => l.id !== form.id), mes) : null
-    const vale = form.categoria === CATEGORIA_VALE
-    setForm({
-      ...form,
-      funcionarioId: id,
+  function comFuncionario(formAtual, f) {
+    const mes = formAtual.competencia || competenciaDe(formAtual)
+    const conta = f ? contaSalario(f, todos.filter((l) => l.id !== formAtual.id), mes) : null
+    const vale = formAtual.categoria === CATEGORIA_VALE
+    return {
+      ...formAtual,
+      funcionarioId: f?.id || '',
       competencia: mes,
-      descricao: form.descricao || (f
+      descricao: formAtual.descricao || (f
         ? (vale ? `Vale — ${f.nome}` : `Salário ${mes} — ${f.nome}`)
         : ''),
-      valor: form.valor || (!vale && conta && conta.saldo > 0 ? conta.saldo.toFixed(2) : form.valor),
-    })
+      valor: formAtual.valor || (!vale && conta && conta.saldo > 0 ? conta.saldo.toFixed(2) : formAtual.valor),
+    }
   }
+
+  const escolherFuncionarioNoForm = (e) =>
+    setForm(comFuncionario(form, e.target.value ? funcionarios.get(e.target.value) : null))
 
   // Abre o mesmo formulário do "Novo lançamento", já preenchido. Campos que só
   // existem em lançamentos antigos (ou gerados) são normalizados para o form
@@ -438,7 +467,7 @@ export default function Financeiro() {
             </Button>
             <Button
               variant="ghost"
-              onClick={() => setFormFuncionario({ ...FUNCIONARIO_VAZIO, ...f, salario: String(f.salario ?? '') })}
+              onClick={() => abrirCadastroFuncionario(f)}
               title="Editar funcionário"
               aria-label="Editar funcionário"
             >
@@ -745,7 +774,7 @@ export default function Financeiro() {
                       <Button variant="ghost" onClick={() => setCompetencia(mesDe(hoje))}>Mês atual</Button>
                     )}
                   </div>
-                  <Button onClick={() => setFormFuncionario({ ...FUNCIONARIO_VAZIO })}>
+                  <Button onClick={() => abrirCadastroFuncionario()}>
                     <IconPlus size={16} /> Novo funcionário
                   </Button>
                 </div>
@@ -768,11 +797,23 @@ export default function Financeiro() {
               </div>
 
               {folha.contas.length === 0 ? (
-                <Empty>
-                  {mostrarInativos
-                    ? 'Nenhum funcionário cadastrado. Cadastre o primeiro para abrir a conta salário dele.'
-                    : 'Nenhum funcionário ativo. Cadastre um, ou mostre os desligados abaixo.'}
-                </Empty>
+                // O botão fica AQUI, e não só no cabeçalho: é aqui que a pessoa
+                // está olhando quando descobre que a folha está vazia.
+                <div className="py-8 text-center">
+                  <p className="text-sm text-slate-500">
+                    {mostrarInativos
+                      ? 'Nenhum funcionário cadastrado ainda.'
+                      : 'Nenhum funcionário ativo na folha deste mês.'}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Cadastre quem está na folha — nome, função e salário — para abrir a conta salário dele.
+                  </p>
+                  <div className="mt-4">
+                    <Button onClick={() => abrirCadastroFuncionario()}>
+                      <IconPlus size={16} /> Cadastrar funcionário
+                    </Button>
+                  </div>
+                </div>
               ) : (
                 <ul className="divide-y divide-slate-100">
                   {folha.contas.map((conta) => <LinhaFolha key={conta.funcionarioId} conta={conta} />)}
@@ -916,7 +957,13 @@ export default function Financeiro() {
         })()}
       </Modal>
 
-      <Modal title={form?.id ? 'Editar lançamento' : 'Novo lançamento'} open={!!form} onClose={() => setForm(null)}>
+      {/* Enquanto o cadastro de funcionário está por cima, o Esc é dele: sem
+          isto, uma tecla fecharia os dois e o lançamento digitado se perderia. */}
+      <Modal
+        title={form?.id ? 'Editar lançamento' : 'Novo lançamento'}
+        open={!!form}
+        onClose={() => { if (!formFuncionario) setForm(null) }}
+      >
         {form && (
           <form onSubmit={salvar} className="space-y-4">
             {/* Editar aqui vale para JÁ; a origem continua sendo a fonte de
@@ -996,12 +1043,26 @@ export default function Financeiro() {
                   </Field>
                 </div>
 
-                {funcionarios.list().length === 0 && (
-                  <p className="text-xs text-slate-500">
-                    Nenhum funcionário cadastrado ainda — cadastre um na aba{' '}
-                    <span className="font-medium text-slate-700">Salários</span> para lançar vales.
-                  </p>
-                )}
+                {/* Sem sair do lançamento: cadastra e volta já escolhido. */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button type="button" variant="secondary" onClick={() => abrirCadastroFuncionario(null, true)}>
+                    <IconPlus size={16} /> Cadastrar funcionário
+                  </Button>
+                  {form.funcionarioId && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => abrirCadastroFuncionario(funcionarios.get(form.funcionarioId), true)}
+                    >
+                      <IconPencil size={15} /> Alterar o salário dele
+                    </Button>
+                  )}
+                  {funcionarios.list().length === 0 && (
+                    <span className="text-xs text-slate-500">
+                      Nenhum funcionário cadastrado ainda.
+                    </span>
+                  )}
+                </div>
 
                 {contaDoForm && (() => {
                   const valor = Number(form.valor || 0)
@@ -1161,7 +1222,7 @@ export default function Financeiro() {
       <Modal
         title={formFuncionario?.id ? 'Editar funcionário' : 'Novo funcionário'}
         open={!!formFuncionario}
-        onClose={() => setFormFuncionario(null)}
+        onClose={() => { setFormFuncionario(null); setCadastroVoltaAoLancamento(false) }}
       >
         {formFuncionario && (
           <form onSubmit={salvarCadastroFuncionario} className="space-y-4">
@@ -1224,8 +1285,17 @@ export default function Financeiro() {
               </p>
             )}
             <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="secondary" onClick={() => setFormFuncionario(null)}>Cancelar</Button>
-              <Button type="submit">Salvar</Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => { setFormFuncionario(null); setCadastroVoltaAoLancamento(false) }}
+                disabled={salvandoFuncionario}
+              >
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={salvandoFuncionario}>
+                {salvandoFuncionario ? 'Salvando…' : 'Salvar'}
+              </Button>
             </div>
           </form>
         )}
