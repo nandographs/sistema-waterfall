@@ -13,6 +13,8 @@ import {
   somarMeses, hojeISO, planoDeParcelas, totaisDaVenda, dividirCentavos,
   normalizarPagamentos, pagamentosDaCondicao, planoDePagamentos,
   resumoDosPagamentos, diferencaDosPagamentos,
+  competenciaDe, daFolha, folhaDoMes, somarMesesNoMes,
+  CATEGORIA_VALE, CATEGORIA_SALARIO,
 } from './financeiro.js'
 
 // Reexportados: as telas importam tudo do repositório.
@@ -22,11 +24,17 @@ export {
   FORMAS_PAGAMENTO, formatBRL, normalizarPagamentos, pagamentosDaCondicao, resolverPagamentos,
   diferencaDosPagamentos, resumoDosPagamentos,
 } from './financeiro.js'
+// A folha de pagamento: quanto sobra do salário de cada um depois dos vales.
+// A conta mora em financeiro.js porque é regra de dinheiro pura (ver lá).
+export {
+  contaSalario, folhaDoMes, competenciaDe, daFolha,
+  CATEGORIA_SALARIO, CATEGORIA_VALE, CATEGORIAS_DA_FOLHA,
+} from './financeiro.js'
 
 const TABELAS = [
   'clientes', 'produtos', 'equipamentos', 'agendamentos',
   'oportunidades', 'vendas', 'venda_itens', 'lancamentos', 'atividades',
-  'conversas',
+  'conversas', 'funcionarios',
 ]
 
 const cache = {
@@ -40,6 +48,7 @@ const cache = {
   lancamentos: [],
   atividades: [],
   conversas: [],
+  funcionarios: [],
 }
 
 // As MENSAGENS ficam fora do cache principal, guardadas por conversa e trazidas
@@ -108,6 +117,7 @@ const MIGRACAO_DA_TABELA = {
   oportunidades: 'sql/009_crm_oportunidades.sql',
   conversas: 'sql/010_whatsapp.sql',
   mensagens: 'sql/010_whatsapp.sql',
+  funcionarios: 'sql/019_conta_salario.sql',
 }
 
 function consultar(tabela) {
@@ -237,10 +247,20 @@ export const vendaItens = makeStore('venda_itens')
 // Lançamento (o caixa único): { tipo: 'entrada'|'saida', status: 'previsto'|'realizado',
 //          descricao, categoria, valor, vencimento, dataPagamento, formaPagamento,
 //          parcela, parcelas, origem: 'venda'|'agendamento'|'manual',
-//          clienteId, vendaId, agendamentoId, observacoes }
+//          clienteId, vendaId, agendamentoId, observacoes,
+//          funcionarioId, competencia ('AAAA-MM') — quando a saída sai do
+//          salário de alguém (vale/adiantamento ou o próprio salário) }
 // Toda cobrança do sistema — venda ou agendamento avulso — vira lançamento aqui.
 // Uma venda em 3x gera 3 lançamentos, cada um com seu vencimento.
 export const lancamentos = makeStore('lancamentos')
+
+// Funcionário (a folha de pagamento): { nome, cargo, telefone, salario,
+//          diaPagamento, admissao, ativo, observacoes, criadoPor }
+// O salário aqui é a MÉTRICA da conta salário: vales e o pagamento do mês são
+// lançamentos comuns, vinculados por funcionarioId + competencia, e o saldo é
+// calculado a partir deles (contaSalario, em financeiro.js). Não existe saldo
+// guardado — ver o comentário da migração 019.
+export const funcionarios = makeStore('funcionarios')
 
 // Atividade (o diário de trabalho): { data, hora, duracaoMin,
 //          tipo: 'ligacao'|'whatsapp'|'email'|'visita'|'reuniao'|'tarefa'|'nota',
@@ -354,6 +374,9 @@ export const CATEGORIAS_SAIDA = {
   fornecedor: 'Fornecedor',
   estoque: 'Compra de estoque',
   salario: 'Salários e pró-labore',
+  // Adiantamento: sai do caixa como qualquer conta, mas é abatido do salário
+  // do mês em vez de virar despesa nova — senão a folha contaria em dobro.
+  vale: 'Vale / adiantamento',
   imposto: 'Impostos e taxas',
   aluguel: 'Aluguel',
   veiculo: 'Veículo e combustível',
@@ -1381,12 +1404,19 @@ async function refletirPagamentoNoAgendamento(lancamento) {
 
 // Lançamento avulso (conta a pagar, despesa, entrada manual).
 export async function salvarLancamento(form) {
+  const folha = form.tipo === 'saida' && daFolha(form.categoria) && form.funcionarioId
   const dados = {
     ...form,
     valor: Number(form.valor || 0),
     parcela: Number(form.parcela || 1),
     parcelas: Number(form.parcelas || 1),
     origem: form.origem || 'manual',
+    // Fora da folha, funcionário e competência não significam nada: limpar aqui
+    // é o que impede um vale virar "aluguel do Fulano" se a categoria mudar
+    // depois — e é o que mantém a conta salário somando só o que é dela.
+    funcionarioId: folha ? form.funcionarioId : '',
+    // Sem competência escolhida, a folha é a do mês do vencimento.
+    competencia: folha ? (form.competencia || competenciaDe(form)) : '',
   }
   const salvo = form.id ? await lancamentos.update(form.id, dados) : await lancamentos.create(dados)
   // Editar a situação à mão é o mesmo que dar baixa: o agendamento de origem
@@ -1430,6 +1460,9 @@ export async function salvarLancamentosRepetidos(form, {
   for (let i = 0; i < n; i++) {
     if (i < pagas && !lancarPagas) continue
     const vencimento = form.vencimento ? somarMeses(form.vencimento, i) : ''
+    // A folha anda junto: repetir o salário por 12 meses são 12 competências,
+    // uma por mês, e não doze pagamentos do mesmo mês.
+    const competencia = form.competencia ? somarMesesNoMes(form.competencia, i) : ''
     // As já pagas nascem quitadas na data em que venceram — é a única data que
     // o sistema tem para elas, e é a que põe cada uma no mês certo do caixa.
     const quitada = i < pagas
@@ -1439,6 +1472,7 @@ export async function salvarLancamentosRepetidos(form, {
       descricao: [form.descricao, `(${i + 1}/${n})`].filter(Boolean).join(' '),
       valor: valores[i] / 100,
       vencimento,
+      competencia,
       // Só a primeira em aberto pode herdar o "já pago" digitado no formulário;
       // as seguintes ainda vão vencer.
       status: quitada ? 'realizado' : (i === pagas ? form.status : 'previsto'),
@@ -1454,6 +1488,89 @@ export async function salvarLancamentosRepetidos(form, {
 
 export async function excluirLancamento(id) {
   await lancamentos.remove(id)
+}
+
+// ---- Folha de pagamento (conta salário) ----
+
+// Cadastro do funcionário. O salário é editável a qualquer momento e vale
+// daqui para a frente: o aumento aparece na folha do mês em que for digitado,
+// e os meses já fechados continuam contando pelos LANÇAMENTOS daquele mês, que
+// não mudam. É por isso que a folha guarda o que foi lançado, e não uma cópia
+// do salário em cada mês.
+export async function salvarFuncionario(form) {
+  const dados = {
+    ...form,
+    salario: Number(form.salario || 0),
+    diaPagamento: form.diaPagamento === '' || form.diaPagamento == null
+      ? ''
+      : Math.min(31, Math.max(1, Number(form.diaPagamento))),
+    ativo: form.ativo !== false,
+    criadoPor: form.criadoPor || usuarioAtual(),
+  }
+  return form.id ? funcionarios.update(form.id, dados) : funcionarios.create(dados)
+}
+
+// Tudo que já foi lançado no nome de um funcionário, em qualquer competência.
+export function lancamentosDoFuncionario(funcionarioId) {
+  return lancamentos.list().filter((l) => l.funcionarioId === funcionarioId)
+}
+
+// Apagar um funcionário NÃO apaga dinheiro: o banco só desliga o vínculo
+// (on delete set null). Como isso deixaria vales órfãos no caixa, quem já tem
+// lançamento se DESLIGA (ativo = false) em vez de sumir — continua no histórico
+// e nos relatórios dos meses em que trabalhou, e some da folha do mês.
+export async function excluirFuncionario(id) {
+  if (lancamentosDoFuncionario(id).length > 0) {
+    return funcionarios.update(id, { ativo: false })
+  }
+  await funcionarios.remove(id)
+  return null
+}
+
+// A folha de um mês ('AAAA-MM'), lendo do cache. `incluirInativos` traz também
+// os desligados — útil ao olhar um mês passado, em que eles ainda trabalhavam.
+export function folhaDaCompetencia(competencia, { incluirInativos = false } = {}) {
+  const lista = funcionarios
+    .list()
+    .filter((f) => incluirInativos || f.ativo !== false)
+    .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'))
+  return folhaDoMes(lista, lancamentos.list(), competencia)
+}
+
+// O lançamento de um vale (ou do salário do mês) já preenchido a partir da
+// conta do funcionário. Devolve o FORM — quem grava é a tela, pelo mesmo
+// salvarLancamento de qualquer outra conta a pagar: um vale não é uma espécie
+// diferente de lançamento, é uma saída com dono e competência.
+export function lancamentoDaFolha(funcionario, competencia, { tipo = 'vale', valor = '' } = {}) {
+  const vale = tipo === 'vale'
+  // Salário vence no dia combinado do mês seguinte à competência (é assim que
+  // se paga: setembro cai em outubro); vale vence hoje, porque é dinheiro que
+  // sai na hora em que se pede.
+  const dia = Number(funcionario?.diaPagamento || 5)
+  const vencimento = vale
+    ? hojeISO()
+    : somarMeses(`${competencia}-01`, 1).slice(0, 8) +
+      String(Math.min(31, Math.max(1, dia))).padStart(2, '0')
+
+  return {
+    tipo: 'saida',
+    status: 'previsto',
+    categoria: vale ? CATEGORIA_VALE : CATEGORIA_SALARIO,
+    descricao: vale
+      ? `Vale — ${funcionario?.nome || ''}`.trim()
+      : `Salário ${competencia} — ${funcionario?.nome || ''}`.trim(),
+    valor: valor === '' ? '' : String(valor),
+    vencimento,
+    dataPagamento: '',
+    formaPagamento: 'pix',
+    clienteId: '',
+    funcionarioId: funcionario?.id || '',
+    competencia,
+    observacoes: '',
+    parcela: 1,
+    parcelas: 1,
+    origem: 'manual',
+  }
 }
 
 // Salva um agendamento e mantém o financeiro vinculado em sincronia.

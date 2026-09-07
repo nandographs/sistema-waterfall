@@ -361,3 +361,118 @@ export function planoDeParcelas({
     }),
   })
 }
+
+// ------------------------------------------------------------- conta salário
+//
+// A "conta salário" de um funcionário NÃO é uma tabela nem um saldo guardado:
+// é uma leitura dos lançamentos que já existem no caixa. Guardar o saldo à
+// parte criaria duas versões da verdade que discordariam no primeiro estorno.
+//
+// A conta é sempre a mesma:
+//
+//     salário do mês  −  vales  −  o que já foi lançado de salário  =  saldo
+//
+// Um VALE é uma conta a pagar como qualquer outra (sai do caixa de verdade, no
+// dia em que sai), com uma diferença: ele é abatido do salário daquele mês, em
+// vez de ser uma despesa nova. É por isso que ele tem categoria própria — sem
+// ela, adiantar R$ 300 e depois pagar o salário cheio contaria a despesa duas
+// vezes no relatório.
+
+export const CATEGORIA_SALARIO = 'salario'
+export const CATEGORIA_VALE = 'vale'
+
+// As saídas que saem do salário de alguém. Serve de teste em um lugar só para
+// "esta linha pertence à folha?".
+export const CATEGORIAS_DA_FOLHA = [CATEGORIA_SALARIO, CATEGORIA_VALE]
+export const daFolha = (categoria) => CATEGORIAS_DA_FOLHA.includes(categoria)
+
+// A folha ('AAAA-MM') a que um lançamento pertence.
+//
+// A competência é gravada no lançamento, mas cai para o mês do vencimento
+// quando está vazia — é o que faz todo lançamento anterior a esta função (e
+// todo lançamento em que o usuário não mexeu no campo) já nascer classificado,
+// sem migração de dados.
+export const competenciaDe = (l) =>
+  String(l?.competencia || l?.vencimento || '').slice(0, 7)
+
+// Dinheiro sempre em centavos inteiros antes de virar reais: sem isso um saldo
+// de 2000 − 3×166,66 aparece como 0.020000000000436557 na tela.
+const emReais = (centavos) => centavos / 100
+const centavosDe = (lista) =>
+  lista.reduce((soma, l) => soma + Math.round(Number(l.valor || 0) * 100), 0)
+
+// O fechamento da folha de UM funcionário em UMA competência.
+//
+//   salario   o quanto ele ganha (o cadastro do funcionário, não os lançamentos)
+//   vales     adiantamentos já lançados na competência
+//   folha     o que já foi lançado como pagamento do salário em si
+//   saldo     o que ainda falta lançar para fechar o mês dele
+//   pago      do que foi lançado, quanto já saiu do caixa (baixa dada)
+//   aPagar    o que está lançado e ainda não foi pago
+//
+// `saldo` pode ficar NEGATIVO de propósito: adiantar mais do que o salário é um
+// erro que a tela precisa poder mostrar, não um número para esconder no zero.
+export function contaSalario(funcionario, lista, competencia) {
+  const doFuncionario = (lista || []).filter(
+    (l) =>
+      l.funcionarioId === funcionario?.id &&
+      l.tipo === 'saida' &&
+      daFolha(l.categoria) &&
+      competenciaDe(l) === competencia,
+  )
+
+  const vales = doFuncionario.filter((l) => l.categoria === CATEGORIA_VALE)
+  const salarios = doFuncionario.filter((l) => l.categoria === CATEGORIA_SALARIO)
+
+  const salarioCent = Math.round(Number(funcionario?.salario || 0) * 100)
+  const valesCent = centavosDe(vales)
+  const folhaCent = centavosDe(salarios)
+
+  const realizados = doFuncionario.filter((l) => l.status === 'realizado')
+  const previstos = doFuncionario.filter((l) => l.status !== 'realizado')
+
+  return {
+    funcionarioId: funcionario?.id || '',
+    competencia,
+    salario: emReais(salarioCent),
+    vales: emReais(valesCent),
+    quantidadeVales: vales.length,
+    folha: emReais(folhaCent),
+    lancado: emReais(valesCent + folhaCent),
+    saldo: emReais(salarioCent - valesCent - folhaCent),
+    pago: emReais(centavosDe(realizados)),
+    aPagar: emReais(centavosDe(previstos)),
+    // As linhas por trás dos números — a tela lista, e é o que permite conferir
+    // de onde veio o saldo sem ter que caçar na aba de contas a pagar.
+    lancamentos: [...doFuncionario].sort((a, b) =>
+      String(a.vencimento || '').localeCompare(String(b.vencimento || '')),
+    ),
+  }
+}
+
+// A folha inteira de um mês: uma conta por funcionário, mais os totais.
+//
+// Recebe a lista de funcionários já filtrada (a tela decide se mostra os
+// desligados), para não ter duas regras de "quem está na folha" no sistema.
+export function folhaDoMes(listaFuncionarios, lista, competencia) {
+  const contas = (listaFuncionarios || []).map((f) => ({
+    funcionario: f,
+    ...contaSalario(f, lista, competencia),
+  }))
+  const somar = (campo) =>
+    emReais(contas.reduce((soma, c) => soma + Math.round(c[campo] * 100), 0))
+
+  return {
+    competencia,
+    contas,
+    total: {
+      salario: somar('salario'),
+      vales: somar('vales'),
+      folha: somar('folha'),
+      lancado: somar('lancado'),
+      saldo: somar('saldo'),
+      pago: somar('pago'),
+      aPagar: somar('aPagar'),
+    },
+  }
+}

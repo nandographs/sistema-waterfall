@@ -6,6 +6,7 @@ import {
   resumoDoMes, variacao, somarMesesNoMes, mesDe,
   normalizarPagamentos, diferencaDosPagamentos, pagamentosDaCondicao, resolverPagamentos,
   planoDePagamentos, resumoDosPagamentos,
+  contaSalario, folhaDoMes, competenciaDe, daFolha,
 } from '../src/data/financeiro.js'
 
 let falhas = 0
@@ -385,6 +386,70 @@ console.log('\n--- ciclo de troca de refil (datas) ---')
   const datas = []
   for (let i = 0; i < 4; i++) { d = somarMeses(d, 3); datas.push(d) }
   eq(datas, ['2026-04-30', '2026-07-30', '2026-10-30', '2027-01-30'], 'ciclos sucessivos são estáveis')
+}
+
+console.log('\n--- conta salário (folha de pagamento) ---')
+{
+  const joao = { id: 'f1', nome: 'João', salario: 2000 }
+  const maria = { id: 'f2', nome: 'Maria', salario: 3000 }
+
+  // A folha de setembro: três vales para o João, um para a Maria.
+  const caixa = [
+    { id: 'l1', tipo: 'saida', categoria: 'vale', valor: 300, funcionarioId: 'f1', competencia: '2026-09', status: 'realizado', vencimento: '2026-09-10' },
+    { id: 'l2', tipo: 'saida', categoria: 'vale', valor: 200, funcionarioId: 'f1', competencia: '2026-09', status: 'previsto', vencimento: '2026-09-20' },
+    // Sem competência: vale a do vencimento (é o que classifica os lançamentos antigos).
+    { id: 'l3', tipo: 'saida', categoria: 'vale', valor: 100, funcionarioId: 'f1', vencimento: '2026-09-25', status: 'previsto' },
+    // Ruídos que NÃO podem entrar na conta do João em setembro:
+    { id: 'l4', tipo: 'saida', categoria: 'vale', valor: 900, funcionarioId: 'f1', competencia: '2026-10', status: 'previsto', vencimento: '2026-10-05' },
+    { id: 'l5', tipo: 'saida', categoria: 'aluguel', valor: 800, funcionarioId: 'f1', competencia: '2026-09', status: 'previsto', vencimento: '2026-09-05' },
+    { id: 'l6', tipo: 'saida', categoria: 'vale', valor: 400, funcionarioId: 'f2', competencia: '2026-09', status: 'previsto', vencimento: '2026-09-15' },
+    { id: 'l7', tipo: 'entrada', categoria: 'vale', valor: 50, funcionarioId: 'f1', competencia: '2026-09', status: 'previsto', vencimento: '2026-09-15' },
+  ]
+
+  const c = contaSalario(joao, caixa, '2026-09')
+  eq(c.salario, 2000, 'o salário vem do cadastro, não dos lançamentos')
+  eq(c.vales, 600, 'soma os vales da competência (inclusive o que herda o mês do vencimento)')
+  eq(c.quantidadeVales, 3, 'conta os vales')
+  eq(c.saldo, 1400, 'saldo = salário − vales')
+  eq(c.pago, 300, 'pago é o que já teve baixa')
+  eq(c.aPagar, 300, 'a pagar é o que está lançado e em aberto')
+  eq(c.lancamentos.map((l) => l.id), ['l1', 'l2', 'l3'], 'só os lançamentos de folha do funcionário no mês')
+
+  // Pagar o saldo fecha a conta — e não conta o vale duas vezes.
+  const comSalario = [...caixa, {
+    id: 'l8', tipo: 'saida', categoria: 'salario', valor: 1400,
+    funcionarioId: 'f1', competencia: '2026-09', status: 'previsto', vencimento: '2026-10-05',
+  }]
+  const fechada = contaSalario(joao, comSalario, '2026-09')
+  eq(fechada.folha, 1400, 'o pagamento do salário entra separado dos vales')
+  eq(fechada.lancado, 2000, 'vales + salário = o salário inteiro')
+  eq(fechada.saldo, 0, 'a folha do mês fecha em zero')
+
+  // Adiantar além do salário fica NEGATIVO de propósito: é erro para mostrar.
+  const estourada = contaSalario(joao, [...comSalario, {
+    id: 'l9', tipo: 'saida', categoria: 'vale', valor: 250,
+    funcionarioId: 'f1', competencia: '2026-09', status: 'previsto', vencimento: '2026-09-28',
+  }], '2026-09')
+  eq(estourada.saldo, -250, 'vale acima do salário deixa o saldo negativo')
+
+  // Centavos: 500 em três vales não pode virar dízima no saldo.
+  const centavos = contaSalario({ id: 'f3', salario: 500 }, [
+    { id: 'a', tipo: 'saida', categoria: 'vale', valor: 166.66, funcionarioId: 'f3', competencia: '2026-09' },
+    { id: 'b', tipo: 'saida', categoria: 'vale', valor: 166.67, funcionarioId: 'f3', competencia: '2026-09' },
+    { id: 'c', tipo: 'saida', categoria: 'vale', valor: 166.67, funcionarioId: 'f3', competencia: '2026-09' },
+  ], '2026-09')
+  eq(centavos.saldo, 0, 'a soma em centavos não deixa resto de ponto flutuante')
+
+  const total = folhaDoMes([joao, maria], caixa, '2026-09')
+  eq(total.total.salario, 5000, 'total da folha do mês')
+  eq(total.total.vales, 1000, 'total de vales do mês')
+  eq(total.total.saldo, 4000, 'total que ainda falta lançar')
+  eq(total.contas.length, 2, 'uma conta por funcionário')
+
+  eq(competenciaDe({ competencia: '2026-09', vencimento: '2026-10-05' }), '2026-09', 'a competência gravada manda')
+  eq(competenciaDe({ vencimento: '2026-10-05' }), '2026-10', 'sem competência, vale o mês do vencimento')
+  eq(competenciaDe({}), '', 'sem nada, vazio')
+  check(daFolha('vale') && daFolha('salario') && !daFolha('aluguel'), 'só vale e salário saem da folha')
 }
 
 console.log(falhas ? `\n${falhas} verificação(ões) falharam.` : '\nTudo certo.')

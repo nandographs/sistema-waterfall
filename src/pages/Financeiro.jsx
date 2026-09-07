@@ -1,9 +1,12 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  lancamentos, clientes,
+  lancamentos, clientes, funcionarios,
   salvarLancamento, salvarLancamentosRepetidos, excluirLancamento, darBaixa, estornarLancamento,
   removerDoFinanceiro, lancamentosDaOrigem,
+  salvarFuncionario, excluirFuncionario, lancamentosDoFuncionario,
+  folhaDaCompetencia, lancamentoDaFolha, contaSalario, competenciaDe, daFolha,
+  CATEGORIA_VALE,
   formatBRL, formatData, hojeISO, somarMeses,
   resumoDoMes, resumoDoPeriodo, variacao, somarMesesNoMes, mesDe,
   FORMAS_PAGAMENTO, CATEGORIAS_SAIDA,
@@ -53,10 +56,26 @@ function LinhaRelatorio({ label, valor, anterior, cor = 'text-slate-900', invert
 
 const REPETICAO_VAZIA = { ativo: false, vezes: 12, dividir: false, jaPagas: 0, lancarPagas: false }
 
+// Cadastro de funcionário. `ativo` nasce true: quem se cadastra está na folha.
+const FUNCIONARIO_VAZIO = {
+  nome: '', cargo: '', telefone: '', salario: '', diaPagamento: 5,
+  admissao: '', ativo: true, observacoes: '',
+}
+
+// 'AAAA-MM' por extenso, para o cabeçalho da folha.
+const rotuloDoMes = (mes) => {
+  const [ano, m] = String(mes || '').split('-')
+  if (!ano || !m) return '—'
+  return new Date(Number(ano), Number(m) - 1, 1)
+    .toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+}
+
 const FORM_VAZIO = {
   tipo: 'saida', status: 'previsto', descricao: '', categoria: 'fornecedor',
   valor: '', vencimento: hojeISO(), dataPagamento: '', formaPagamento: 'pix',
   clienteId: '', observacoes: '', parcela: 1, parcelas: 1, origem: 'manual',
+  // Só usados quando a saída é da folha (vale / salário) — ver a conta salário.
+  funcionarioId: '', competencia: '',
 }
 
 function Resumo({ icon, iconBg, label, value, hint }) {
@@ -84,6 +103,15 @@ export default function Financeiro() {
   // de como criá-lo. Vai para o banco a consequência (N lançamentos), não a regra.
   const [repeticao, setRepeticao] = useState(REPETICAO_VAZIA)
   const [removendo, setRemovendo] = useState(false)
+
+  // ---- Folha de pagamento ----
+  // A COMPETÊNCIA é o mês de trabalho, e não o mês em que o dinheiro sai: o
+  // vale de 28/09 e o salário pago em 05/10 são da mesma folha (setembro).
+  // Por isso ela tem navegação própria, independente do período do relatório.
+  const [competencia, setCompetencia] = useState(() => mesDe(hojeISO()))
+  const [mostrarInativos, setMostrarInativos] = useState(false)
+  const [formFuncionario, setFormFuncionario] = useState(null)
+  const [excluirFunc, setExcluirFunc] = useState(null)
 
   const hoje = hojeISO()
   const todos = lancamentos.list()
@@ -210,7 +238,76 @@ export default function Financeiro() {
     }
   }
 
+  // ---- Folha: cadastro e conta salário ----
+
+  const folha = useMemo(
+    () => folhaDaCompetencia(competencia, { incluirInativos: mostrarInativos }),
+    [todos, competencia, mostrarInativos, funcionarios.list()],
+  )
+
+  async function salvarCadastroFuncionario(e) {
+    e.preventDefault()
+    await salvarFuncionario(formFuncionario)
+    setFormFuncionario(null)
+    refresh()
+  }
+
+  // Quem já tem lançamento não some: é desligado (ver excluirFuncionario).
+  async function confirmarExcluirFuncionario() {
+    setRemovendo(true)
+    try {
+      const desligado = await excluirFuncionario(excluirFunc.id)
+      notificar(desligado
+        ? `${excluirFunc.nome} foi desligado. Os lançamentos dele continuam no caixa.`
+        : `${excluirFunc.nome} foi excluído.`)
+      setExcluirFunc(null)
+    } catch (erro) {
+      notificar('Não foi possível excluir: ' + (erro?.message || erro), 'erro')
+    } finally {
+      setRemovendo(false)
+      refresh()
+    }
+  }
+
+  // Abre o formulário de lançamento já como vale (ou como o salário do mês) do
+  // funcionário — é o mesmo formulário de qualquer conta a pagar, só preenchido.
+  function lancarNaFolha(funcionario, tipo, valorSugerido) {
+    setRepeticao(REPETICAO_VAZIA)
+    setForm({ ...FORM_VAZIO, ...lancamentoDaFolha(funcionario, competencia, { tipo, valor: valorSugerido }) })
+  }
+
+  // A conta salário do funcionário escolhido NO FORMULÁRIO, na competência
+  // digitada lá — que não é necessariamente a que a aba Salários está vendo.
+  const contaDoForm = useMemo(() => {
+    if (!form?.funcionarioId) return null
+    const f = funcionarios.get(form.funcionarioId)
+    if (!f) return null
+    const outros = todos.filter((l) => l.id !== form.id)
+    return { funcionario: f, ...contaSalario(f, outros, form.competencia || competenciaDe(form)) }
+  }, [form?.id, form?.funcionarioId, form?.competencia, form?.vencimento, todos])
+
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
+  const setFunc = (k) => (e) => setFormFuncionario({ ...formFuncionario, [k]: e.target.value })
+
+  // Escolher o funcionário no formulário preenche o resto do que dá para saber:
+  // a descrição (se ainda estiver vazia) e, no pagamento do salário, o valor que
+  // falta — que é justamente o número que ninguém quer calcular à mão.
+  function escolherFuncionarioNoForm(e) {
+    const id = e.target.value
+    const f = id ? funcionarios.get(id) : null
+    const mes = form.competencia || competenciaDe(form)
+    const conta = f ? contaSalario(f, todos.filter((l) => l.id !== form.id), mes) : null
+    const vale = form.categoria === CATEGORIA_VALE
+    setForm({
+      ...form,
+      funcionarioId: id,
+      competencia: mes,
+      descricao: form.descricao || (f
+        ? (vale ? `Vale — ${f.nome}` : `Salário ${mes} — ${f.nome}`)
+        : ''),
+      valor: form.valor || (!vale && conta && conta.saldo > 0 ? conta.saldo.toFixed(2) : form.valor),
+    })
+  }
 
   // Abre o mesmo formulário do "Novo lançamento", já preenchido. Campos que só
   // existem em lançamentos antigos (ou gerados) são normalizados para o form
@@ -227,6 +324,8 @@ export default function Financeiro() {
       dataPagamento: l.dataPagamento || '',
       categoria: l.categoria || (l.tipo === 'entrada' ? 'outros' : 'fornecedor'),
       formaPagamento: l.formaPagamento || 'pix',
+      funcionarioId: l.funcionarioId || '',
+      competencia: l.competencia || competenciaDe(l),
     })
   }
 
@@ -235,8 +334,10 @@ export default function Financeiro() {
   const combina = (l) => {
     if (!termo) return true
     const cliente = l.clienteId ? clientes.get(l.clienteId)?.nome : ''
+    const funcionario = l.funcionarioId ? funcionarios.get(l.funcionarioId)?.nome : ''
     return [
       l.descricao,
+      funcionario,
       nomeCategoria(l.categoria),
       FORMAS_PAGAMENTO[l.formaPagamento] ?? l.formaPagamento,
       cliente,
@@ -246,17 +347,18 @@ export default function Financeiro() {
     ].some((campo) => (campo || '').toString().toLowerCase().includes(termo))
   }
 
-  const listaDaAba = {
+  const listaDaAba = ({
     receber: aReceber,
     pagar: aPagar,
     realizados: [...recebido, ...pago],
-  }[aba]
+  }[aba] ?? [])
     .filter(combina)
     .sort((a, b) => (a.vencimento || '').localeCompare(b.vencimento || ''))
 
   function Linha({ l }) {
     const atrasado = l.status === 'previsto' && l.vencimento && l.vencimento < hoje
     const cliente = l.clienteId ? clientes.get(l.clienteId) : null
+    const funcionario = l.funcionarioId ? funcionarios.get(l.funcionarioId) : null
     return (
       <li className="py-3 flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
@@ -274,6 +376,8 @@ export default function Financeiro() {
             {cliente && (
               <Link to={`/clientes/${cliente.id}`} className="hover:text-blue-600">{cliente.nome}</Link>
             )}
+            {funcionario ? ` · ${funcionario.nome}` : ''}
+            {funcionario && l.competencia ? ` (folha ${l.competencia})` : ''}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -300,6 +404,84 @@ export default function Financeiro() {
             <IconTrash size={15} />
           </Button>
         </div>
+      </li>
+    )
+  }
+
+  // Um funcionário na folha do mês: o salário dele, o que já foi lançado e o
+  // que sobra. É a "conta salário" — a conta inteira cabe numa linha:
+  //     salário − vales − salário já lançado = saldo
+  function LinhaFolha({ conta }) {
+    const f = conta.funcionario
+    const negativo = conta.saldo < -0.004
+    const fechada = Math.abs(conta.saldo) < 0.005
+    return (
+      <li className="py-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-slate-900 flex items-center gap-2">
+              {f.nome || '(sem nome)'}
+              {f.ativo === false && <Badge>Desligado</Badge>}
+            </p>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {f.cargo || 'Sem função definida'} · Salário {formatBRL(f.salario)}
+              {f.diaPagamento ? ` · paga dia ${f.diaPagamento}` : ''}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" onClick={() => lancarNaFolha(f, 'vale')}>Lançar vale</Button>
+            <Button
+              variant="ghost"
+              onClick={() => lancarNaFolha(f, 'salario', conta.saldo > 0 ? conta.saldo.toFixed(2) : '')}
+            >
+              Pagar saldo
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => setFormFuncionario({ ...FUNCIONARIO_VAZIO, ...f, salario: String(f.salario ?? '') })}
+              title="Editar funcionário"
+              aria-label="Editar funcionário"
+            >
+              <IconPencil size={15} />
+            </Button>
+            <Button variant="danger" onClick={() => setExcluirFunc(f)} title="Excluir funcionário">
+              <IconTrash size={15} />
+            </Button>
+          </div>
+        </div>
+
+        {/* A conta, na ordem em que se faz de cabeça. */}
+        <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+          {[
+            ['Salário', formatBRL(conta.salario), 'text-slate-900'],
+            [`Vales (${conta.quantidadeVales})`, `− ${formatBRL(conta.vales)}`, 'text-amber-700'],
+            ['Salário lançado', `− ${formatBRL(conta.folha)}`, 'text-slate-600'],
+            ['Falta lançar', formatBRL(conta.saldo), negativo ? 'text-red-600' : (fechada ? 'text-emerald-700' : 'text-slate-900')],
+          ].map(([rotulo, valor, cor]) => (
+            <div key={rotulo} className="rounded-lg bg-slate-50 border border-slate-100 px-2.5 py-1.5">
+              <p className="text-[11px] text-slate-500">{rotulo}</p>
+              <p className={`tnum font-semibold ${cor}`}>{valor}</p>
+            </div>
+          ))}
+        </div>
+
+        {negativo && (
+          <p className="text-[11px] text-red-600 mt-1.5">
+            Já foi lançado {formatBRL(Math.abs(conta.saldo))} a mais do que o salário deste mês.
+          </p>
+        )}
+
+        {conta.lancamentos.length > 0 && (
+          <details className="mt-2">
+            <summary className="text-xs text-blue-700 cursor-pointer">
+              {conta.lancamentos.length} lançamento{conta.lancamentos.length === 1 ? '' : 's'} nesta folha
+              {' · '}{formatBRL(conta.pago)} já pago{conta.aPagar > 0 ? `, ${formatBRL(conta.aPagar)} em aberto` : ''}
+            </summary>
+            <ul className="mt-1.5 divide-y divide-slate-100 border-t border-slate-100">
+              {conta.lancamentos.map((l) => <Linha key={l.id} l={l} />)}
+            </ul>
+          </details>
+        )}
       </li>
     )
   }
@@ -523,7 +705,8 @@ export default function Financeiro() {
           <div className="flex gap-2 mb-4 flex-wrap">
             {[['receber', `A receber (${aReceber.length})`],
               ['pagar', `A pagar (${aPagar.length})`],
-              ['realizados', `Realizados (${recebido.length + pago.length})`]].map(([valor, rotulo]) => (
+              ['realizados', `Realizados (${recebido.length + pago.length})`],
+              ['salarios', `Salários (${folha.contas.length})`]].map(([valor, rotulo]) => (
               <button
                 key={valor}
                 onClick={() => setAba(valor)}
@@ -536,26 +719,100 @@ export default function Financeiro() {
             ))}
           </div>
 
-          <div className="relative mb-4">
-            <IconSearch size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-            <input
-              className={`${inputCls} pl-9`}
-              type="search"
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar por descrição, cliente, categoria ou valor"
-              aria-label="Buscar nas contas"
-            />
-          </div>
+          {aba === 'salarios' ? (
+            <Card
+              title={`Folha de ${rotuloDoMes(competencia)}`}
+              action={
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setCompetencia(somarMesesNoMes(competencia, -1))}
+                      className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 cursor-pointer"
+                      aria-label="Mês anterior"
+                    >
+                      <IconChevronLeft size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCompetencia(somarMesesNoMes(competencia, 1))}
+                      className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 cursor-pointer"
+                      aria-label="Próximo mês"
+                    >
+                      <IconChevronRight size={16} />
+                    </button>
+                    {competencia !== mesDe(hoje) && (
+                      <Button variant="ghost" onClick={() => setCompetencia(mesDe(hoje))}>Mês atual</Button>
+                    )}
+                  </div>
+                  <Button onClick={() => setFormFuncionario({ ...FUNCIONARIO_VAZIO })}>
+                    <IconPlus size={16} /> Novo funcionário
+                  </Button>
+                </div>
+              }
+            >
+              {/* Os totais do mês inteiro, antes de descer ao nome a nome. */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                {[
+                  ['Folha do mês', formatBRL(folha.total.salario), 'O somatório dos salários'],
+                  ['Vales', formatBRL(folha.total.vales), 'Adiantados neste mês'],
+                  ['Já pago', formatBRL(folha.total.pago), 'Baixas dadas na folha'],
+                  ['Falta lançar', formatBRL(folha.total.saldo), 'Salário ainda não lançado'],
+                ].map(([rotulo, valor, dica]) => (
+                  <div key={rotulo} className="rounded-xl border border-slate-200 p-3">
+                    <p className="text-[11px] font-medium text-slate-500">{rotulo}</p>
+                    <p className="text-lg font-bold text-slate-900 tnum mt-0.5">{valor}</p>
+                    <p className="text-[11px] text-slate-400">{dica}</p>
+                  </div>
+                ))}
+              </div>
 
-          <Card>
-            {listaDaAba.length === 0 && (
-              <Empty>{termo ? `Nada encontrado para “${busca.trim()}”.` : 'Nada por aqui.'}</Empty>
-            )}
-            <ul className="divide-y divide-slate-100">
-              {listaDaAba.map((l) => <Linha key={l.id} l={l} />)}
-            </ul>
-          </Card>
+              {folha.contas.length === 0 ? (
+                <Empty>
+                  {mostrarInativos
+                    ? 'Nenhum funcionário cadastrado. Cadastre o primeiro para abrir a conta salário dele.'
+                    : 'Nenhum funcionário ativo. Cadastre um, ou mostre os desligados abaixo.'}
+                </Empty>
+              ) : (
+                <ul className="divide-y divide-slate-100">
+                  {folha.contas.map((conta) => <LinhaFolha key={conta.funcionarioId} conta={conta} />)}
+                </ul>
+              )}
+
+              <label className="flex items-center gap-2 text-xs text-slate-500 mt-4 pt-3 border-t border-slate-100">
+                <input
+                  type="checkbox"
+                  className="w-4 h-4 accent-slate-900"
+                  checked={mostrarInativos}
+                  onChange={(e) => setMostrarInativos(e.target.checked)}
+                />
+                Mostrar também os desligados (eles continuam na folha dos meses em que trabalharam)
+              </label>
+            </Card>
+          ) : (
+            <>
+              <div className="relative mb-4">
+                <IconSearch size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                <input
+                  className={`${inputCls} pl-9`}
+                  type="search"
+                  value={busca}
+                  onChange={(e) => setBusca(e.target.value)}
+                  placeholder="Buscar por descrição, cliente, funcionário, categoria ou valor"
+                  aria-label="Buscar nas contas"
+                />
+              </div>
+
+              <Card>
+                {listaDaAba.length === 0 && (
+                  <Empty>{termo ? `Nada encontrado para “${busca.trim()}”.` : 'Nada por aqui.'}</Empty>
+                )}
+                <ul className="divide-y divide-slate-100">
+                  {listaDaAba.map((l) => <Linha key={l.id} l={l} />)}
+                </ul>
+              </Card>
+            </>
+          )}
         </div>
 
         <Card title="Fluxo de caixa — próximos 6 meses">
@@ -707,6 +964,74 @@ export default function Financeiro() {
                 </select>
               </Field>
             </div>
+
+            {/* CONTA SALÁRIO — aparece quando a saída é da folha (vale ou o
+                salário em si). O vale continua sendo uma conta a pagar normal:
+                a diferença é que ele tem dono e competência, e por isso é
+                abatido do salário daquele mês em vez de virar despesa nova. */}
+            {form.tipo === 'saida' && daFolha(form.categoria) && (
+              <div className="rounded-lg border border-slate-200 p-3 space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Field label="Funcionário">
+                    <select className={inputCls} required value={form.funcionarioId || ''} onChange={escolherFuncionarioNoForm}>
+                      <option value="">Selecione o funcionário…</option>
+                      {funcionarios
+                        .list()
+                        .filter((f) => f.ativo !== false || f.id === form.funcionarioId)
+                        .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'))
+                        .map((f) => (
+                          <option key={f.id} value={f.id}>
+                            {f.nome}{f.cargo ? ` — ${f.cargo}` : ''} ({formatBRL(f.salario)})
+                          </option>
+                        ))}
+                    </select>
+                  </Field>
+                  <Field label="Competência (de qual salário sai)">
+                    <input
+                      className={inputCls}
+                      type="month"
+                      value={form.competencia || competenciaDe(form)}
+                      onChange={set('competencia')}
+                    />
+                  </Field>
+                </div>
+
+                {funcionarios.list().length === 0 && (
+                  <p className="text-xs text-slate-500">
+                    Nenhum funcionário cadastrado ainda — cadastre um na aba{' '}
+                    <span className="font-medium text-slate-700">Salários</span> para lançar vales.
+                  </p>
+                )}
+
+                {contaDoForm && (() => {
+                  const valor = Number(form.valor || 0)
+                  const depois = contaDoForm.saldo - valor
+                  return (
+                    <>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                        {[
+                          ['Salário', formatBRL(contaDoForm.salario), 'text-slate-900'],
+                          [`Vales (${contaDoForm.quantidadeVales})`, `− ${formatBRL(contaDoForm.vales)}`, 'text-amber-700'],
+                          ['Salário lançado', `− ${formatBRL(contaDoForm.folha)}`, 'text-slate-600'],
+                          ['Disponível', formatBRL(contaDoForm.saldo), contaDoForm.saldo < 0 ? 'text-red-600' : 'text-slate-900'],
+                        ].map(([rotulo, v, cor]) => (
+                          <div key={rotulo} className="rounded-lg bg-slate-50 border border-slate-100 px-2.5 py-1.5">
+                            <p className="text-[11px] text-slate-500">{rotulo}</p>
+                            <p className={`tnum font-semibold ${cor}`}>{v}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <p className={`text-xs ${depois < -0.004 ? 'text-red-600' : 'text-slate-500'}`}>
+                        {valor > 0
+                          ? `Depois deste lançamento sobram ${formatBRL(depois)} do salário de ${rotuloDoMes(form.competencia || competenciaDe(form))}.`
+                          : `Restam ${formatBRL(contaDoForm.saldo)} do salário de ${rotuloDoMes(form.competencia || competenciaDe(form))}.`}
+                        {depois < -0.004 && ' O lançamento passa do salário do mês — dá para salvar assim mesmo, mas confira.'}
+                      </p>
+                    </>
+                  )
+                })()}
+              </div>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field label="Vencimento">
                 <input className={inputCls} type="date" required value={form.vencimento} onChange={set('vencimento')} />
@@ -828,6 +1153,112 @@ export default function Financeiro() {
             </div>
           </form>
         )}
+      </Modal>
+
+      {/* Cadastro do funcionário: quem é, o que faz e quanto ganha. O salário
+          pode ser alterado a qualquer momento — passa a valer da folha em que
+          for digitado em diante; os meses já lançados não mudam. */}
+      <Modal
+        title={formFuncionario?.id ? 'Editar funcionário' : 'Novo funcionário'}
+        open={!!formFuncionario}
+        onClose={() => setFormFuncionario(null)}
+      >
+        {formFuncionario && (
+          <form onSubmit={salvarCadastroFuncionario} className="space-y-4">
+            <Field label="Nome">
+              <input className={inputCls} required value={formFuncionario.nome} onChange={setFunc('nome')} />
+            </Field>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field label="Função / cargo">
+                <input
+                  className={inputCls}
+                  placeholder="ex.: Técnico instalador"
+                  value={formFuncionario.cargo}
+                  onChange={setFunc('cargo')}
+                />
+              </Field>
+              <Field label="Salário mensal (R$)">
+                <input
+                  className={inputCls}
+                  type="number" step="0.01" min="0" required
+                  value={formFuncionario.salario}
+                  onChange={setFunc('salario')}
+                />
+              </Field>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field label="Dia do pagamento">
+                <input
+                  className={inputCls}
+                  type="number" min="1" max="31" step="1"
+                  value={formFuncionario.diaPagamento ?? ''}
+                  onChange={setFunc('diaPagamento')}
+                />
+              </Field>
+              <Field label="Telefone">
+                <input className={inputCls} value={formFuncionario.telefone} onChange={setFunc('telefone')} />
+              </Field>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field label="Admissão">
+                <input className={inputCls} type="date" value={formFuncionario.admissao} onChange={setFunc('admissao')} />
+              </Field>
+              <Field label="Situação">
+                <select
+                  className={inputCls}
+                  value={formFuncionario.ativo === false ? 'inativo' : 'ativo'}
+                  onChange={(e) => setFormFuncionario({ ...formFuncionario, ativo: e.target.value === 'ativo' })}
+                >
+                  <option value="ativo">Ativo (entra na folha do mês)</option>
+                  <option value="inativo">Desligado</option>
+                </select>
+              </Field>
+            </div>
+            <Field label="Observações">
+              <textarea className={inputCls} rows="2" value={formFuncionario.observacoes} onChange={setFunc('observacoes')} />
+            </Field>
+            {formFuncionario.id && (
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Mudar o salário vale da folha atual em diante. Os vales e pagamentos já lançados
+                continuam como estão — é o que mantém os meses fechados fechados.
+              </p>
+            )}
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="secondary" onClick={() => setFormFuncionario(null)}>Cancelar</Button>
+              <Button type="submit">Salvar</Button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      <Modal title="Excluir funcionário" open={!!excluirFunc} onClose={() => setExcluirFunc(null)}>
+        {excluirFunc && (() => {
+          const doFuncionario = lancamentosDoFuncionario(excluirFunc.id)
+          return (
+            <div className="space-y-4">
+              <p className="text-sm text-slate-600">
+                {doFuncionario.length === 0 ? (
+                  <>Excluir <span className="font-semibold text-slate-900">{excluirFunc.nome}</span>? Essa ação não pode ser desfeita.</>
+                ) : (
+                  <>
+                    <span className="font-semibold text-slate-900">{excluirFunc.nome}</span> tem{' '}
+                    {doFuncionario.length} lançamento{doFuncionario.length === 1 ? '' : 's'} no caixa, então ele será{' '}
+                    <span className="font-medium text-slate-900">desligado</span> em vez de excluído: sai da folha
+                    do mês, mas o dinheiro que já saiu continua no histórico e nos relatórios.
+                  </>
+                )}
+              </p>
+              <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-1">
+                <Button type="button" variant="secondary" onClick={() => setExcluirFunc(null)} disabled={removendo}>
+                  Cancelar
+                </Button>
+                <Button type="button" variant="danger" onClick={confirmarExcluirFuncionario} disabled={removendo}>
+                  {removendo ? 'Salvando…' : (doFuncionario.length === 0 ? 'Excluir' : 'Desligar')}
+                </Button>
+              </div>
+            </div>
+          )
+        })()}
       </Modal>
     </Page>
   )
