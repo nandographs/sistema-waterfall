@@ -17,3 +17,11 @@ supabase/.branches
 
 # Saída local do fluxo de review de design (impeccable)
 .impeccable/
+
+# Carga das fichas de papel e saídas das auditorias.
+# CPF, endereço e telefone de clientes reais — este repositório é PÚBLICO.
+# Os scripts que geram e consomem estes arquivos ficam versionados; os dados não.
+scripts/dados-fichas.json
+scripts/saida-teste/*.csv
+scripts/saida-teste/backup-*.json
+sql/018_importar_clientes_historicos.sql
