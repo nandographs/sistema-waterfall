@@ -5,11 +5,12 @@ import {
   explicarColunaFaltante,
 } from '../data/repository.js'
 import { Card, Page, PageTitle, Button, inputCls, Empty, Modal, Badge, notificar } from '../components/ui.jsx'
-import { IconPlus, IconSearch, IconUser, IconFilter } from '../components/icons.jsx'
+import { IconPlus, IconSearch, IconUser, IconFilter, IconFileText } from '../components/icons.jsx'
 import ClienteFormFields from '../components/ClienteFormFields.jsx'
 import { usuarioAtual } from '../lib/auth.js'
 import { telefonesDoCliente, comTelefonePrincipal } from '../lib/telefone.js'
 import { combina } from '../lib/texto.js'
+import { gerarClientesPdf } from '../relatorio/clientes.js'
 
 const FORM_VAZIO = {
   nome: '', telefone: '', telefones: [], email: '', cpfCnpj: '', nascimento: '',
@@ -52,6 +53,7 @@ export default function Clientes() {
   const [lista, setLista] = useState(clientes.list())
   const [busca, setBusca] = useState('')
   const [form, setForm] = useState(null)
+  const [baixandoPdf, setBaixandoPdf] = useState(false)
 
   const [cidade, setCidade] = useState('')
   const [uf, setUf] = useState('')
@@ -152,6 +154,52 @@ export default function Clientes() {
     })
     .sort(compararClientes(ordem))
 
+  // O que está ligado na tela, em palavras. Vai no subtítulo do PDF e no nome
+  // do arquivo: um relatório de "só Itapema" sem dizer isso na folha vira, uma
+  // semana depois, a lista completa de clientes na cabeça de quem lê.
+  function descricaoDosFiltros() {
+    const partes = []
+    if (busca.trim()) partes.push(`Busca: ${busca.trim()}`)
+    if (cidade) partes.push(`Cidade: ${cidade}`)
+    if (uf) partes.push(`UF: ${uf}`)
+    if (visita === 'com') partes.push('Com visita agendada')
+    if (visita === 'sem') partes.push('Sem visita agendada')
+    if (somenteTroca) partes.push('Troca de refil prevista')
+    if (somentePendente) partes.push('Pagamento pendente')
+    return partes
+  }
+
+  async function baixarPdf() {
+    setBaixandoPdf(true)
+    try {
+      await gerarClientesPdf({
+        clientes: filtrados.map((c) => {
+          const prox = proximaVisita(c.id)
+          return {
+            nome: c.nome,
+            telefones: telefonesDoCliente(c).map((t) => t.numero),
+            cidade: c.cidade,
+            uf: c.uf,
+            conjugeNome: c.conjugeNome,
+            criadoEm: c.criadoEm,
+            situacao: [
+              temPagamentoPendente(c.id) ? 'A receber' : '',
+              temTrocaPrevista(c.id) ? 'Troca de refil' : '',
+              prox ? `Próx. visita ${formatData(prox.data)}` : 'Sem visita marcada',
+            ].filter(Boolean),
+          }
+        }),
+        filtros: descricaoDosFiltros(),
+        ordem: ORDENS[ordem],
+        emitidoEm: new Date().toISOString().slice(0, 10),
+      })
+    } catch (erro) {
+      notificar('Não foi possível gerar o PDF: ' + (erro?.message || erro), 'erro')
+    } finally {
+      setBaixandoPdf(false)
+    }
+  }
+
   async function salvar(e) {
     e.preventDefault()
     try {
@@ -172,7 +220,14 @@ export default function Clientes() {
     <Page>
       <PageTitle
         subtitle="Cadastro e histórico dos seus clientes"
-        action={<Button onClick={() => setForm({ ...FORM_VAZIO })}><IconPlus size={16} /> Novo cliente</Button>}
+        action={
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={baixarPdf} disabled={baixandoPdf || filtrados.length === 0}>
+              <IconFileText size={16} /> {baixandoPdf ? 'Gerando…' : 'Baixar PDF'}
+            </Button>
+            <Button onClick={() => setForm({ ...FORM_VAZIO })}><IconPlus size={16} /> Novo cliente</Button>
+          </div>
+        }
       >
         Clientes
       </PageTitle>
