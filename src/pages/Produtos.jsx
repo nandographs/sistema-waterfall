@@ -1,12 +1,16 @@
 import { useState } from 'react'
-import { produtos, definirFotoProduto, removerFotoProduto, formatBRL } from '../data/repository.js'
+import { produtos, definirFotoProduto, removerFotoProduto, formatBRL, TIPOS_PRODUTO, UNIDADES, unidadeDo } from '../data/repository.js'
 import { Card, Page, PageTitle, Button, Field, inputCls, Badge, Empty, Modal, usePaginacao, Paginacao } from '../components/ui.jsx'
 import { IconPlus, IconImage, IconSearch } from '../components/icons.jsx'
 import FotoUnica from '../components/FotoUnica.jsx'
 import { combina } from '../lib/texto.js'
 
+// Cor e badge por tipo: aparelho e refil são o miolo do serviço (troca
+// agendada); acessório e "outro" só entram na venda.
+const COR_DO_TIPO = { aparelho: 'sky', refil: 'green', acessorio: 'amber', outro: 'slate' }
+
 const FORM_VAZIO = {
-  nome: '', codigo: '', tipo: 'aparelho', valor: '',
+  nome: '', codigo: '', tipo: 'aparelho', valor: '', cor: '', unidade: 'un',
   intervaloTrocaMeses: '', aparelhoCompativelId: '',
   // Só do formulário: o vínculo mora no refil (aparelhoCompativelId), mas é
   // prático poder escolhê-lo também pelo cadastro do aparelho.
@@ -35,7 +39,7 @@ export default function Produtos() {
     const par = p.tipo === 'refil'
       ? produtos.get(p.aparelhoCompativelId)?.nome
       : refilDoAparelho(p.id)?.nome
-    return combina(busca, p.nome, p.codigo, p.tipo === 'aparelho' ? 'Aparelho' : 'Refil', par)
+    return combina(busca, p.nome, p.codigo, p.cor, TIPOS_PRODUTO[p.tipo], par)
   })
 
   const { visiveis, barra } = usePaginacao(filtrados)
@@ -91,7 +95,7 @@ export default function Produtos() {
   return (
     <Page>
       <PageTitle
-        subtitle="Aparelhos, refis, valores e intervalos de troca"
+        subtitle="Aparelhos, refis, acessórios e serviços — valores, cores e intervalos de troca"
         action={<Button onClick={() => { setErro(''); setForm({ ...FORM_VAZIO }) }}><IconPlus size={16} /> Novo produto</Button>}
       >
         Produtos
@@ -102,7 +106,7 @@ export default function Produtos() {
           <IconSearch size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             className={inputCls + ' pl-9'}
-            placeholder="Buscar por nome, código ou tipo…"
+            placeholder="Buscar por nome, código, cor ou tipo…"
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
           />
@@ -121,6 +125,7 @@ export default function Produtos() {
                   <th className="py-2 pr-4">Produto</th>
                   <th className="py-2 pr-4">Código</th>
                   <th className="py-2 pr-4">Tipo</th>
+                  <th className="py-2 pr-4">Cor</th>
                   <th className="py-2 pr-4">Valor de venda</th>
                   <th className="py-2 pr-4">Troca a cada</th>
                   <th className="py-2 pr-4">Compatível com</th>
@@ -148,11 +153,21 @@ export default function Produtos() {
                         : <span className="text-slate-300">—</span>}
                     </td>
                     <td className="py-3 pr-4">
-                      <Badge color={p.tipo === 'aparelho' ? 'sky' : 'green'}>
-                        {p.tipo === 'aparelho' ? 'Aparelho' : 'Refil'}
+                      <Badge color={COR_DO_TIPO[p.tipo] ?? 'slate'}>
+                        {TIPOS_PRODUTO[p.tipo] ?? p.tipo}
                       </Badge>
                     </td>
-                    <td className="py-3 pr-4">{formatBRL(p.valor)}</td>
+                    <td className="py-3 pr-4">
+                      {p.cor ? p.cor : <span className="text-slate-300">—</span>}
+                    </td>
+                    <td className="py-3 pr-4 whitespace-nowrap">
+                      {formatBRL(p.valor)}
+                      {/* Só mostramos a unidade quando ela muda o sentido do preço:
+                          "por unidade" é o padrão e não precisa ser dito. */}
+                      {p.unidade && p.unidade !== 'un' && (
+                        <span className="text-slate-400"> /{unidadeDo(p).sigla}</span>
+                      )}
+                    </td>
                     <td className="py-3 pr-4">
                       {/* No aparelho mostramos o intervalo do refil dele: é essa a
                           periodicidade da manutenção daquele equipamento. */}
@@ -218,14 +233,34 @@ export default function Produtos() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field label="Tipo">
                 <select className={inputCls} value={form.tipo} onChange={set('tipo')}>
-                  <option value="aparelho">Aparelho</option>
-                  <option value="refil">Refil</option>
+                  {Object.entries(TIPOS_PRODUTO).map(([v, r]) => (
+                    <option key={v} value={v}>{r}</option>
+                  ))}
                 </select>
               </Field>
-              <Field label="Valor de venda (R$)">
-                <input className={inputCls} type="number" step="0.01" min="0" required value={form.valor} onChange={set('valor')} />
+              <Field label="Unidade de venda">
+                <select className={inputCls} value={form.unidade || 'un'} onChange={set('unidade')}>
+                  {Object.entries(UNIDADES).map(([v, u]) => (
+                    <option key={v} value={v}>{u.rotulo} ({u.sigla})</option>
+                  ))}
+                </select>
               </Field>
             </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field label={`Valor de venda (R$ por ${unidadeDo(form).sigla})`}>
+                <input className={inputCls} type="number" step="0.01" min="0" required value={form.valor} onChange={set('valor')} />
+              </Field>
+              {/* Cor é opcional de propósito: boa parte do catálogo não tem. */}
+              <Field label="Cor (se tiver)">
+                <input className={inputCls} placeholder="ex.: Branca" value={form.cor || ''} onChange={set('cor')} />
+              </Field>
+            </div>
+            {unidadeDo(form).fracionavel && (
+              <p className="text-xs text-slate-500">
+                Vendido por {unidadeDo(form).rotulo.toLowerCase()}: na venda a quantidade
+                aceita fração (2,5 {unidadeDo(form).sigla}) e o total sai proporcional.
+              </p>
+            )}
             {form.tipo === 'refil' && (
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

@@ -4,7 +4,8 @@ import {
   vendas, vendaItens, clientes, produtos, lancamentos,
   salvarVenda, excluirVenda, itensDaVenda, lancamentosDaVenda, totaisDaVenda,
   formatData, formatBRL, hojeISO, resolverPagamentos, normalizarPagamentos,
-  FORMAS_PAGAMENTO, STATUS_VENDA, CANAIS_VENDA,
+  FORMAS_PAGAMENTO, STATUS_VENDA, CANAIS_VENDA, UNIDADES, unidadeDo, nomeCompletoProduto,
+  quantidadeComUnidade,
 } from '../data/repository.js'
 import { PERIODOS, dentroDoPeriodo } from '../lib/datas.js'
 import { semAcento } from '../lib/texto.js'
@@ -18,7 +19,7 @@ import { montarDadosOrcamento } from '../orcamento/html.js'
 import { gerarOrcamentoPdf } from '../orcamento/gerarPdf.js'
 import PagamentosVenda, { pagamentosIniciais } from '../components/PagamentosVenda.jsx'
 
-const ITEM_VAZIO = { produtoId: '', descricao: '', quantidade: 1, valorUnitario: '', desconto: '' }
+const ITEM_VAZIO = { produtoId: '', descricao: '', quantidade: 1, unidade: 'un', valorUnitario: '', desconto: '' }
 
 const FORM_VAZIO = {
   clienteId: '', data: hojeISO(), tipo: 'venda', canal: '', status: 'proposta',
@@ -239,11 +240,19 @@ export default function Vendas() {
       return {
         ...item,
         produtoId: valor,
-        descricao: produto?.nome || '',
+        // A cor entra na descrição congelada do item: é ela que diferencia o
+        // que foi vendido quando o mesmo produto existe em várias cores.
+        descricao: nomeCompletoProduto(produto),
+        unidade: produto?.unidade || 'un',
         valorUnitario: produto ? Number(produto.valor || 0) : item.valorUnitario,
       }
     }))
   }
+
+  // Quem vende por medida (mangueira por metro) precisa de fração; peça
+// inteira continua andando de 1 em 1 para não virar "1,5 aparelho".
+  const unidadeDoItem = (item) =>
+    UNIDADES[item.unidade] ?? unidadeDo(produtos.get(item.produtoId))
 
   const totalDoItem = (item) =>
     Math.max(0, Number(item.quantidade || 0) * Number(item.valorUnitario || 0) - Number(item.desconto || 0))
@@ -388,7 +397,10 @@ export default function Vendas() {
                 {itensDaVenda(detalhe.id).map((i) => (
                   <li key={i.id} className="flex justify-between gap-3 px-3 py-2">
                     <span className="text-slate-700">
-                      {i.descricao} <span className="text-slate-400">× {Number(i.quantidade)}</span>
+                      {i.descricao}{' '}
+                      <span className="text-slate-400">
+                        × {quantidadeComUnidade(i.quantidade, i.unidade)}
+                      </span>
                     </span>
                     <span className="tnum text-slate-900">{formatBRL(i.valorTotal)}</span>
                   </li>
@@ -544,9 +556,12 @@ export default function Vendas() {
                     </Field>
                   </div>
                   <div className="sm:col-span-2">
-                    <Field label={i === 0 ? 'Qtd.' : ''}>
+                    <Field label={i === 0 ? `Qtd. (${unidadeDoItem(item).sigla})` : ''}>
                       <input
-                        className={inputCls} type="number" min="1" step="1"
+                        className={inputCls}
+                        type="number"
+                        min={unidadeDoItem(item).fracionavel ? '0.001' : '1'}
+                        step={unidadeDoItem(item).fracionavel ? '0.001' : '1'}
                         value={item.quantidade}
                         onChange={(e) => alterarItem(i, 'quantidade', e.target.value)}
                       />

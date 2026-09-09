@@ -11,6 +11,7 @@
 // produtos, valores, validade e condições.
 
 import { formatBRL } from '../data/financeiro.js'
+import { quantidadeComUnidade } from '../lib/unidades.js'
 import { dataBR, somarDias } from '../lib/datas.js'
 import { cabecalhoEmpresa } from '../documentos/empresa.js'
 
@@ -68,6 +69,7 @@ export function montarDadosOrcamento(venda, cliente, itens) {
     itens: (itens || []).map((i) => ({
       descricao: i.descricao,
       quantidade: Number(i.quantidade || 1),
+      unidade: i.unidade || 'un',
       valorUnitario: Number(i.valorUnitario || 0),
       desconto: Number(i.desconto || 0),
       valorTotal: Number(i.valorTotal || 0),
@@ -85,7 +87,7 @@ export function montarDadosOrcamento(venda, cliente, itens) {
 // coluna de dinheiro: pelas casas, não pelo começo do número.
 const linhaItem = (item) => `<tr>
   <td class="desc">${esc(item.descricao)}</td>
-  <td class="c">${esc(Number(item.quantidade || 1))}</td>
+  <td class="c">${esc(quantidadeComUnidade(item.quantidade || 1, item.unidade))}</td>
   <td class="r">${esc(formatBRL(item.valorUnitario))}</td>
   <td class="r">${Number(item.desconto) > 0 ? '- ' + esc(formatBRL(item.desconto)) : '—'}</td>
   <td class="r forte">${esc(formatBRL(item.valorTotal))}</td>

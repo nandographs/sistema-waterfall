@@ -235,9 +235,30 @@ function makeStore(tabela) {
 export const clientes = makeStore('clientes')
 
 // Produto: { nome, codigo (SKU/referência, opcional — usado na busca),
-//            tipo: 'aparelho' | 'refil', valor,
+//            tipo: 'aparelho' | 'refil' | 'acessorio' | 'outro', valor,
+//            cor (opcional), unidade (ver UNIDADES; vazio = 'un'),
 //            intervaloTrocaMeses (refil), aparelhoCompativelId (refil) }
 export const produtos = makeStore('produtos')
+
+// O catálogo não é só equipamento: acessório (mangueira, conexão, torneira) e
+// "outro" (serviço, taxa, frete cobrado como item) também entram na venda.
+// Só aparelho e refil participam do agendamento automático de troca.
+export const TIPOS_PRODUTO = {
+  aparelho: 'Aparelho',
+  refil: 'Refil',
+  acessorio: 'Acessório',
+  outro: 'Outro',
+}
+
+// Unidade de venda ('un' é peça inteira; 'm' e as outras medidas aceitam
+// fração). A tabela mora em lib/unidades.js porque os documentos em PDF também
+// precisam dela — ver o comentário de lá.
+export { UNIDADES, unidadeDo, siglaUnidade, quantidadeComUnidade } from '../lib/unidades.js'
+
+// Nome como ele aparece no pedido e nas listas: a cor faz parte da identidade
+// do item quando existe ("Torneira — Branca").
+export const nomeCompletoProduto = (produto) =>
+  produto ? (produto.cor ? `${produto.nome} — ${produto.cor}` : produto.nome) : ''
 
 // Equipamento do cliente: { clienteId, produtoId, dataInstalacao, dataUltimaTroca }
 export const equipamentos = makeStore('equipamentos')
@@ -580,6 +601,9 @@ export async function salvarVenda(form, itensForm, opcoes = {}) {
       vendaId: venda.id,
       produtoId: item.produtoId || '',
       descricao: item.descricao || produtos.get(item.produtoId)?.nome || '',
+      // A unidade é congelada no item, como a descrição: mudar depois a
+      // unidade do produto não pode reescrever o que já foi vendido.
+      unidade: item.unidade || produtos.get(item.produtoId)?.unidade || 'un',
       quantidade: Number(item.quantidade || 1),
       valorUnitario: Number(item.valorUnitario || 0),
       desconto: Number(item.desconto || 0),

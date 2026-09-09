@@ -2,6 +2,7 @@ import { useState } from 'react'
 import {
   clientes, itensDaVenda, vendas, formatBRL, formatData,
 } from '../data/repository.js'
+import { quantidadeComUnidade } from '../lib/unidades.js'
 import { gerarPedido } from '../pedido/gerar.js'
 import { gerarPedidoPdf } from '../pedido/gerarPdf.js'
 import { Modal, Button, Field, inputCls } from './ui.jsx'
@@ -61,7 +62,7 @@ function montarInicial(venda) {
 
     itens: itens.slice(0, 4).map((item) => ({
       descricao: String(item.descricao || '').slice(0, 70),
-      quantidade: String(Number(item.quantidade || 1)),
+      quantidade: quantidadeComUnidade(item.quantidade || 1, item.unidade),
       valor_unitario: brl(item.valorUnitario),
       desconto: brl(item.desconto),
       valor_total: brl(item.valorTotal),

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import {
   clientes, produtos, salvarVenda, totaisDaVenda, itensDaVenda, hojeISO, formatBRL,
+  UNIDADES, unidadeDo, nomeCompletoProduto,
 } from '../data/repository.js'
 import { gerarOrcamentoPdf } from '../orcamento/gerarPdf.js'
 import { montarDadosOrcamento, MAX_ITENS } from '../orcamento/html.js'
@@ -9,7 +10,7 @@ import { IconPlus, IconTrash, IconFileText } from './icons.jsx'
 import ClienteBusca from './ClienteBusca.jsx'
 import ProdutoBusca from './ProdutoBusca.jsx'
 
-const ITEM_VAZIO = { produtoId: '', descricao: '', quantidade: 1, valorUnitario: '', desconto: '' }
+const ITEM_VAZIO = { produtoId: '', descricao: '', quantidade: 1, unidade: 'un', valorUnitario: '', desconto: '' }
 
 // Uma proposta é uma venda de tipo "orcamento" — não uma tabela nova. Assim ela
 // já nasce na lista de Vendas, pode virar venda com um clique e entra nas buscas
@@ -61,11 +62,17 @@ export default function OrcamentoModal({ venda, open, onClose, onSalvo }) {
       return {
         ...item,
         produtoId: valor,
-        descricao: produto?.nome || '',
+        // Com a cor junto: é o texto que o cliente lê na proposta.
+        descricao: nomeCompletoProduto(produto),
+        unidade: produto?.unidade || 'un',
         valorUnitario: produto ? Number(produto.valor || 0) : item.valorUnitario,
       }
     }))
   }
+
+  // Item vendido por medida aceita fração na quantidade (2,5 m de mangueira).
+  const unidadeDoItem = (item) =>
+    UNIDADES[item.unidade] ?? unidadeDo(produtos.get(item.produtoId))
 
   const totalDoItem = (item) =>
     Math.max(0, Number(item.quantidade || 0) * Number(item.valorUnitario || 0) - Number(item.desconto || 0))
@@ -145,9 +152,12 @@ export default function OrcamentoModal({ venda, open, onClose, onSalvo }) {
                 </Field>
               </div>
               <div className="sm:col-span-2">
-                <Field label={i === 0 ? 'Qtd.' : ''}>
+                <Field label={i === 0 ? `Qtd. (${unidadeDoItem(item).sigla})` : ''}>
                   <input
-                    className={inputCls} type="number" min="1" step="1"
+                    className={inputCls}
+                    type="number"
+                    min={unidadeDoItem(item).fracionavel ? '0.001' : '1'}
+                    step={unidadeDoItem(item).fracionavel ? '0.001' : '1'}
                     value={item.quantidade}
                     onChange={(e) => alterarItem(i, 'quantidade', e.target.value)}
                   />

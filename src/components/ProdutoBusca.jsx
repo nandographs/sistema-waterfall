@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { inputCls } from './ui.jsx'
 import { IconSearch, IconX } from './icons.jsx'
-import { formatBRL } from '../data/repository.js'
+import { formatBRL, unidadeDo } from '../data/repository.js'
 
 // Remove acentos e caixa para busca tolerante ("Purificador" casa com "purificador").
 const normalizar = (s) =>
@@ -64,10 +64,14 @@ export default function ProdutoBusca({
     const casam = disponiveis.filter((p) => {
       const nome = normalizar(p.nome)
       const codigo = normalizar(p.codigo)
+      const cor = normalizar(p.cor)
       return (
         nome.includes(q) ||
         nome.split(/\s+/).some((parte) => parte.startsWith(q)) ||
-        (codigo && codigo.includes(q))
+        (codigo && codigo.includes(q)) ||
+        // Cor entra na busca porque, com o mesmo item em várias cores, é ela
+        // que distingue um do outro ("torneira branca").
+        (cor && cor.includes(q))
       )
     })
 
@@ -197,8 +201,14 @@ export default function ProdutoBusca({
                       {p.codigo}
                     </span>
                   )}
-                  <span className="flex-1 truncate">{p.nome}</span>
-                  <span className="shrink-0 text-xs text-slate-400 tnum">{formatBRL(p.valor)}</span>
+                  <span className="flex-1 truncate">
+                    {p.nome}
+                    {p.cor && <span className="text-slate-400"> — {p.cor}</span>}
+                  </span>
+                  <span className="shrink-0 text-xs text-slate-400 tnum">
+                    {formatBRL(p.valor)}
+                    {p.unidade && p.unidade !== 'un' && `/${unidadeDo(p).sigla}`}
+                  </span>
                 </button>
               </li>
             ))
