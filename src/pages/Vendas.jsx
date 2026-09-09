@@ -13,6 +13,9 @@ import { IconPlus, IconFileText, IconTrash, IconEye, IconMais, IconSearch } from
 import ClienteBusca from '../components/ClienteBusca.jsx'
 import ProdutoBusca from '../components/ProdutoBusca.jsx'
 import PedidoModal from '../components/PedidoModal.jsx'
+import OrcamentoModal from '../components/OrcamentoModal.jsx'
+import { montarDadosOrcamento } from '../orcamento/html.js'
+import { gerarOrcamentoPdf } from '../orcamento/gerarPdf.js'
 import PagamentosVenda, { pagamentosIniciais } from '../components/PagamentosVenda.jsx'
 
 const ITEM_VAZIO = { produtoId: '', descricao: '', quantidade: 1, valorUnitario: '', desconto: '' }
@@ -36,7 +39,7 @@ const STATUS_BADGE = {
 
 
 
-function AcoesVenda({ venda, onVer, onPedido, onEditar, onConfirmar, onCancelar, onExcluir }) {
+function AcoesVenda({ venda, onVer, onPedido, onProposta, onEditar, onConfirmar, onCancelar, onExcluir }) {
   function fechar(e) {
     e.currentTarget.closest('details')?.removeAttribute('open')
   }
@@ -54,6 +57,11 @@ function AcoesVenda({ venda, onVer, onPedido, onEditar, onConfirmar, onCancelar,
           <IconMais size={18} />
         </summary>
         <div className="absolute right-0 z-20 mt-2 w-52 rounded-xl border border-slate-300 bg-slate-100 p-1.5 shadow-xl shadow-black/30">
+          {venda.tipo === 'orcamento' && (
+            <button type="button" className={acaoCls} onClick={(e) => { fechar(e); onProposta() }}>
+              <IconFileText size={16} /> Baixar proposta (PDF)
+            </button>
+          )}
           <button type="button" className={acaoCls} onClick={(e) => { fechar(e); onPedido() }}>
             <IconFileText size={16} /> Gerar pedido
           </button>
@@ -89,6 +97,8 @@ export default function Vendas() {
   // ausência que passa despercebida.
   const [periodo, setPeriodo] = useState('todos')
   const [pedidoVenda, setPedidoVenda] = useState(null)
+  // null = fechado; 'novo' = proposta em branco; uma venda = editando a proposta.
+  const [orcamento, setOrcamento] = useState(null)
   const [detalhe, setDetalhe] = useState(null)
   const [excluir, setExcluir] = useState(null)
   const [salvando, setSalvando] = useState(false)
@@ -195,6 +205,19 @@ export default function Vendas() {
     }
   }
 
+  // Reimprimir a proposta de um orçamento já salvo. Sai do que está GRAVADO,
+  // então o papel de hoje é igual ao de ontem enquanto ninguém editar a venda.
+  async function baixarProposta(venda) {
+    try {
+      await gerarOrcamentoPdf(
+        montarDadosOrcamento(venda, clientes.get(venda.clienteId), itensDaVenda(venda.id)),
+      )
+      notificar('Proposta baixada em PDF.')
+    } catch (ex) {
+      notificar('Não foi possível gerar a proposta: ' + (ex?.message || ex), 'erro')
+    }
+  }
+
   async function confirmarExcluir() {
     await excluirVenda(excluir.id)
     setExcluir(null)
@@ -225,7 +248,14 @@ export default function Vendas() {
     <Page>
       <PageTitle
         subtitle="Pedidos, orçamentos e o que foi vendido"
-        action={<Button onClick={abrirNova}><IconPlus size={16} /> Nova venda</Button>}
+        action={(
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="secondary" onClick={() => setOrcamento('novo')}>
+              <IconFileText size={16} /> Novo orçamento
+            </Button>
+            <Button onClick={abrirNova}><IconPlus size={16} /> Nova venda</Button>
+          </div>
+        )}
       >
         Vendas
       </PageTitle>
@@ -312,7 +342,8 @@ export default function Vendas() {
                   venda={v}
                   onVer={() => setDetalhe(v)}
                   onPedido={() => setPedidoVenda(v)}
-                  onEditar={() => abrirEdicao(v)}
+                  onProposta={() => baixarProposta(v)}
+                  onEditar={() => (v.tipo === 'orcamento' ? setOrcamento(v) : abrirEdicao(v))}
                   onConfirmar={() => mudarStatus(v, 'confirmada')}
                   onCancelar={() => mudarStatus(v, 'cancelada')}
                   onExcluir={() => setExcluir(v)}
@@ -322,6 +353,16 @@ export default function Vendas() {
           })}
         </ul>
       </Card>
+
+      {orcamento && (
+        <OrcamentoModal
+          key={orcamento === 'novo' ? 'novo' : orcamento.id}
+          venda={orcamento === 'novo' ? null : orcamento}
+          open
+          onClose={() => setOrcamento(null)}
+          onSalvo={refresh}
+        />
+      )}
 
       {pedidoVenda && (
         <PedidoModal
