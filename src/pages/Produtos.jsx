@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { produtos, definirFotoProduto, removerFotoProduto, formatBRL } from '../data/repository.js'
 import { Card, Page, PageTitle, Button, Field, inputCls, Badge, Empty, Modal } from '../components/ui.jsx'
-import { IconPlus, IconImage } from '../components/icons.jsx'
+import { IconPlus, IconImage, IconSearch } from '../components/icons.jsx'
 import FotoUnica from '../components/FotoUnica.jsx'
+import { combina } from '../lib/texto.js'
 
 const FORM_VAZIO = {
   nome: '', codigo: '', tipo: 'aparelho', valor: '',
@@ -14,6 +15,7 @@ const FORM_VAZIO = {
 
 export default function Produtos() {
   const [lista, setLista] = useState(produtos.list())
+  const [busca, setBusca] = useState('')
   const [form, setForm] = useState(null) // null = fechado; {id?} = criando/editando
   const [erro, setErro] = useState('')
   const [salvando, setSalvando] = useState(false)
@@ -24,6 +26,17 @@ export default function Produtos() {
 
   const refilDoAparelho = (aparelhoId) =>
     refis.find((r) => r.aparelhoCompativelId === aparelhoId) ?? null
+
+  // A busca filtra só o que a tabela mostra: os selects do formulário continuam
+  // enxergando a lista inteira, senão o filtro esconderia justo o vínculo a
+  // escolher. O par vinculado entra na busca porque procurar pelo aparelho é a
+  // forma natural de chegar no refil dele — e vice-versa.
+  const visiveis = lista.filter((p) => {
+    const par = p.tipo === 'refil'
+      ? produtos.get(p.aparelhoCompativelId)?.nome
+      : refilDoAparelho(p.id)?.nome
+    return combina(busca, p.nome, p.codigo, p.tipo === 'aparelho' ? 'Aparelho' : 'Refil', par)
+  })
 
   function abrirEdicao(p) {
     setErro('')
@@ -82,9 +95,23 @@ export default function Produtos() {
         Produtos
       </PageTitle>
 
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <div className="relative flex-1 min-w-[220px] max-w-sm">
+          <IconSearch size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            className={inputCls + ' pl-9'}
+            placeholder="Buscar por nome, código ou tipo…"
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+          />
+        </div>
+      </div>
+
       <Card>
-        {lista.length === 0 && <Empty>Nenhum produto cadastrado ainda.</Empty>}
-        {lista.length > 0 && (
+        {visiveis.length === 0 && (
+          <Empty>{busca ? 'Nenhum produto encontrado.' : 'Nenhum produto cadastrado ainda.'}</Empty>
+        )}
+        {visiveis.length > 0 && (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -99,7 +126,7 @@ export default function Produtos() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {lista.map((p) => (
+                {visiveis.map((p) => (
                   <tr key={p.id}>
                     <td className="py-3 pr-4 font-medium">
                       <div className="flex items-center gap-2.5">
