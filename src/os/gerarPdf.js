@@ -12,6 +12,7 @@ import { checked } from '../documentos/docx.js'
 import {
   esc, campo, campoHtml, grupo, logoDataUri, cssDocumento, gerarPdfDeHtml,
 } from '../documentos/pdf.js'
+import { cabecalhoEmpresa } from '../documentos/empresa.js'
 
 // --- montagem do HTML do documento ---
 
@@ -33,9 +34,7 @@ export function montarHtmlOS(data, logo) {
 
   return `<div class="os">
     <div class="cab">
-      <img src="${logo}" alt="Waterfall" />
-      <div class="end">Rua 291, 191 | Meia Praia, Itapema - SC &nbsp;&nbsp;&nbsp;&nbsp; WhatsApp: (47) 99186-8646</div>
-      <div class="end">www.waterfall.ind.br &nbsp;&nbsp;&nbsp;&nbsp; @waterfallcompanybr</div>
+      ${cabecalhoEmpresa(logo)}
     </div>
 
     <table class="ident">

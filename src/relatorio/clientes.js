@@ -12,6 +12,7 @@
 import { logoDataUri, gerarPdfDePaginas } from '../documentos/pdf.js'
 import { esc } from './html.js'
 import { dataBR } from '../lib/datas.js'
+import { cabecalhoEmpresa } from '../documentos/empresa.js'
 
 // Quantas linhas cabem em cada folha. A primeira leva cabeçalho, título e a
 // linha dos filtros, então sobra menos espaço.
@@ -42,8 +43,7 @@ function linhaCliente(c, i) {
 
 function cabecalhoFolha(logo, subtitulo) {
   return `<div class="cab">
-      <img src="${logo}" alt="Waterfall" />
-      <div class="end">Rua 291, 191 | Meia Praia, Itapema - SC &nbsp;&nbsp; WhatsApp: (47) 99186-8646</div>
+      ${cabecalhoEmpresa(logo, { espaco: 2, comRedes: false })}
     </div>
     <h1>Relatório de clientes</h1>
     <div class="sub">${esc(subtitulo)}</div>`

@@ -13,6 +13,7 @@
 
 import { formatBRL, variacao } from '../data/financeiro.js'
 import { dataBR } from '../lib/datas.js'
+import { cabecalhoEmpresa } from '../documentos/empresa.js'
 
 export const esc = (s) => String(s ?? '')
   .replace(/&/g, '&amp;')
@@ -101,8 +102,7 @@ function linhaMovimento(l, nomeCategoria, nomeCliente) {
 
 function cabecalhoFolha(logo, titulo, subtitulo) {
   return `<div class="cab">
-      <img src="${logo}" alt="Waterfall" />
-      <div class="end">Rua 291, 191 | Meia Praia, Itapema - SC &nbsp;&nbsp; WhatsApp: (47) 99186-8646</div>
+      ${cabecalhoEmpresa(logo, { espaco: 2, comRedes: false })}
     </div>
     <h1>${esc(titulo)}</h1>
     <div class="sub">${esc(subtitulo)}</div>`
