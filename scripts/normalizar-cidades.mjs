@@ -33,7 +33,9 @@ const linhas=[]
 for(let de=0;;de+=1000){const r=await fetch(`${U}/rest/v1/clientes?select=id,nome,cidade,uf&order=criado_em`,{headers:{...h,Range:`${de}-${de+999}`}});const d=await r.json();linhas.push(...d);if(d.length<1000)break}
 
 // As cidades reais da regiao, na grafia correta. Chave = forma normalizada.
-const CIDADES=['Pato Branco/PR','Chopinzinho/PR','Dois Vizinhos/PR','Coronel Vivida/PR','Vitorino/PR','Mariópolis/PR','Marmeleiro/PR','Francisco Beltrão/PR','Clevelândia/PR','Mangueirinha/PR','Palmas/PR','Candói/PR','Guarapuava/PR','Curitiba/PR','Cascavel/PR','Campo Mourão/PR','Barracão/PR','Renascença/PR','Honório Serpa/PR','Espigão Alto do Iguaçu/PR','Quedas do Iguaçu/PR','Foz do Iguaçu/PR','São Pedro do Iguaçu/PR','Cruzeiro do Iguaçu/PR','Coronel Domingos Soares/PR','Itapejara d\u2019Oeste/PR','São Jorge d\u2019Oeste/PR','São João/PR','Jupiá/SC','Saudade do Iguaçu/PR','Palmeirinha/PR','Ampére/PR','Realeza/PR','Verê/PR','Sulina/PR','Bom Sucesso do Sul/PR','Itapema/SC','Chapecó/SC','Concórdia/SC','Galvão/SC','Quilombo/SC','São Domingos/SC','São Lourenço do Oeste/SC','Caçador/SC','Tijucas/SC','Florianópolis/SC','Joinville/SC','Criciúma/SC','Serra Alta/SC','Novo Horizonte/SC','São Carlos/SC','Modelo/SC','Sul Brasil/SC','Águas Frias/SC','Santa Terezinha/SC','São Bernardino/SC','Lindóia do Sul/SC','Entre Rios/SC','Coronel Freitas/SC','Barra Velha/SC','São João Batista/SC','Erechim/RS','Santa Rosa/RS','Sapiranga/RS','Vacaria/RS','São Jorge/RS','Salvador/BA','Camaçari/BA','Diadema/SP','São José dos Campos/SP','Ladário/MS','Toledo/PR','São José dos Pinhais/PR','Aneias Marques/PR','Espigão Alto/PR','São José/PR']
+// A lista das cidades reais vive em scripts/cidades.json — os dois scripts de
+// limpeza leem dela, senao um desfaz o que o outro arrumou.
+const CIDADES=JSON.parse(fs.readFileSync('scripts/cidades.json','utf8')).map(([c,u])=>c+'/'+u)
 const norm=(s)=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]/g,'')
 const CANON=new Map()
 for(const c of CIDADES){const [cid,uf]=c.split('/');CANON.set(norm(cid),{cidade:cid,uf})}
