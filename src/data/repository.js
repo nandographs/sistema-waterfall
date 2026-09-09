@@ -120,19 +120,40 @@ const MIGRACAO_DA_TABELA = {
   funcionarios: 'sql/019_conta_salario.sql',
 }
 
-function consultar(tabela) {
+// O PostgREST corta toda resposta num teto de linhas (o `max-rows` do projeto,
+// mil por padrão). Quem passa desse tamanho — `clientes`, depois da importação
+// das fichas de papel — vinha truncado no fim da ordem, e como a ordem é por
+// `criado_em` o pedaço perdido era justamente o MAIS NOVO: o cliente recém
+// cadastrado aparecia na tela (o create já o põe no cache) e sumia no F5.
+// Por isso buscamos em páginas, até vir uma menor que a página.
+const PAGINA = 1000
+
+function consultar(tabela, de, ate) {
   const consulta = supabase.from(tabela).select('*')
   if (tabela === 'atividades') {
     const desde = somarDias(hojeISO(), -JANELA_ATIVIDADES_DIAS)
     consulta.or(`data.gte.${desde},status.eq.pendente`)
   }
-  return consulta.order('criado_em', { ascending: true })
+  return consulta.order('criado_em', { ascending: true }).range(de, ate)
+}
+
+// Uma tabela inteira, página a página. Devolve no mesmo formato do
+// supabase-js ({ data, error }) para o tratamento de erro continuar um só.
+async function buscarTudo(tabela) {
+  const linhas = []
+  for (let de = 0; ; de += PAGINA) {
+    const resposta = await consultar(tabela, de, de + PAGINA - 1)
+    if (resposta.error) return resposta
+    linhas.push(...resposta.data)
+    if (resposta.data.length < PAGINA) break
+  }
+  return { data: linhas, error: null }
 }
 
 // Busca as tabelas no Supabase e popula o cache em memória.
 // Deve ser chamada uma vez após o login, antes de renderizar as telas.
 export async function carregarDados() {
-  const respostas = await Promise.all(TABELAS.map(consultar))
+  const respostas = await Promise.all(TABELAS.map(buscarTudo))
   respostas.forEach((resposta, i) => {
     if (resposta.error) {
       // Tabela não encontrada. São dois casos com a mesma cara:
