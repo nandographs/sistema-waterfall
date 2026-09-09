@@ -16,7 +16,7 @@ import {
   rotuloDoRelatorio, periodoEmCurso,
 } from '../lib/datas.js'
 import { gerarRelatorioPdf } from '../relatorio/gerarPdf.js'
-import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge, notificar } from '../components/ui.jsx'
+import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge, notificar, usePaginacao, Paginacao } from '../components/ui.jsx'
 import {
   IconPlus, IconPencil, IconTrash, IconWallet, IconClock, IconAlert,
   IconChevronLeft, IconChevronRight, IconSearch, IconFileText,
@@ -383,6 +383,8 @@ export default function Financeiro() {
   }[aba] ?? [])
     .filter(combina)
     .sort((a, b) => (a.vencimento || '').localeCompare(b.vencimento || ''))
+
+  const { visiveis: lancamentosDaPagina, barra } = usePaginacao(listaDaAba)
 
   function Linha({ l }) {
     const atrasado = l.status === 'previsto' && l.vencimento && l.vencimento < hoje
@@ -849,8 +851,9 @@ export default function Financeiro() {
                   <Empty>{termo ? `Nada encontrado para “${busca.trim()}”.` : 'Nada por aqui.'}</Empty>
                 )}
                 <ul className="divide-y divide-slate-100">
-                  {listaDaAba.map((l) => <Linha key={l.id} l={l} />)}
+                  {lancamentosDaPagina.map((l) => <Linha key={l.id} l={l} />)}
                 </ul>
+                <Paginacao {...barra} />
               </Card>
             </>
           )}

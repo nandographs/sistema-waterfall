@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { produtos, definirFotoProduto, removerFotoProduto, formatBRL } from '../data/repository.js'
-import { Card, Page, PageTitle, Button, Field, inputCls, Badge, Empty, Modal } from '../components/ui.jsx'
+import { Card, Page, PageTitle, Button, Field, inputCls, Badge, Empty, Modal, usePaginacao, Paginacao } from '../components/ui.jsx'
 import { IconPlus, IconImage, IconSearch } from '../components/icons.jsx'
 import FotoUnica from '../components/FotoUnica.jsx'
 import { combina } from '../lib/texto.js'
@@ -31,12 +31,14 @@ export default function Produtos() {
   // enxergando a lista inteira, senão o filtro esconderia justo o vínculo a
   // escolher. O par vinculado entra na busca porque procurar pelo aparelho é a
   // forma natural de chegar no refil dele — e vice-versa.
-  const visiveis = lista.filter((p) => {
+  const filtrados = lista.filter((p) => {
     const par = p.tipo === 'refil'
       ? produtos.get(p.aparelhoCompativelId)?.nome
       : refilDoAparelho(p.id)?.nome
     return combina(busca, p.nome, p.codigo, p.tipo === 'aparelho' ? 'Aparelho' : 'Refil', par)
   })
+
+  const { visiveis, barra } = usePaginacao(filtrados)
 
   function abrirEdicao(p) {
     setErro('')
@@ -108,10 +110,10 @@ export default function Produtos() {
       </div>
 
       <Card>
-        {visiveis.length === 0 && (
+        {filtrados.length === 0 && (
           <Empty>{busca ? 'Nenhum produto encontrado.' : 'Nenhum produto cadastrado ainda.'}</Empty>
         )}
-        {visiveis.length > 0 && (
+        {filtrados.length > 0 && (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -176,6 +178,7 @@ export default function Produtos() {
             </table>
           </div>
         )}
+        <Paginacao {...barra} />
       </Card>
 
       <Modal title={form?.id ? 'Editar produto' : 'Novo produto'} open={!!form} onClose={() => { setForm(null); setErro('') }}>

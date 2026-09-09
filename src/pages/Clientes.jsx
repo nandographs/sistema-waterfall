@@ -4,7 +4,7 @@ import {
   clientes, agendamentos, equipamentos, lancamentos, proximaTroca, formatData,
   explicarColunaFaltante,
 } from '../data/repository.js'
-import { Card, Page, PageTitle, Button, inputCls, Empty, Modal, Badge, notificar } from '../components/ui.jsx'
+import { Card, Page, PageTitle, Button, inputCls, Empty, Modal, Badge, notificar, usePaginacao, Paginacao } from '../components/ui.jsx'
 import { IconPlus, IconSearch, IconUser, IconFilter, IconFileText } from '../components/icons.jsx'
 import ClienteFormFields from '../components/ClienteFormFields.jsx'
 import { usuarioAtual } from '../lib/auth.js'
@@ -153,6 +153,10 @@ export default function Clientes() {
       return true
     })
     .sort(compararClientes(ordem))
+
+  // Só o desenho é paginado. O PDF e a contagem continuam usando `filtrados`
+  // inteiro: quem pede "baixar PDF" quer a lista que filtrou, não a página.
+  const { visiveis, barra } = usePaginacao(filtrados)
 
   // O que está ligado na tela, em palavras. Vai no subtítulo do PDF e no nome
   // do arquivo: um relatório de "só Itapema" sem dizer isso na folha vira, uma
@@ -326,7 +330,7 @@ export default function Clientes() {
           <Empty>{busca || filtrosAtivos ? 'Nenhum cliente encontrado.' : 'Nenhum cliente cadastrado ainda.'}</Empty>
         )}
         <ul className="divide-y divide-slate-100">
-          {filtrados.map((c) => {
+          {visiveis.map((c) => {
             const prox = proximaVisita(c.id)
             return (
               <li key={c.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3">
@@ -368,6 +372,7 @@ export default function Clientes() {
             )
           })}
         </ul>
+        <Paginacao {...barra} />
       </Card>
 
       <Modal title="Novo cliente" open={!!form} onClose={() => setForm(null)}>

@@ -152,6 +152,97 @@ export function Empty({ children }) {
   return <p className="text-sm text-slate-500 py-8 text-center">{children}</p>
 }
 
+// ---- Paginação ----
+//
+// As listas do sistema nasceram pequenas e eram desenhadas inteiras. Com 2.600
+// clientes na base isso vira 2.600 linhas de uma vez: a rolagem não acaba mais
+// e o navegador engasga a cada tecla digitada na busca.
+//
+// A fatia é só do DESENHO. Busca, filtros, ordenação, contagem e PDF continuam
+// enxergando a lista inteira — quem pagina é a última etapa, nunca a conta.
+export const POR_PAGINA = 50
+
+// Devolve a fatia visível e o que a barra de navegação precisa saber.
+//
+// A página mora aqui e não na tela porque ela tem uma regra que é fácil de
+// esquecer: filtrou, volta para a primeira. Sem isso, quem está na página 12 e
+// digita uma busca com 3 resultados cai numa página vazia e conclui que o
+// sistema não achou nada.
+export function usePaginacao(itens, porPagina = POR_PAGINA) {
+  const [pagina, setPagina] = useState(1)
+  const total = itens.length
+  const paginas = Math.max(1, Math.ceil(total / porPagina))
+
+  // Clamp em vez de efeito: o filtro encurtou a lista debaixo dos pés e a
+  // página atual não existe mais. Corrigir aqui evita o quadro vazio que um
+  // useEffect deixaria aparecer por um instante antes de recolocar na página 1.
+  const atual = Math.min(pagina, paginas)
+  const de = (atual - 1) * porPagina
+
+  return {
+    visiveis: itens.slice(de, de + porPagina),
+    barra: { pagina: atual, paginas, total, de, porPagina, irPara: setPagina },
+  }
+}
+
+// A barra em si. Some sozinha quando tudo cabe numa página só.
+export function Paginacao({ pagina, paginas, total, de, porPagina, irPara }) {
+  if (paginas <= 1) return null
+  const ate = Math.min(de + porPagina, total)
+  const ir = (p) => {
+    irPara(Math.min(paginas, Math.max(1, p)))
+    // Trocar de página mantendo a rolagem no fim deixa o usuário no rodapé de
+    // uma lista que ele ainda não viu começar.
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  // Uma janela em volta da página atual, com primeira e última sempre à mão.
+  // Sem isso, 2.600 clientes viram 53 botões de página.
+  const janela = []
+  for (let p = Math.max(1, pagina - 2); p <= Math.min(paginas, pagina + 2); p++) janela.push(p)
+  if (janela[0] > 1) janela.unshift(...(janela[0] > 2 ? [1, '…'] : [1]))
+  if (janela[janela.length - 1] < paginas) {
+    janela.push(...(janela[janela.length - 1] < paginas - 1 ? ['…', paginas] : [paginas]))
+  }
+
+  return (
+    <nav
+      className="flex flex-wrap items-center justify-between gap-3 pt-4 mt-2 border-t border-slate-100"
+      aria-label="Paginação"
+    >
+      <p className="text-xs text-slate-400">
+        {de + 1}–{ate} de {total}
+      </p>
+      <div className="flex items-center gap-1">
+        <Button variant="secondary" onClick={() => ir(pagina - 1)} disabled={pagina === 1}>
+          Anterior
+        </Button>
+        {janela.map((p, i) =>
+          p === '…' ? (
+            <span key={`e${i}`} className="px-1.5 text-xs text-slate-400">…</span>
+          ) : (
+            <button
+              key={p}
+              onClick={() => ir(p)}
+              aria-current={p === pagina ? 'page' : undefined}
+              className={`min-w-[34px] h-[34px] px-2 rounded-lg text-sm border transition-colors ${
+                p === pagina
+                  ? 'border-sky-600 bg-sky-600 text-white font-semibold'
+                  : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              {p}
+            </button>
+          ),
+        )}
+        <Button variant="secondary" onClick={() => ir(pagina + 1)} disabled={pagina === paginas}>
+          Próxima
+        </Button>
+      </div>
+    </nav>
+  )
+}
+
 // No mobile o modal vira bottom sheet: nasce colado embaixo, onde o polegar
 // alcança, e o cabeçalho fica grudado no topo para o "Fechar" continuar ao
 // alcance mesmo num formulário de 40 campos.

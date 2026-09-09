@@ -8,7 +8,7 @@ import {
 } from '../data/repository.js'
 import { PERIODOS, dentroDoPeriodo } from '../lib/datas.js'
 import { semAcento } from '../lib/texto.js'
-import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge, notificar } from '../components/ui.jsx'
+import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge, notificar, usePaginacao, Paginacao } from '../components/ui.jsx'
 import { IconPlus, IconFileText, IconTrash, IconEye, IconMais, IconSearch } from '../components/icons.jsx'
 import ClienteBusca from '../components/ClienteBusca.jsx'
 import ProdutoBusca from '../components/ProdutoBusca.jsx'
@@ -150,6 +150,10 @@ export default function Vendas() {
   const somaListada = lista
     .filter((v) => v.status !== 'cancelada')
     .reduce((soma, v) => soma + Number(v.total || 0), 0)
+
+  // A soma e a contagem acima ficam sobre `lista` inteira de proposito: o
+  // rodape responde "quanto e o que esta filtrado", nao "quanto cabe na tela".
+  const { visiveis, barra } = usePaginacao(lista)
 
   // Totais recalculados a cada tecla, para o rodapé do formulário mostrar
   // exatamente o que será gravado.
@@ -314,7 +318,7 @@ export default function Vendas() {
           </Empty>
         )}
         <ul className="divide-y divide-slate-100">
-          {lista.map((v) => {
+          {visiveis.map((v) => {
             const itensVenda = itensDaVenda(v.id)
             const nomes = itensVenda.map((i) => i.descricao).filter(Boolean).join(', ')
             const parcelas = lancamentosDaVenda(v.id)
@@ -352,6 +356,7 @@ export default function Vendas() {
             )
           })}
         </ul>
+        <Paginacao {...barra} />
       </Card>
 
       {orcamento && (

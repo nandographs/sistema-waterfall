@@ -5,7 +5,7 @@ import {
   formatData, formatBRL, TIPOS_AGENDAMENTO, FORMAS_PAGAMENTO,
 } from '../data/repository.js'
 import { formatHora } from '../lib/datas.js'
-import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge, notificar } from '../components/ui.jsx'
+import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge, notificar, usePaginacao, Paginacao } from '../components/ui.jsx'
 import { IconPlus, IconFileText, IconTrash, IconEye, IconSearch, IconFilter, IconMais } from '../components/icons.jsx'
 import OrdemServicoModal from '../components/OrdemServicoModal.jsx'
 import AgendamentoDetalheModal from '../components/AgendamentoDetalheModal.jsx'
@@ -150,6 +150,8 @@ export default function Agendamentos() {
     .filter((a) => !dataAte || (a.data || '') <= dataAte)
     .sort((a, b) => (a.data || '').localeCompare(b.data || ''))
 
+  const { visiveis, barra } = usePaginacao(filtrados)
+
   async function salvar(e) {
     e.preventDefault()
     await salvarAgendamento(form)
@@ -284,7 +286,7 @@ export default function Agendamentos() {
           <Empty>{busca || filtrosAtivos ? 'Nenhum agendamento encontrado.' : 'Nenhum agendamento aqui.'}</Empty>
         )}
         <ul className="divide-y divide-slate-100">
-          {filtrados.map((a) => {
+          {visiveis.map((a) => {
             const [cor, rotulo] = STATUS_BADGE[a.status] ?? ['slate', a.status]
             const idsProdutos = a.produtoIds?.length ? a.produtoIds : (a.produtoId ? [a.produtoId] : [])
             const nomesProdutos = idsProdutos.map((id) => produtos.get(id)?.nome).filter(Boolean).join(', ')
@@ -328,6 +330,7 @@ export default function Agendamentos() {
             )
           })}
         </ul>
+        <Paginacao {...barra} />
       </Card>
 
       {osAgendamento && (
