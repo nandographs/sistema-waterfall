@@ -37,7 +37,8 @@ const VENDA_VAZIA = {
   status: 'pago', data: hojeISO(), dataInstalacao: '',
 }
 
-const EQUIPAMENTO_VAZIO = { produtoId: '', dataInstalacao: hojeISO() }
+const LINHA_EQUIPAMENTO_VAZIA = { produtoId: '', quantidade: 1 }
+const EQUIPAMENTO_VAZIO = { itens: [{ ...LINHA_EQUIPAMENTO_VAZIA }], dataInstalacao: hojeISO() }
 
 export default function ClienteDetalhe() {
   const { id } = useParams()
@@ -171,21 +172,44 @@ export default function ClienteDetalhe() {
     setVendaForm({ ...VENDA_VAZIA })
   }
 
-  // Coloca um aparelho na ficha sem venda: é o que já está na casa do cliente e
+  // Coloca aparelhos na ficha sem venda: é o que já está na casa do cliente e
   // nunca passou pelo caixa. A troca de refil já sai agendada no repositório.
+  // Vai um `registrarEquipamento` por linha do formulário, e a quantidade de
+  // cada linha é quantas unidades daquele modelo o cliente tem.
   async function adicionarEquipamento(e) {
     e.preventDefault()
+    const itens = equipForm.itens.filter((i) => i.produtoId)
+    if (itens.length === 0) return
     try {
-      await registrarEquipamento({
-        clienteId: id,
-        produtoId: equipForm.produtoId,
-        dataInstalacao: equipForm.dataInstalacao,
-      })
+      for (const item of itens) {
+        await registrarEquipamento({
+          clienteId: id,
+          produtoId: item.produtoId,
+          dataInstalacao: equipForm.dataInstalacao,
+          quantidade: item.quantidade,
+        })
+      }
       setEquipForm(null)
       refresh()
     } catch (erro) {
       notificar('Não foi possível adicionar o produto: ' + (erro?.message || erro), 'erro')
     }
+  }
+
+  // As linhas do formulário de equipamentos são posicionais: mexer numa não
+  // pode mexer nas outras, e remover a última nunca deixa o form sem nenhuma.
+  function mudarLinhaEquip(indice, campo, valor) {
+    setEquipForm((f) => ({
+      ...f,
+      itens: f.itens.map((item, i) => (i === indice ? { ...item, [campo]: valor } : item)),
+    }))
+  }
+
+  function removerLinhaEquip(indice) {
+    setEquipForm((f) => {
+      const itens = f.itens.filter((_, i) => i !== indice)
+      return { ...f, itens: itens.length ? itens : [{ ...LINHA_EQUIPAMENTO_VAZIA }] }
+    })
   }
 
   async function removerEquipamento(equipamento) {
@@ -459,8 +483,8 @@ export default function ClienteDetalhe() {
               troca de refil. */}
           <Card title="Equipamentos do cliente">
             <div className="mb-3">
-              <Button variant="secondary" onClick={() => setEquipForm({ ...EQUIPAMENTO_VAZIO })}>
-                <IconPlus size={16} /> Adicionar produto (sem venda)
+              <Button variant="secondary" onClick={() => setEquipForm({ ...EQUIPAMENTO_VAZIO, itens: [{ ...LINHA_EQUIPAMENTO_VAZIA }] })}>
+                <IconPlus size={16} /> Adicionar produtos (sem venda)
               </Button>
             </div>
             {meusEquipamentos.length === 0 && (
@@ -733,27 +757,73 @@ export default function ClienteDetalhe() {
         })()}
       </Modal>
 
-      <Modal title="Adicionar produto à ficha" open={!!equipForm} onClose={() => setEquipForm(null)}>
+      <Modal title="Adicionar produtos à ficha" open={!!equipForm} onClose={() => setEquipForm(null)}>
         {equipForm && (
           <form onSubmit={adicionarEquipamento} className="space-y-4">
             <p className="text-sm text-slate-600">
-              Registra um aparelho que já está com o cliente, sem gerar venda nem
+              Registra aparelhos que já estão com o cliente, sem gerar venda nem
               conta a receber. A troca de refil já fica programada a partir da
-              data de instalação.
+              data de instalação. A quantidade é quantas unidades daquele modelo
+              ele tem na casa — cada uma vira um equipamento na ficha.
             </p>
-            <Field label="Produto">
-              <select
-                className={inputCls}
-                required
-                value={equipForm.produtoId}
-                onChange={(e) => setEquipForm({ ...equipForm, produtoId: e.target.value })}
-              >
-                <option value="">Selecione…</option>
-                {produtos.list().filter((p) => p.tipo === 'aparelho').map((p) => (
-                  <option key={p.id} value={p.id}>{p.nome}</option>
-                ))}
-              </select>
-            </Field>
+            <div className="space-y-3">
+              {equipForm.itens.map((item, indice) => {
+                const jaTem = meusEquipamentos.filter((eq) => eq.produtoId === item.produtoId).length
+                return (
+                  <div key={indice} className="flex items-end gap-2">
+                    <div className="flex-1 min-w-0">
+                      <Field label={indice === 0 ? 'Produto' : ' '}>
+                        <select
+                          className={inputCls}
+                          required
+                          value={item.produtoId}
+                          onChange={(e) => mudarLinhaEquip(indice, 'produtoId', e.target.value)}
+                        >
+                          <option value="">Selecione…</option>
+                          {produtos.list().filter((p) => p.tipo === 'aparelho').map((p) => (
+                            <option key={p.id} value={p.id}>{p.nome}</option>
+                          ))}
+                        </select>
+                      </Field>
+                      {jaTem > 0 && (
+                        <p className="mt-1 text-xs text-slate-500">
+                          Já {jaTem === 1 ? 'há 1 unidade' : `há ${jaTem} unidades`} deste produto na ficha.
+                        </p>
+                      )}
+                    </div>
+                    <div className="w-24 shrink-0">
+                      <Field label={indice === 0 ? 'Qtd.' : ' '}>
+                        <input
+                          className={inputCls}
+                          type="number"
+                          min="1"
+                          step="1"
+                          required
+                          value={item.quantidade}
+                          onChange={(e) => mudarLinhaEquip(indice, 'quantidade', e.target.value)}
+                        />
+                      </Field>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="danger"
+                      className="mb-1"
+                      title="Remover esta linha"
+                      onClick={() => removerLinhaEquip(indice)}
+                    >
+                      <IconTrash size={15} />
+                    </Button>
+                  </div>
+                )
+              })}
+            </div>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setEquipForm((f) => ({ ...f, itens: [...f.itens, { ...LINHA_EQUIPAMENTO_VAZIA }] }))}
+            >
+              <IconPlus size={16} /> Adicionar outro produto
+            </Button>
             <Field label="Data de instalação">
               <input
                 className={inputCls}

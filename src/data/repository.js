@@ -1846,23 +1846,30 @@ export async function agendarProximaTroca(equipamento) {
 //
 // Não duplica: se o cliente já tem esse mesmo produto na ficha, devolve o
 // equipamento existente em vez de criar um segundo.
-export async function registrarEquipamento({ clienteId, produtoId, dataInstalacao }) {
+export async function registrarEquipamento({ clienteId, produtoId, dataInstalacao, quantidade = 1 }) {
   if (!clienteId || !produtoId) throw new Error('cliente e produto são obrigatórios')
 
   const base = dataInstalacao || hojeISO()
-  const jaTem = equipamentos
+  // `quantidade` é quantos aparelhos daquele modelo estão na casa do cliente:
+  // cada um vira um registro próprio, porque cada um troca o refil no seu dia.
+  // Os que já estavam na ficha contam, para não duplicar quem reabre o form.
+  const alvo = Math.max(1, Math.floor(Number(quantidade) || 1))
+  const registros = equipamentos
     .list()
-    .find((eq) => eq.clienteId === clienteId && eq.produtoId === produtoId)
+    .filter((eq) => eq.clienteId === clienteId && eq.produtoId === produtoId)
+    .slice(0, alvo)
 
-  const equipamento = jaTem ?? await equipamentos.create({
-    clienteId,
-    produtoId,
-    dataInstalacao: base,
-    dataUltimaTroca: '',
-  })
+  while (registros.length < alvo) {
+    registros.push(await equipamentos.create({
+      clienteId,
+      produtoId,
+      dataInstalacao: base,
+      dataUltimaTroca: '',
+    }))
+  }
 
-  await agendarProximaTroca(equipamento)
-  return equipamento
+  for (const equipamento of registros) await agendarProximaTroca(equipamento)
+  return registros
 }
 
 // Exclui uma ordem de serviço (agendamento). Só é permitido para as canceladas.
