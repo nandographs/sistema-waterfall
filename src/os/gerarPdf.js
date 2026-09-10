@@ -91,12 +91,12 @@ export function montarHtmlOS(data, logo) {
     <div class="banda">2. EQUIPAMENTO E SERVIÇO</div>
     <table class="grade2">
       <tr>
+        <td>${campo('Observação:', data.servico_executado)}</td>
         <td>${campo('Equipamento / modelo:', data.equipamento_modelo)}<br>${campo('Nº de série:', data.numero_serie)}</td>
-        <td>${campo('Defeito relatado pelo cliente:', data.defeito_relatado)}</td>
       </tr>
       <tr>
+        <td>${campo('Defeito relatado pelo cliente:', data.defeito_relatado)}</td>
         <td>${campo('Diagnóstico técnico:', data.diagnostico_tecnico)}</td>
-        <td>${campo('Serviço executado / observações:', data.servico_executado)}</td>
       </tr>
     </table>
 

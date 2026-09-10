@@ -140,14 +140,14 @@ export function fillDocumentXml(xml, data) {
     setCell(2, row, col, labeled(label, value, 7.5))
   }
 
-  // Tabela 3 — equipamento e serviço
-  setCell(3, 1, 0, multiline([
+  // Tabela 3 — equipamento e serviço (a observação abre a seção)
+  setCell(3, 1, 0, multiline([['Observação:', data.servico_executado]], 7.1))
+  setCell(3, 1, 1, multiline([
     ['Equipamento / modelo:', data.equipamento_modelo],
     ['Nº de série:', data.numero_serie],
   ]))
-  setCell(3, 1, 1, multiline([['Defeito relatado pelo cliente:', data.defeito_relatado]], 7.1))
-  setCell(3, 2, 0, multiline([['Diagnóstico técnico:', data.diagnostico_tecnico]], 7.1))
-  setCell(3, 2, 1, multiline([['Serviço executado / observações:', data.servico_executado]], 7.1))
+  setCell(3, 2, 0, multiline([['Defeito relatado pelo cliente:', data.defeito_relatado]], 7.1))
+  setCell(3, 2, 1, multiline([['Diagnóstico técnico:', data.diagnostico_tecnico]], 7.1))
 
   // Tabela 4 — itens e total
   const items = data.itens || []

@@ -30,6 +30,29 @@ function brl(valor) {
   return valor > 0 ? formatBRL(valor) : ''
 }
 
+// Lê um valor digitado à mão — "R$ 1.234,56", "1.234,56", "1234.56" ou "150" —
+// e devolve o número por trás dele.
+function paraNumero(texto) {
+  const limpo = String(texto ?? '').replace(/[^\d,.-]/g, '')
+  if (!limpo) return 0
+  const normalizado = limpo.includes(',')
+    ? limpo.replace(/\./g, '').replace(',', '.')   // 1.234,56 -> 1234.56
+    : limpo.replace(/\.(?=\d{3}(\D|$))/g, '')      // 1.234 -> 1234; 1234.56 fica
+  const n = Number(normalizado)
+  return Number.isFinite(n) ? n : 0
+}
+
+// Quanto vale uma linha: quantidade × valor unitário − desconto.
+const calcularLinha = (item) => Math.max(
+  0,
+  (paraNumero(item.quantidade) || 1) * paraNumero(item.valor_unitario) - paraNumero(item.desconto),
+)
+
+// O total que sai no documento: o digitado à mão, se houver; senão, o calculado.
+const totalDoItem = (item) => (
+  String(item.valor_total ?? '').trim() ? paraNumero(item.valor_total) : calcularLinha(item)
+)
+
 // Monta o formulário inicial puxando tudo o que o sistema já sabe:
 // dados do cliente, do agendamento, do produto e do financeiro vinculado.
 function montarInicial(agendamento) {
@@ -75,7 +98,6 @@ function montarInicial(agendamento) {
           valor_total: brl(valor || Number(produto.valor)),
         }]
       : [],
-    total_ordem: brl(valor),
     aplicarPagamento: valor > 0,
     pagamento: {
       forma: FORMA_OS[agendamento.formaPagamento] ?? '',
@@ -103,9 +125,19 @@ export default function OrdemServicoModal({ agendamento, onClose, onGerada }) {
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
   const setPag = (k) => (e) => setForm({ ...form, pagamento: { ...form.pagamento, [k]: e.target.value } })
   const setItem = (i, k) => (e) => {
-    const itens = form.itens.map((item, idx) => (idx === i ? { ...item, [k]: e.target.value } : item))
+    const itens = form.itens.map((item, idx) => {
+      if (idx !== i) return item
+      const atualizado = { ...item, [k]: e.target.value }
+      if (['quantidade', 'valor_unitario', 'desconto'].includes(k)) {
+        atualizado.valor_total = brl(calcularLinha(atualizado))
+      }
+      return atualizado
+    })
     setForm({ ...form, itens })
   }
+
+  // O total da ordem é sempre a soma das linhas — por isso não se digita.
+  const totalOrdem = form.itens.reduce((soma, item) => soma + totalDoItem(item), 0)
 
   function adicionarItem() {
     if (form.itens.length < 4) setForm({ ...form, itens: [...form.itens, { ...ITEM_VAZIO }] })
@@ -121,9 +153,18 @@ export default function OrdemServicoModal({ agendamento, onClose, onGerada }) {
     setErro('')
     setGerando(formato)
     try {
+      // Dinheiro sai formatado ("150" vira "R$ 150,00"), venha como vier do formulário
+      const moeda = (v) => (String(v ?? '').trim() ? formatBRL(paraNumero(v)) : null)
       const itensPreenchidos = form.itens
         .filter((item) => Object.values(item).some((v) => String(v).trim()))
-        .map((item) => Object.fromEntries(Object.entries(item).map(([k, v]) => [k, ouNulo(v)])))
+        .map((item) => ({
+          descricao: ouNulo(item.descricao),
+          quantidade: ouNulo(item.quantidade),
+          valor_unitario: moeda(item.valor_unitario),
+          desconto: moeda(item.desconto),
+          valor_total: brl(totalDoItem(item)) || null,
+          garantia_validade: ouNulo(item.garantia_validade),
+        }))
 
       const dados = {
         os_numero: ouNulo(form.os_numero),
@@ -152,7 +193,7 @@ export default function OrdemServicoModal({ agendamento, onClose, onGerada }) {
         diagnostico_tecnico: ouNulo(form.diagnostico_tecnico),
         servico_executado: ouNulo(form.servico_executado),
         itens: itensPreenchidos.length ? itensPreenchidos : null,
-        total_ordem: ouNulo(form.total_ordem),
+        total_ordem: totalOrdem > 0 ? formatBRL(totalOrdem) : null,
         pagamento: form.aplicarPagamento
           ? Object.fromEntries(Object.entries(form.pagamento).map(([k, v]) => [k, ouNulo(v)]))
           : null,
@@ -297,7 +338,12 @@ export default function OrdemServicoModal({ agendamento, onClose, onGerada }) {
         {/* Equipamento e serviço */}
         <section>
           <p className={secao}>Equipamento e serviço</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3">
+            <Field label="Observação">
+              <textarea className={inputCls} rows="2" maxLength={180} value={form.servico_executado} onChange={set('servico_executado')} />
+            </Field>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
             <Field label="Equipamento / modelo">
               <input className={inputCls} maxLength={80} value={form.equipamento_modelo} onChange={set('equipamento_modelo')} />
             </Field>
@@ -311,9 +357,6 @@ export default function OrdemServicoModal({ agendamento, onClose, onGerada }) {
             </Field>
             <Field label="Diagnóstico técnico">
               <textarea className={inputCls} rows="2" maxLength={180} value={form.diagnostico_tecnico} onChange={set('diagnostico_tecnico')} />
-            </Field>
-            <Field label="Serviço executado / observações">
-              <textarea className={inputCls} rows="2" maxLength={180} value={form.servico_executado} onChange={set('servico_executado')} />
             </Field>
           </div>
         </section>
@@ -365,7 +408,7 @@ export default function OrdemServicoModal({ agendamento, onClose, onGerada }) {
             ) : <span />}
             <div className="w-44">
               <Field label="Total da ordem">
-                <input className={inputCls} maxLength={80} value={form.total_ordem} onChange={set('total_ordem')} />
+                <input className={`${inputCls} font-semibold`} value={formatBRL(totalOrdem)} readOnly tabIndex={-1} />
               </Field>
             </div>
           </div>

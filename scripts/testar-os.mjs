@@ -106,6 +106,7 @@ check(contem('[X] À vista  [ ] Parcelado'), 'condição à vista marcada')
 check(!contem('undefined') && !contem('[object'), 'sem vazamentos de undefined/objetos')
 
 // 5. Campos null ficam com o rótulo sem valor (célula existe, sem texto extra)
+check(contem('Observação:') && !contem('Serviço executado'), 'observação abre a seção de equipamento')
 check(contem('CPF/CNPJ:'), 'rótulo CPF/CNPJ preservado')
 check(contem('Previsão de conclusão:'), 'rótulo previsão preservado')
 
