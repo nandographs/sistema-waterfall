@@ -12,7 +12,7 @@ import { usuarioAtual } from '../lib/auth.js'
 import {
   somarMeses, hojeISO, planoDeParcelas, totaisDaVenda, dividirCentavos,
   normalizarPagamentos, pagamentosDaCondicao, planoDePagamentos,
-  resumoDosPagamentos, diferencaDosPagamentos, taxaDe, formatBRL,
+  resumoDosPagamentos, diferencaDosPagamentos, taxaDe, formatBRL, resolverPagamentos,
   competenciaDe, daFolha, folhaDoMes, somarMesesNoMes,
   CATEGORIA_VALE, CATEGORIA_SALARIO,
 } from './financeiro.js'
@@ -540,7 +540,7 @@ export async function salvarVenda(form, itensForm, opcoes = {}) {
   // a proposta criada pelo funil, uma venda gravada antes da migração — tem a
   // condição antiga convertida em lista aqui. Daqui para baixo existe um
   // caminho só, e nenhum "se tem lista, senão…" espalhado pelo resto.
-  const informados = normalizarPagamentos(form.pagamentos)
+  const informados = normalizarPagamentos(resolverPagamentos(form.pagamentos, total))
   const pagamentos = informados.length
     ? informados
     : pagamentosDaCondicao({

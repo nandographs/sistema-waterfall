@@ -228,8 +228,17 @@ export function diferencaDosPagamentos(total, pagamentos) {
 // Com duas linhas em branco não há o que resolver (o restante caberia nas duas),
 // então a lista volta como veio e a conferência de soma reclama — que é o certo:
 // adivinhar aí seria inventar dinheiro.
+//
+// UMA FORMA SÓ (sem entrada) é sempre a venda inteira, seja qual for o valor
+// que ficou digitado nela. Não existe outra resposta certa — menos travaria a
+// venda com "falta distribuir", mais com "passou do total" — e um valor velho
+// (digitado antes de mudar os itens, ou o líquido depois da taxa do cartão)
+// era exatamente o que impedia de salvar.
 export function resolverPagamentos(pagamentos, total) {
   const lista = Array.isArray(pagamentos) ? pagamentos : []
+  if (lista.length === 1 && !lista[0]?.entrada) {
+    return [{ ...lista[0], valor: Math.round(Number(total || 0) * 100) / 100 }]
+  }
   const emBranco = (p) => String(p?.valor ?? '').trim() === ''
   if (lista.filter(emBranco).length !== 1) return lista
 

@@ -181,6 +181,10 @@ export function InputNumero({ value, onChange, step, min, max, name, ...props })
       type="text"
       inputMode={inteiro ? 'numeric' : 'decimal'}
       autoComplete="off"
+      // Clicar seleciona o número inteiro: o que se digita SUBSTITUI o que
+      // estava (uma taxa já preenchida, um "1" de parcelas), em vez de grudar
+      // no fim e virar "3,53,5".
+      onFocus={(e) => { e.target.select(); props.onFocus?.(e) }}
       value={texto}
       onChange={(e) => {
         // Letra não entra nem na tela: só dígito, vírgula, ponto (e o sinal).

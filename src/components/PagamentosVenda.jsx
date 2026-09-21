@@ -98,6 +98,7 @@ export default function PagamentosVenda({ pagamentos, onChange, total }) {
   const indiceEntrada = pagamentos.findIndex((p) => p.entrada)
   const entrada = indiceEntrada >= 0 ? pagamentos[indiceEntrada] : null
   const formas = pagamentos.filter((p) => !p.entrada)
+  const formaUnica = !entrada && formas.length === 1
 
   const alterar = (indice, campos) =>
     onChange(pagamentos.map((p, i) => (i === indice ? { ...p, ...campos } : p)))
@@ -112,8 +113,14 @@ export default function PagamentosVenda({ pagamentos, onChange, total }) {
     }
   }
 
+  // A primeira forma, que até aqui era a venda inteira, sai com o total escrito:
+  // é dele que se tira o valor da forma nova (a nova, em branco, fica com o
+  // que sobrar).
   function adicionarForma() {
-    onChange([...pagamentos, { ...PAGAMENTO_VAZIO, valor: '' }])
+    const atuais = formaUnica
+      ? pagamentos.map((p) => (p.entrada ? p : { ...p, valor: Math.round(Number(total || 0) * 100) / 100 }))
+      : pagamentos
+    onChange([...atuais, { ...PAGAMENTO_VAZIO, valor: '' }])
   }
 
   function removerForma(indice) {
@@ -199,6 +206,14 @@ export default function PagamentosVenda({ pagamentos, onChange, total }) {
               </div>
               <div className="sm:col-span-3">
                 <Field label={ordem === 0 ? 'Valor (R$)' : ''}>
+                  {formaUnica ? (
+                    // Uma forma só é a venda inteira (ver resolverPagamentos):
+                    // não há o que digitar, e um campo aqui só abria espaço
+                    // para um valor que não fecha com o total.
+                    <div className={`${inputCls} tnum text-slate-500`} title="Com uma forma só, o valor é o total da venda">
+                      {formatBRL(total)}
+                    </div>
+                  ) : (
                   <InputNumero
                     className={inputCls} min="0" step="0.01"
                     // Em branco vale o restante — o placeholder mostra quanto é,
@@ -207,6 +222,7 @@ export default function PagamentosVenda({ pagamentos, onChange, total }) {
                     value={pg.valor}
                     onChange={(e) => alterar(indice, { valor: e.target.value })}
                   />
+                  )}
                 </Field>
               </div>
               <div className="sm:col-span-2">
