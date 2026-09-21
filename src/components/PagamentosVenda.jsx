@@ -18,11 +18,47 @@
 import {
   FORMAS_PAGAMENTO, formatBRL,
   normalizarPagamentos, pagamentosDaCondicao, resolverPagamentos, diferencaDosPagamentos,
+  totalDasTaxas,
 } from '../data/repository.js'
-import { Field, inputCls, Button } from './ui.jsx'
+import { Field, inputCls, InputNumero, Button } from './ui.jsx'
 import { IconPlus, IconCheck, IconAlert } from './icons.jsx'
 
 const FORMA_PADRAO = 'pix'
+
+// A última taxa digitada fica lembrada neste navegador: a maquininha é quase
+// sempre a mesma, e redigitar 3,5 em toda venda é o tipo de coisa que se pula.
+const CHAVE_TAXA = 'waterfall.taxaCartao'
+export function taxaLembrada() {
+  try { return localStorage.getItem(CHAVE_TAXA) || '' } catch { return '' }
+}
+export function lembrarTaxa(valor) {
+  try { localStorage.setItem(CHAVE_TAXA, String(valor ?? '')) } catch { /* sem storage, sem lembrete */ }
+}
+
+// Ao escolher Cartão, a taxa já vem preenchida com a última usada.
+export function aoMudarForma(forma, atual = {}) {
+  if (forma !== 'cartao') return { forma }
+  return { forma, taxa: atual.taxa !== undefined && atual.taxa !== '' ? atual.taxa : taxaLembrada() }
+}
+
+// O campo da taxa, igual na entrada e nas demais formas. Mostra em reais quanto
+// a operadora desconta daquele pagamento — a parcela entra líquida no caixa.
+export function CampoTaxa({ pagamento, valorResolvido, onChange }) {
+  const custo = totalDasTaxas([{ ...pagamento, valor: valorResolvido }])
+  return (
+    <div className="col-span-full flex flex-wrap items-center gap-2 text-xs text-slate-500">
+      <span>Taxa da maquininha</span>
+      <InputNumero
+        className={`${inputCls} !w-20 !py-1`} min="0" max="100" step="0.01"
+        placeholder="0"
+        value={pagamento.taxa ?? ''}
+        onChange={(e) => { lembrarTaxa(e.target.value); onChange({ taxa: e.target.value }) }}
+      />
+      <span>%</span>
+      {custo > 0 && <span className="tnum">= {formatBRL(custo)} descontados — entra líquido no financeiro</span>}
+    </div>
+  )
+}
 
 export const PAGAMENTO_VAZIO = {
   forma: FORMA_PADRAO, valor: '', parcelas: 1, primeiroVencimento: '', entrada: false,
@@ -57,6 +93,7 @@ export default function PagamentosVenda({ pagamentos, onChange, total }) {
   const resolvidos = resolverPagamentos(pagamentos, total)
   const diferencaCent = diferencaDosPagamentos(total, resolvidos)
   const distribuido = normalizarPagamentos(resolvidos).reduce((soma, p) => soma + p.valor, 0)
+  const taxas = totalDasTaxas(resolvidos)
 
   const indiceEntrada = pagamentos.findIndex((p) => p.entrada)
   const entrada = indiceEntrada >= 0 ? pagamentos[indiceEntrada] : null
@@ -117,18 +154,25 @@ export default function PagamentosVenda({ pagamentos, onChange, total }) {
             <select
               className={inputCls}
               value={entrada.forma}
-              onChange={(e) => alterar(indiceEntrada, { forma: e.target.value })}
+              onChange={(e) => alterar(indiceEntrada, aoMudarForma(e.target.value, entrada))}
             >
               {Object.entries(FORMAS_PAGAMENTO).map(([v, r]) => <option key={v} value={v}>{r}</option>)}
             </select>
           </Field>
           <Field label="Valor da entrada (R$)">
-            <input
-              className={inputCls} type="number" min="0" step="0.01"
+            <InputNumero
+              className={inputCls} min="0" step="0.01"
               value={entrada.valor}
               onChange={(e) => alterar(indiceEntrada, { valor: e.target.value })}
             />
           </Field>
+          {entrada.forma === 'cartao' && (
+            <CampoTaxa
+              pagamento={entrada}
+              valorResolvido={resolvidos[indiceEntrada]?.valor}
+              onChange={(campos) => alterar(indiceEntrada, campos)}
+            />
+          )}
         </div>
       )}
 
@@ -147,7 +191,7 @@ export default function PagamentosVenda({ pagamentos, onChange, total }) {
                   <select
                     className={inputCls}
                     value={pg.forma}
-                    onChange={(e) => alterar(indice, { forma: e.target.value })}
+                    onChange={(e) => alterar(indice, aoMudarForma(e.target.value, pg))}
                   >
                     {Object.entries(FORMAS_PAGAMENTO).map(([v, r]) => <option key={v} value={v}>{r}</option>)}
                   </select>
@@ -155,8 +199,8 @@ export default function PagamentosVenda({ pagamentos, onChange, total }) {
               </div>
               <div className="sm:col-span-3">
                 <Field label={ordem === 0 ? 'Valor (R$)' : ''}>
-                  <input
-                    className={inputCls} type="number" min="0" step="0.01"
+                  <InputNumero
+                    className={inputCls} min="0" step="0.01"
                     // Em branco vale o restante — o placeholder mostra quanto é,
                     // para ninguém precisar adivinhar o que vai ser gravado.
                     placeholder={formatBRL(resolvidos[indice]?.valor || 0)}
@@ -167,8 +211,8 @@ export default function PagamentosVenda({ pagamentos, onChange, total }) {
               </div>
               <div className="sm:col-span-2">
                 <Field label={ordem === 0 ? 'Parcelas' : ''}>
-                  <input
-                    className={inputCls} type="number" min="1" step="1"
+                  <InputNumero
+                    className={inputCls} min="1" step="1"
                     value={pg.parcelas}
                     onChange={(e) => alterar(indice, { parcelas: e.target.value })}
                   />
@@ -195,6 +239,13 @@ export default function PagamentosVenda({ pagamentos, onChange, total }) {
                   </button>
                 )}
               </div>
+              {pg.forma === 'cartao' && (
+                <CampoTaxa
+                  pagamento={pg}
+                  valorResolvido={resolvidos[indice]?.valor}
+                  onChange={(campos) => alterar(indice, campos)}
+                />
+              )}
             </div>
           )
         })}
@@ -215,6 +266,18 @@ export default function PagamentosVenda({ pagamentos, onChange, total }) {
           <span>Distribuído</span>
           <span className="tnum">{formatBRL(distribuido)}</span>
         </div>
+        {taxas > 0 && (
+          <div className="flex justify-between text-slate-500 mt-1">
+            <span>Taxas de cartão</span>
+            <span className="tnum">− {formatBRL(taxas)}</span>
+          </div>
+        )}
+        {taxas > 0 && (
+          <div className="flex justify-between font-semibold text-slate-700 mt-1">
+            <span>Entra no caixa (líquido)</span>
+            <span className="tnum">{formatBRL(distribuido - taxas)}</span>
+          </div>
+        )}
         <div className="mt-2 pt-2 border-t border-slate-200">
           {diferencaCent === 0 ? (
             <p className="flex items-center gap-1.5 text-[13px] font-semibold text-emerald-700">

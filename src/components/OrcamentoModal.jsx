@@ -5,7 +5,7 @@ import {
 } from '../data/repository.js'
 import { gerarOrcamentoPdf } from '../orcamento/gerarPdf.js'
 import { montarDadosOrcamento, MAX_ITENS } from '../orcamento/html.js'
-import { Modal, Button, Field, inputCls, notificar } from './ui.jsx'
+import { Modal, Button, Field, inputCls, InputNumero, notificar } from './ui.jsx'
 import { IconPlus, IconTrash, IconFileText } from './icons.jsx'
 import ClienteBusca from './ClienteBusca.jsx'
 import ProdutoBusca from './ProdutoBusca.jsx'
@@ -129,7 +129,7 @@ export default function OrcamentoModal({ venda, open, onClose, onSalvo }) {
               <input className={inputCls} type="date" required value={form.data} onChange={set('data')} />
             </Field>
             <Field label="Validade (dias)">
-              <input className={inputCls} type="number" min="0" value={form.validadeDias} onChange={set('validadeDias')} />
+              <InputNumero className={inputCls} min="0" step="1" value={form.validadeDias} onChange={set('validadeDias')} />
             </Field>
             <Field label="Nº">
               <input className={inputCls} placeholder="opcional" value={form.numero} onChange={set('numero')} />
@@ -153,9 +153,8 @@ export default function OrcamentoModal({ venda, open, onClose, onSalvo }) {
               </div>
               <div className="sm:col-span-2">
                 <Field label={i === 0 ? `Qtd. (${unidadeDoItem(item).sigla})` : ''}>
-                  <input
+                  <InputNumero
                     className={inputCls}
-                    type="number"
                     min={unidadeDoItem(item).fracionavel ? '0.001' : '1'}
                     step={unidadeDoItem(item).fracionavel ? '0.001' : '1'}
                     value={item.quantidade}
@@ -165,8 +164,8 @@ export default function OrcamentoModal({ venda, open, onClose, onSalvo }) {
               </div>
               <div className="sm:col-span-3">
                 <Field label={i === 0 ? 'Valor un.' : ''}>
-                  <input
-                    className={inputCls} type="number" min="0" step="0.01"
+                  <InputNumero
+                    className={inputCls} min="0" step="0.01"
                     value={item.valorUnitario}
                     onChange={(e) => alterarItem(i, 'valorUnitario', e.target.value)}
                   />
@@ -198,7 +197,7 @@ export default function OrcamentoModal({ venda, open, onClose, onSalvo }) {
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Field label="Desconto na proposta (R$)">
-            <input className={inputCls} type="number" min="0" step="0.01" value={form.desconto} onChange={set('desconto')} />
+            <InputNumero className={inputCls} min="0" step="0.01" value={form.desconto} onChange={set('desconto')} />
           </Field>
           <Field label="Consultor">
             <input className={inputCls} value={form.consultor} onChange={set('consultor')} />

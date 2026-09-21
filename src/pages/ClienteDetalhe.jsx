@@ -10,7 +10,7 @@ import {
   FORMAS_PAGAMENTO, STATUS_VENDA, RESULTADOS_ATIVIDADE, ETAPAS_FUNIL, ETAPAS_FECHADAS,
 } from '../data/repository.js'
 import { hojeISO, formatHora, diaCurto } from '../lib/datas.js'
-import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge, notificar } from '../components/ui.jsx'
+import { Card, Page, PageTitle, Button, Field, inputCls, InputNumero, Empty, Modal, Badge, notificar } from '../components/ui.jsx'
 import { IconPlus, IconFileText, IconChevronLeft, IconUser, IconTrash, IconEye, IconAlert, IconMessage } from '../components/icons.jsx'
 import { paraE164, telefonesDoCliente, comTelefonePrincipal } from '../lib/telefone.js'
 import { IconeDoEvento, estiloDoEvento } from '../components/evento.jsx'
@@ -793,9 +793,8 @@ export default function ClienteDetalhe() {
                     </div>
                     <div className="w-24 shrink-0">
                       <Field label={indice === 0 ? 'Qtd.' : ' '}>
-                        <input
+                        <InputNumero
                           className={inputCls}
-                          type="number"
                           min="1"
                           step="1"
                           required
@@ -856,7 +855,7 @@ export default function ClienteDetalhe() {
             </Field>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field label="Valor da venda (R$)">
-                <input className={inputCls} type="number" step="0.01" min="0" required value={vendaForm.valor} onChange={setV('valor')} />
+                <InputNumero className={inputCls} step="0.01" min="0" required value={vendaForm.valor} onChange={setV('valor')} />
               </Field>
               <Field label="Data da venda">
                 <input className={inputCls} type="date" required value={vendaForm.data} onChange={setV('data')} />

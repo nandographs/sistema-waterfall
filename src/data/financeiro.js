@@ -179,8 +179,32 @@ export function normalizarPagamentos(pagamentos) {
       parcelas: p.entrada ? 1 : Math.max(1, Number(p.parcelas || 1)),
       primeiroVencimento: p.primeiroVencimento || '',
       entrada: !!p.entrada,
+      // Taxa da maquininha (%), só no cartão. A chave só existe quando há taxa,
+      // para uma forma sem taxa continuar exatamente como era gravada antes.
+      ...(taxaDe(p) > 0 ? { taxa: taxaDe(p) } : {}),
     }))
     .filter((p) => p.valor > 0)
+}
+
+// A taxa (%) que a operadora cobra sobre um pagamento. Só cartão tem taxa:
+// trocar a forma para Pix não pode deixar uma taxa esquecida para trás.
+export function taxaDe(p) {
+  if (p?.forma !== 'cartao') return 0
+  const t = Number(String(p?.taxa ?? '').replace(',', '.'))
+  return Number.isFinite(t) ? Math.min(100, Math.max(0, t)) : 0
+}
+
+
+// Quanto as taxas de cartão de um plano custam, em reais — a tela mostra antes
+// de salvar, para ninguém descobrir a despesa só no fechamento. Soma parcela a
+// parcela, igual ao plano, para os dois números nunca discordarem no centavo.
+export function totalDasTaxas(pagamentos) {
+  const centavos = normalizarPagamentos(pagamentos).reduce(
+    (soma, p) => soma + dividirCentavos(Math.round(p.valor * 100), p.parcelas)
+      .reduce((s, c) => s + Math.round((c * taxaDe(p)) / 100), 0),
+    0,
+  )
+  return centavos / 100
 }
 
 // Quanto falta distribuir entre as formas, EM CENTAVOS. Positivo = falta;
@@ -223,7 +247,7 @@ export function resolverPagamentos(pagamentos, total) {
 // lista — a venda gravada antes desta mudança, o agendamento, a proposta criada
 // pelo funil — é convertido aqui e segue pelo mesmo lugar que todo o resto.
 export function pagamentosDaCondicao({
-  total, formaPagamento, condicao, entrada = 0, parcelas = 1, primeiroVencimento,
+  total, formaPagamento, condicao, entrada = 0, parcelas = 1, primeiroVencimento, taxa = 0,
 }) {
   const totalCent = Math.round(Number(total || 0) * 100)
   if (totalCent <= 0) return []
@@ -234,7 +258,10 @@ export function pagamentosDaCondicao({
   const lista = []
 
   if (entradaCent > 0) {
-    lista.push({ forma, valor: entradaCent / 100, parcelas: 1, primeiroVencimento: '', entrada: true })
+    lista.push({
+      forma, valor: entradaCent / 100, parcelas: 1, primeiroVencimento: '', entrada: true,
+      ...(taxaDe({ forma, taxa }) > 0 ? { taxa: taxaDe({ forma, taxa }) } : {}),
+    })
   }
 
   const restanteCent = totalCent - entradaCent
@@ -245,6 +272,7 @@ export function pagamentosDaCondicao({
       parcelas: condicao === 'parcelado' ? Math.max(1, Number(parcelas || 1)) : 1,
       primeiroVencimento: primeiroVencimento || '',
       entrada: false,
+      ...(taxaDe({ forma, taxa }) > 0 ? { taxa: taxaDe({ forma, taxa }) } : {}),
     })
   }
 
@@ -288,24 +316,35 @@ export function planoDePagamentos({
           ? (pg.primeiroVencimento || data || '')
           : (inicio ? somarMeses(inicio, i) : ''),
         forma: pg.forma,
+        taxa: taxaDe(pg),
       })
     })
   }
 
-  return linhas.map((linha, i) => ({
-    tipo: 'entrada',
-    status: 'previsto',
-    descricao: [descricao, linha.sufixo].filter(Boolean).join(' '),
-    categoria,
-    valor: linha.centavos / 100,
-    vencimento: linha.vencimento || '',
-    dataPagamento: '',
-    formaPagamento: linha.forma,
-    parcela: i + 1,
-    parcelas: linhas.length,
-    origem,
-    clienteId: clienteId || '',
-  }))
+  // A TAXA DO CARTÃO sai da própria parcela: o que entra no caixa é o LÍQUIDO,
+  // o que a operadora de fato repassa. A descrição guarda o bruto e a taxa, para
+  // dar para conferir com o extrato da maquininha. O arredondamento é por
+  // parcela, igual à operadora, e totalDasTaxas soma do mesmo jeito.
+  return linhas.map((linha, i) => {
+    const taxaCent = linha.taxa > 0 ? Math.round((linha.centavos * linha.taxa) / 100) : 0
+    const nota = taxaCent > 0
+      ? `· líquido (${formatBRL(linha.centavos / 100)} − ${String(linha.taxa).replace('.', ',')}% de taxa)`
+      : ''
+    return {
+      tipo: 'entrada',
+      status: 'previsto',
+      descricao: [descricao, linha.sufixo, nota].filter(Boolean).join(' '),
+      categoria,
+      valor: (linha.centavos - taxaCent) / 100,
+      vencimento: linha.vencimento || '',
+      dataPagamento: '',
+      formaPagamento: linha.forma,
+      parcela: i + 1,
+      parcelas: linhas.length,
+      origem,
+      clienteId: clienteId || '',
+    }
+  })
 }
 
 // O resumo de uma linha só de um plano com várias formas.
@@ -343,7 +382,7 @@ export function resumoDosPagamentos(pagamentos, data) {
 // carregar uma lista de um item.
 export function planoDeParcelas({
   descricao, clienteId, total, entrada = 0, parcelas = 1,
-  primeiroVencimento, data, formaPagamento, origem = 'venda', categoria = 'venda',
+  primeiroVencimento, data, formaPagamento, origem = 'venda', categoria = 'venda', taxa = 0,
 }) {
   return planoDePagamentos({
     descricao,
@@ -358,6 +397,7 @@ export function planoDeParcelas({
       entrada,
       parcelas,
       primeiroVencimento,
+      taxa,
     }),
   })
 }

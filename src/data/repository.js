@@ -12,7 +12,7 @@ import { usuarioAtual } from '../lib/auth.js'
 import {
   somarMeses, hojeISO, planoDeParcelas, totaisDaVenda, dividirCentavos,
   normalizarPagamentos, pagamentosDaCondicao, planoDePagamentos,
-  resumoDosPagamentos, diferencaDosPagamentos,
+  resumoDosPagamentos, diferencaDosPagamentos, taxaDe,
   competenciaDe, daFolha, folhaDoMes, somarMesesNoMes,
   CATEGORIA_VALE, CATEGORIA_SALARIO,
 } from './financeiro.js'
@@ -22,7 +22,7 @@ export { somarMeses, hojeISO, planoDeParcelas, totaisDaVenda }
 export { resumoDoMes, resumoDoPeriodo, variacao, somarMesesNoMes, mesDe } from './financeiro.js'
 export {
   FORMAS_PAGAMENTO, formatBRL, normalizarPagamentos, pagamentosDaCondicao, resolverPagamentos,
-  diferencaDosPagamentos, resumoDosPagamentos,
+  diferencaDosPagamentos, resumoDosPagamentos, taxaDe, totalDasTaxas,
 } from './financeiro.js'
 // A folha de pagamento: quanto sobra do salário de cada um depois dos vales.
 // A conta mora em financeiro.js porque é regra de dinheiro pura (ver lá).
@@ -511,6 +511,7 @@ const MIGRACAO_DA_COLUNA = {
   conjuge_cpf: 'sql/016_telefones_e_conjuge.sql',
   conjuge_nascimento: 'sql/016_telefones_e_conjuge.sql',
   nascimento: 'sql/017_nascimento_do_cliente.sql',
+  taxa_cartao: 'sql/021_taxa_do_cartao.sql',
 }
 
 export function explicarColunaFaltante(erro) {
@@ -1634,7 +1635,13 @@ export async function salvarAgendamento(form) {
     valor: Number(form.valor || 0),
     parcelas: Number(form.parcelas || 1),
   }
-  const ag = form.id ? await agendamentos.update(form.id, dados) : await agendamentos.create(dados)
+  // Taxa do cartão (%, migração 021). Só vai para o banco quando o pagamento é
+  // no cartão — assim quem ainda não rodou a migração só esbarra nela ao usar.
+  if (form.formaPagamento === 'cartao') dados.taxaCartao = taxaDe({ forma: 'cartao', taxa: form.taxaCartao })
+  else if ('taxaCartao' in dados) dados.taxaCartao = 0
+  const ag = form.id
+    ? await agendamentos.update(form.id, dados).catch(explicarColunaFaltante)
+    : await agendamentos.create(dados).catch(explicarColunaFaltante)
   return sincronizarFinanceiro(ag)
 }
 
@@ -1669,6 +1676,7 @@ async function sincronizarFinanceiro(ag) {
         primeiroVencimento: ag.data,
         data: ag.data,
         formaPagamento: ag.formaPagamento,
+        taxa: ag.taxaCartao,
         origem: 'agendamento',
         categoria: 'servico',
       })

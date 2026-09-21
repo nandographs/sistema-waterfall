@@ -16,7 +16,7 @@ import {
   rotuloDoRelatorio, periodoEmCurso,
 } from '../lib/datas.js'
 import { gerarRelatorioPdf } from '../relatorio/gerarPdf.js'
-import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge, notificar, usePaginacao, Paginacao } from '../components/ui.jsx'
+import { Card, Page, PageTitle, Button, Field, inputCls, InputNumero, Empty, Modal, Badge, notificar, usePaginacao, Paginacao } from '../components/ui.jsx'
 import {
   IconPlus, IconPencil, IconTrash, IconWallet, IconClock, IconAlert,
   IconChevronLeft, IconChevronRight, IconSearch, IconFileText,
@@ -992,7 +992,7 @@ export default function Financeiro() {
                 </select>
               </Field>
               <Field label="Valor (R$)">
-                <input className={inputCls} type="number" step="0.01" min="0" required value={form.valor} onChange={set('valor')} />
+                <InputNumero className={inputCls} step="0.01" min="0" required value={form.valor} onChange={set('valor')} />
               </Field>
             </div>
             <Field label="Descrição">
@@ -1139,9 +1139,9 @@ export default function Financeiro() {
                   <>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <Field label="Quantas vezes">
-                        <input
+                        <InputNumero
                           className={inputCls}
-                          type="number" min="2" max="360" step="1"
+                          min="2" max="360" step="1"
                           value={repeticao.vezes}
                           onChange={(e) => setRepeticao({ ...repeticao, vezes: e.target.value })}
                         />
@@ -1159,9 +1159,9 @@ export default function Financeiro() {
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <Field label="Parcelas já pagas">
-                        <input
+                        <InputNumero
                           className={inputCls}
-                          type="number" min="0" max="359" step="1"
+                          min="0" max="359" step="1"
                           value={repeticao.jaPagas}
                           onChange={(e) => setRepeticao({ ...repeticao, jaPagas: e.target.value })}
                         />
@@ -1242,9 +1242,9 @@ export default function Financeiro() {
                 />
               </Field>
               <Field label="Salário mensal (R$)">
-                <input
+                <InputNumero
                   className={inputCls}
-                  type="number" step="0.01" min="0" required
+                  step="0.01" min="0" required
                   value={formFuncionario.salario}
                   onChange={setFunc('salario')}
                 />
@@ -1252,9 +1252,9 @@ export default function Financeiro() {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field label="Dia do pagamento">
-                <input
+                <InputNumero
                   className={inputCls}
-                  type="number" min="1" max="31" step="1"
+                  min="1" max="31" step="1"
                   value={formFuncionario.diaPagamento ?? ''}
                   onChange={setFunc('diaPagamento')}
                 />

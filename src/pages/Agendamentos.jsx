@@ -5,12 +5,13 @@ import {
   formatData, formatBRL, TIPOS_AGENDAMENTO, FORMAS_PAGAMENTO,
 } from '../data/repository.js'
 import { formatHora } from '../lib/datas.js'
-import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge, notificar, usePaginacao, Paginacao } from '../components/ui.jsx'
+import { Card, Page, PageTitle, Button, Field, inputCls, InputNumero, Empty, Modal, Badge, notificar, usePaginacao, Paginacao } from '../components/ui.jsx'
 import { IconPlus, IconFileText, IconTrash, IconEye, IconSearch, IconFilter, IconMais } from '../components/icons.jsx'
 import OrdemServicoModal from '../components/OrdemServicoModal.jsx'
 import AgendamentoDetalheModal from '../components/AgendamentoDetalheModal.jsx'
 import ClienteBusca from '../components/ClienteBusca.jsx'
 import ProdutoBusca from '../components/ProdutoBusca.jsx'
+import { CampoTaxa, aoMudarForma } from '../components/PagamentosVenda.jsx'
 
 const FORM_VAZIO = {
   clienteId: '', data: '', hora: '', tipo: 'visita', observacoes: '', status: 'agendado',
@@ -451,9 +452,8 @@ export default function Agendamentos() {
               </Field>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Field label="Valor do serviço (R$)">
-                  <input
+                  <InputNumero
                     className={inputCls}
-                    type="number"
                     step="0.01"
                     min="0"
                     placeholder="0,00"
@@ -462,12 +462,19 @@ export default function Agendamentos() {
                   />
                 </Field>
                 <Field label="Parcelas">
-                  <input className={inputCls} type="number" min="1" value={form.parcelas} onChange={set('parcelas')} />
+                  <InputNumero className={inputCls} min="1" step="1" value={form.parcelas} onChange={set('parcelas')} />
                 </Field>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Field label="Forma de pagamento">
-                  <select className={inputCls} value={form.formaPagamento} onChange={set('formaPagamento')}>
+                  <select
+                    className={inputCls}
+                    value={form.formaPagamento}
+                    onChange={(e) => {
+                      const { forma, taxa } = aoMudarForma(e.target.value, { taxa: form.taxaCartao || '' })
+                      setForm({ ...form, formaPagamento: forma, ...(taxa !== undefined ? { taxaCartao: taxa } : {}) })
+                    }}
+                  >
                     {Object.entries(FORMAS_PAGAMENTO).map(([v, r]) => (
                       <option key={v} value={v}>{r}</option>
                     ))}
@@ -480,6 +487,13 @@ export default function Agendamentos() {
                   </select>
                 </Field>
               </div>
+              {form.formaPagamento === 'cartao' && Number(form.valor) > 0 && (
+                <CampoTaxa
+                  pagamento={{ forma: 'cartao', taxa: form.taxaCartao || '', parcelas: form.parcelas }}
+                  valorResolvido={form.valor}
+                  onChange={({ taxa }) => setForm({ ...form, taxaCartao: taxa })}
+                />
+              )}
               {/* Só aparece quando há valor: sem cobrança, não há o que lançar
                   e a pergunta seria ruído. */}
               {Number(form.valor) > 0 && (

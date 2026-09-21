@@ -133,6 +133,64 @@ export function Field({ label, children }) {
 export const inputCls =
   'w-full rounded-xl border border-slate-200 bg-slate-100 px-3.5 py-2.5 sm:py-2 text-base sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-blue-500 focus:bg-slate-100 focus:ring-2 focus:ring-blue-100 transition-colors'
 
+// ---------------------------------------------------------------- números
+//
+// O campo de número do sistema inteiro. Existe porque o <input type="number">
+// do navegador não entende a vírgula: "3,5" (ou a tecla decimal do teclado
+// numérico em pt-BR) vira um valor INVÁLIDO, que ele entrega como "" — e o
+// React, vendo "" de novo, nem avisa das teclas seguintes. O resultado era a
+// conta presa no número anterior até outro campo forçar a tela a redesenhar.
+//
+// Aqui o campo é texto: aceita vírgula OU ponto, e a cada tecla entrega ao
+// onChange o número já normalizado com ponto ("1.500,50" → "1500.50"), no mesmo
+// formato { target: { value } } de um input comum. Quem usa não muda nada.
+
+// "1.500,50" → "1500.50"; "3,5" → "3.5"; "3.5" → "3.5"; "3," → "3."
+export function normalizarNumero(texto, { inteiro = false, negativo = false } = {}) {
+  let t = String(texto ?? '').replace(/\s/g, '')
+  if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.')
+  t = t.replace(negativo ? /[^\d.-]/g : /[^\d.]/g, '')
+  const [int, ...resto] = t.split('.')
+  t = resto.length ? `${int}.${resto.join('')}` : int
+  if (inteiro) t = t.split('.')[0]
+  return t
+}
+
+const mostrarNumero = (valor) => String(valor ?? '').replace('.', ',')
+
+export function InputNumero({ value, onChange, step, min, max, name, ...props }) {
+  const inteiro = Number(step) === 1
+  const negativo = min !== undefined && Number(min) < 0
+  // O que está escrito no campo (com vírgula, do jeito que foi digitado). Só é
+  // substituído quando o valor muda POR FORA — senão digitar "3," viraria "3"
+  // no meio da digitação.
+  const [texto, setTexto] = useState(() => mostrarNumero(value))
+  const valorAtual = String(value ?? '')
+  if (Number(normalizarNumero(texto)) !== Number(valorAtual) || (valorAtual === '') !== (texto === '')) {
+    const externo = mostrarNumero(valorAtual)
+    if (externo !== texto) setTexto(externo)
+  }
+
+  return (
+    <input
+      {...props}
+      name={name}
+      type="text"
+      inputMode={inteiro ? 'numeric' : 'decimal'}
+      autoComplete="off"
+      value={texto}
+      onChange={(e) => {
+        // Letra não entra nem na tela: só dígito, vírgula, ponto (e o sinal).
+        const digitado = e.target.value.replace(negativo ? /[^\d.,-]/g : /[^\d.,]/g, '')
+        setTexto(digitado)
+        let normalizado = normalizarNumero(digitado, { inteiro, negativo })
+        if (normalizado !== '' && max !== undefined && Number(normalizado) > Number(max)) normalizado = String(max)
+        onChange?.({ target: { value: normalizado, name, type: 'text' }, currentTarget: e.currentTarget })
+      }}
+    />
+  )
+}
+
 export function Badge({ children, color = 'slate' }) {
   const colors = {
     slate: 'bg-slate-100 text-slate-600 border border-slate-200',

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { produtos, definirFotoProduto, removerFotoProduto, formatBRL, TIPOS_PRODUTO, UNIDADES, unidadeDo } from '../data/repository.js'
-import { Card, Page, PageTitle, Button, Field, inputCls, Badge, Empty, Modal, usePaginacao, Paginacao } from '../components/ui.jsx'
+import { Card, Page, PageTitle, Button, Field, inputCls, InputNumero, Badge, Empty, Modal, usePaginacao, Paginacao } from '../components/ui.jsx'
 import { IconPlus, IconImage, IconSearch } from '../components/icons.jsx'
 import FotoUnica from '../components/FotoUnica.jsx'
 import { combina } from '../lib/texto.js'
@@ -248,7 +248,7 @@ export default function Produtos() {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field label={`Valor de venda (R$ por ${unidadeDo(form).sigla})`}>
-                <input className={inputCls} type="number" step="0.01" min="0" required value={form.valor} onChange={set('valor')} />
+                <InputNumero className={inputCls} step="0.01" min="0" required value={form.valor} onChange={set('valor')} />
               </Field>
               {/* Cor é opcional de propósito: boa parte do catálogo não tem. */}
               <Field label="Cor (se tiver)">
@@ -265,7 +265,7 @@ export default function Produtos() {
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Field label="Troca a cada (meses)">
-                    <input className={inputCls} type="number" min="1" required value={form.intervaloTrocaMeses} onChange={set('intervaloTrocaMeses')} />
+                    <InputNumero className={inputCls} min="1" step="1" required value={form.intervaloTrocaMeses} onChange={set('intervaloTrocaMeses')} />
                   </Field>
                   <Field label="Aparelho compatível">
                     <select className={inputCls} value={form.aparelhoCompativelId} onChange={set('aparelhoCompativelId')}>

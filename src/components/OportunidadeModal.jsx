@@ -5,7 +5,7 @@ import {
   formatBRL, formatData, notasDaOportunidade,
   ETAPAS_FUNIL, ETAPAS_ABERTAS, CANAIS_OPORTUNIDADE, MOTIVOS_PERDA,
 } from '../data/repository.js'
-import { Modal, Button, Field, inputCls, notificar } from './ui.jsx'
+import { Modal, Button, Field, inputCls, InputNumero, notificar } from './ui.jsx'
 import ClienteBusca from './ClienteBusca.jsx'
 import ProdutoBusca from './ProdutoBusca.jsx'
 
@@ -119,8 +119,8 @@ export default function OportunidadeModal({ oportunidade, onFechar, onSalvo }) {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Valor estimado (R$)">
-            <input
-              className={inputCls} type="number" min="0" step="0.01"
+            <InputNumero
+              className={inputCls} min="0" step="0.01"
               value={form.valorEstimado}
               onChange={set('valorEstimado')}
             />

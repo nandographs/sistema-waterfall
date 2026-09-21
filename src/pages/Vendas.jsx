@@ -9,7 +9,7 @@ import {
 } from '../data/repository.js'
 import { PERIODOS, dentroDoPeriodo } from '../lib/datas.js'
 import { semAcento } from '../lib/texto.js'
-import { Card, Page, PageTitle, Button, Field, inputCls, Empty, Modal, Badge, notificar, usePaginacao, Paginacao } from '../components/ui.jsx'
+import { Card, Page, PageTitle, Button, Field, inputCls, InputNumero, Empty, Modal, Badge, notificar, usePaginacao, Paginacao } from '../components/ui.jsx'
 import { IconPlus, IconFileText, IconTrash, IconEye, IconMais, IconSearch } from '../components/icons.jsx'
 import ClienteBusca from '../components/ClienteBusca.jsx'
 import ProdutoBusca from '../components/ProdutoBusca.jsx'
@@ -531,7 +531,7 @@ export default function Vendas() {
                 </select>
               </Field>
               <Field label="Validade (dias)">
-                <input className={inputCls} type="number" min="0" value={form.validadeDias} onChange={set('validadeDias')} />
+                <InputNumero className={inputCls} min="0" step="1" value={form.validadeDias} onChange={set('validadeDias')} />
               </Field>
               <Field label="Situação">
                 <select className={inputCls} value={form.status} onChange={set('status')}>
@@ -557,9 +557,8 @@ export default function Vendas() {
                   </div>
                   <div className="sm:col-span-2">
                     <Field label={i === 0 ? `Qtd. (${unidadeDoItem(item).sigla})` : ''}>
-                      <input
+                      <InputNumero
                         className={inputCls}
-                        type="number"
                         min={unidadeDoItem(item).fracionavel ? '0.001' : '1'}
                         step={unidadeDoItem(item).fracionavel ? '0.001' : '1'}
                         value={item.quantidade}
@@ -569,8 +568,8 @@ export default function Vendas() {
                   </div>
                   <div className="sm:col-span-2">
                     <Field label={i === 0 ? 'Valor un.' : ''}>
-                      <input
-                        className={inputCls} type="number" min="0" step="0.01"
+                      <InputNumero
+                        className={inputCls} min="0" step="0.01"
                         value={item.valorUnitario}
                         onChange={(e) => alterarItem(i, 'valorUnitario', e.target.value)}
                       />
@@ -578,8 +577,8 @@ export default function Vendas() {
                   </div>
                   <div className="sm:col-span-2">
                     <Field label={i === 0 ? 'Desconto' : ''}>
-                      <input
-                        className={inputCls} type="number" min="0" step="0.01"
+                      <InputNumero
+                        className={inputCls} min="0" step="0.01"
                         value={item.desconto}
                         onChange={(e) => alterarItem(i, 'desconto', e.target.value)}
                       />
@@ -610,10 +609,10 @@ export default function Vendas() {
               <p className="text-[13px] font-semibold text-slate-700">Totais</p>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-end">
                 <Field label="Desconto geral (R$)">
-                  <input className={inputCls} type="number" min="0" step="0.01" value={form.desconto} onChange={set('desconto')} />
+                  <InputNumero className={inputCls} min="0" step="0.01" value={form.desconto} onChange={set('desconto')} />
                 </Field>
                 <Field label="Frete (R$)">
-                  <input className={inputCls} type="number" min="0" step="0.01" value={form.frete} onChange={set('frete')} />
+                  <InputNumero className={inputCls} min="0" step="0.01" value={form.frete} onChange={set('frete')} />
                 </Field>
                 <div className="flex justify-between text-sm border-t border-slate-100 pt-2 sm:border-0 sm:pt-0">
                   <span className="text-slate-500">Subtotal</span>

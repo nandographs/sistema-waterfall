@@ -6,7 +6,7 @@ import {
   resumoDoMes, variacao, somarMesesNoMes, mesDe,
   normalizarPagamentos, diferencaDosPagamentos, pagamentosDaCondicao, resolverPagamentos,
   planoDePagamentos, resumoDosPagamentos,
-  contaSalario, folhaDoMes, competenciaDe, daFolha,
+  contaSalario, folhaDoMes, competenciaDe, daFolha, taxaDe, totalDasTaxas,
 } from '../src/data/financeiro.js'
 
 let falhas = 0
@@ -450,6 +450,28 @@ console.log('\n--- conta salário (folha de pagamento) ---')
   eq(competenciaDe({ vencimento: '2026-10-05' }), '2026-10', 'sem competência, vale o mês do vencimento')
   eq(competenciaDe({}), '', 'sem nada, vazio')
   check(daFolha('vale') && daFolha('salario') && !daFolha('aluguel'), 'só vale e salário saem da folha')
+}
+
+console.log('\n--- taxa do cartão ---')
+{
+  const plano = planoDePagamentos({
+    descricao: 'Venda 7', data: '2026-09-21',
+    pagamentos: [
+      { forma: 'dinheiro', valor: 500, entrada: true, taxa: 5 },
+      { forma: 'cartao', valor: 1000, parcelas: 3, primeiroVencimento: '2026-10-21', taxa: '3,5' },
+    ],
+  })
+  eq(plano.length, 4, 'nenhum lançamento a mais: a taxa sai da própria parcela')
+  check(plano.every((l) => l.tipo === 'entrada'), 'tudo continua sendo entrada')
+  eq(plano.map((l) => l.valor), [500, 321.67, 321.66, 321.66], 'dinheiro cheio; cartão entra líquido')
+  eq(Math.round(plano.reduce((s, l) => s + l.valor, 0) * 100), 146499, 'total líquido = 1500 − 35,01')
+  check(plano[1].descricao.includes('líquido') && plano[1].descricao.includes('3,5%'), 'descrição mostra bruto e taxa')
+  check(!plano[0].descricao.includes('líquido'), 'sem taxa, descrição igual a antes')
+  eq(totalDasTaxas([{ forma: 'cartao', valor: 1000, parcelas: 3, taxa: 3.5 }]), 35.01, 'total das taxas = o que o plano descontou')
+  eq(taxaDe({ forma: 'pix', taxa: 3 }), 0, 'taxa esquecida no Pix não vale')
+  eq(normalizarPagamentos([{ forma: 'pix', valor: 10 }]), [{ forma: 'pix', valor: 10, parcelas: 1, primeiroVencimento: '', entrada: false }], 'sem taxa, o formato gravado não muda')
+  const ag = planoDeParcelas({ descricao: 'Instalação', total: 200, parcelas: 2, data: '2026-09-21', formaPagamento: 'cartao', taxa: 4 })
+  eq(ag.map((l) => l.valor), [96, 96], 'agendamento no cartão também entra líquido')
 }
 
 console.log(falhas ? `\n${falhas} verificação(ões) falharam.` : '\nTudo certo.')
