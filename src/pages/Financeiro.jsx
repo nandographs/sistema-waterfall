@@ -470,6 +470,21 @@ export default function Financeiro() {
 
   const { visiveis: movimentosDaPagina, barra } = usePaginacao(movimentos)
 
+  // O total em aberto do período, com os mesmos filtros de tipo e busca da
+  // lista — buscar "carro" mostra quanto ainda falta pagar do carro. Só o que
+  // está lançado: os salários previstos (folhaPrevista) são avisados à parte.
+  const abertos = movimentosDoPeriodo(todos, periodo, hoje)
+    .filter((l) => l.status !== 'realizado')
+    .filter((l) => filtroTipo === 'todos' || l.tipo === filtroTipo)
+    .filter(combina)
+  const somaCent = (lista) => lista.reduce((s, l) => s + Math.round(Number(l.valor || 0) * 100), 0)
+  const emAberto = {
+    receber: somaCent(abertos.filter((l) => l.tipo === 'entrada')) / 100,
+    pagar: somaCent(abertos.filter((l) => l.tipo === 'saida')) / 100,
+    vencidos: abertos.filter((l) => l.vencimento && l.vencimento < hoje),
+  }
+  emAberto.saldo = Math.round((emAberto.receber - emAberto.pagar) * 100) / 100
+
   // No Geral a lista é separada pelo dia em que cada coisa foi lançada.
   const rotuloDoRegistro = (l) => {
     const dia = l.criadoEm ? diaLocal(l.criadoEm) : hoje
@@ -726,6 +741,55 @@ export default function Financeiro() {
                     />
                   </div>
                 </div>
+
+                {/* Soma do que está em aberto. Clicar mostra só essas contas. */}
+                <button
+                  type="button"
+                  onClick={() => setFiltroSituacao('aberto')}
+                  className={`w-full text-left rounded-xl border px-4 py-3 mb-4 cursor-pointer transition-colors ${
+                    filtroSituacao === 'aberto'
+                      ? 'border-blue-200 bg-blue-50'
+                      : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+                  }`}
+                  title="Ver só o que está em aberto"
+                >
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
+                    <p className="text-[13px] font-semibold text-slate-700">
+                      Em aberto em {rotuloPeriodo.toLowerCase()}
+                      <span className="font-normal text-slate-500"> · {abertos.length} {abertos.length === 1 ? 'conta' : 'contas'}</span>
+                    </p>
+                    <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 text-sm tnum">
+                      {filtroTipo !== 'saida' && (
+                        <span className="text-slate-500">
+                          A receber <span className="font-bold text-emerald-700">{formatBRL(emAberto.receber)}</span>
+                        </span>
+                      )}
+                      {filtroTipo !== 'entrada' && (
+                        <span className="text-slate-500">
+                          A pagar <span className="font-bold text-slate-900">{formatBRL(emAberto.pagar)}</span>
+                        </span>
+                      )}
+                      {filtroTipo === 'todos' && (
+                        <span className="text-slate-500">
+                          Saldo <span className={`font-bold ${emAberto.saldo < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{formatBRL(emAberto.saldo)}</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {(emAberto.vencidos.length > 0 || painel.folhaPrevista > 0) && (
+                    <p className="text-[11px] text-slate-500 mt-1.5">
+                      {emAberto.vencidos.length > 0 && (
+                        <span className="text-red-600 font-semibold">
+                          {emAberto.vencidos.length} vencida{emAberto.vencidos.length === 1 ? '' : 's'} ({formatBRL(somaCent(emAberto.vencidos) / 100)})
+                        </span>
+                      )}
+                      {emAberto.vencidos.length > 0 && painel.folhaPrevista > 0 && filtroTipo !== 'entrada' && ' · '}
+                      {painel.folhaPrevista > 0 && filtroTipo !== 'entrada' && (
+                        <>Fora {formatBRL(painel.folhaPrevista)} de salários ainda não lançados</>
+                      )}
+                    </p>
+                  )}
+                </button>
 
                 <div className="hidden sm:grid grid-cols-[2.25rem_minmax(0,1fr)_7rem_5.5rem_8.5rem] gap-x-3 pb-2 border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                   <span />
