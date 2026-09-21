@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import {
-  clientes, produtos,
+  clientes, produtos, autorDoAgendamento,
   formatData, formatBRL, TIPOS_AGENDAMENTO, FORMAS_PAGAMENTO,
 } from '../data/repository.js'
 import { formatHora } from '../lib/datas.js'
@@ -38,6 +38,7 @@ export default function AgendamentoDetalheModal({ agendamento, onClose, onEditar
   const nomesProdutos = idsProdutos.map((id) => produtos.get(id)?.nome).filter(Boolean).join(', ')
 
   const temValor = Number(a.valor) > 0
+  const autor = autorDoAgendamento(a)
 
   return (
     <Modal title="Detalhes do agendamento" open onClose={onClose}>
@@ -92,6 +93,18 @@ export default function AgendamentoDetalheModal({ agendamento, onClose, onEditar
           )}
           <Linha rotulo="Observações">
             {a.observacoes || <span className="text-slate-400">—</span>}
+          </Linha>
+          <Linha rotulo="Agendado por">
+            {!autor && <span className="text-slate-400">Não registrado</span>}
+            {autor?.automatico && (
+              <span className="inline-flex flex-col items-end gap-0.5">
+                <Badge color="slate">Automático</Badge>
+                {autor.usuario && (
+                  <span className="text-xs text-slate-500">a partir de uma ação de {autor.usuario}</span>
+                )}
+              </span>
+            )}
+            {autor && !autor.automatico && autor.usuario}
           </Linha>
         </dl>
 

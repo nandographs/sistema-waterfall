@@ -321,7 +321,8 @@ export const atividades = makeStore('atividades')
 //                valor, formaPagamento, parcelas,
 //                statusPagamento: 'pago'|'pendente', lancamentoId (1º lançamento vinculado),
 //                vendaOrigemId (venda que gerou este agendamento, se houver),
-//                osNumero, osEmitidaEm (rastreabilidade da Ordem de Serviço gerada) }
+//                osNumero, osEmitidaEm (rastreabilidade da Ordem de Serviço gerada),
+//                criadoPor, automatico (ver autorDoAgendamento) }
 export const agendamentos = makeStore('agendamentos')
 
 // ---- Helpers de domínio ----
@@ -513,6 +514,8 @@ const MIGRACAO_DA_COLUNA = {
   nascimento: 'sql/017_nascimento_do_cliente.sql',
   taxa_cartao: 'sql/021_taxa_do_cartao.sql',
   intervalo_troca_meses: 'sql/022_intervalo_troca_combinado.sql',
+  criado_por: 'sql/023_autor_do_agendamento.sql',
+  automatico: 'sql/023_autor_do_agendamento.sql',
 }
 
 export function explicarColunaFaltante(erro) {
@@ -687,7 +690,9 @@ export async function agendarServicosDaVenda(venda) {
     statusPagamento: 'pendente',
     vendaOrigemId: venda.id,
     ...(combinado ? { intervaloTrocaMeses: combinado } : {}),
-  }))
+    criadoPor: usuarioAtual(),
+    automatico: true,
+  }).catch(explicarColunaFaltante))
 
   // Vender o aparelho já deixa a primeira troca de refil na agenda, contada a
   // partir da entrega — sem esperar a instalação ser concluída. Se a instalação
@@ -1663,8 +1668,34 @@ export async function salvarAgendamento(form) {
   else if ('taxaCartao' in dados) dados.taxaCartao = 0
   const ag = form.id
     ? await agendamentos.update(form.id, dados).catch(explicarColunaFaltante)
-    : await agendamentos.create(dados).catch(explicarColunaFaltante)
+    : await agendamentos.create({ ...dados, criadoPor: usuarioAtual(), automatico: false }).catch(explicarColunaFaltante)
   return sincronizarFinanceiro(ag)
+}
+
+// Quem marcou o agendamento: { automatico, usuario }, ou null quando não há
+// como saber. Os anteriores à migração 023 não têm os campos; os automáticos
+// entre eles são reconhecidos pelas marcas que já deixavam (a venda de origem,
+// o texto padrão das trocas programadas).
+export function autorDoAgendamento(a) {
+  if (!a) return null
+  if (a.automatico) return { automatico: true, usuario: a.criadoPor || '' }
+  if (a.criadoPor) return { automatico: false, usuario: a.criadoPor }
+  const obs = a.observacoes || ''
+  if (a.vendaOrigemId || obs === 'Troca programada automaticamente.' || obs.startsWith('1ª troca de refil do')) {
+    return { automatico: true, usuario: '' }
+  }
+  return null
+}
+
+export function textoAutorDoAgendamento(a) {
+  const autor = autorDoAgendamento(a)
+  if (!autor) return ''
+  if (autor.automatico) {
+    return autor.usuario
+      ? `Agendado automaticamente (ação de ${autor.usuario})`
+      : 'Agendado automaticamente'
+  }
+  return `Agendado por ${autor.usuario}`
 }
 
 // `dataConclusao` permite registrar um serviço feito em outro dia; sem ela,
@@ -1881,7 +1912,9 @@ export async function agendarTrocaDeRefil({ clienteId, refil, dataBase, observac
     statusPagamento: 'pendente',
     // Guardado para a conclusão desta troca agendar a seguinte no mesmo ritmo.
     ...(combinado ? { intervaloTrocaMeses: combinado } : {}),
-  })
+    criadoPor: usuarioAtual(),
+    automatico: true,
+  }).catch(explicarColunaFaltante)
 }
 
 // Mantida para quem chama a partir de um equipamento (ex.: cadastro rápido de

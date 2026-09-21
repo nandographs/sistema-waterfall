@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   agendamentos, clientes, produtos, salvarAgendamento, mudarStatusAgendamento, excluirAgendamento,
-  formatData, formatBRL, TIPOS_AGENDAMENTO, FORMAS_PAGAMENTO,
+  textoAutorDoAgendamento, formatData, formatBRL, TIPOS_AGENDAMENTO, FORMAS_PAGAMENTO,
 } from '../data/repository.js'
 import { formatHora } from '../lib/datas.js'
 import { Card, Page, PageTitle, Button, Field, inputCls, InputNumero, Empty, Modal, Badge, notificar, usePaginacao, Paginacao } from '../components/ui.jsx'
@@ -302,6 +302,9 @@ export default function Agendamentos() {
                     {nomesProdutos ? ` · ${nomesProdutos}` : ''}
                     {a.observacoes ? ` · ${a.observacoes}` : ''}
                   </p>
+                  {textoAutorDoAgendamento(a) && (
+                    <p className="text-xs text-slate-400 mt-0.5">{textoAutorDoAgendamento(a)}</p>
+                  )}
                 </div>
                 <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                   {Number(a.valor) > 0 && (
