@@ -12,7 +12,7 @@ import { usuarioAtual } from '../lib/auth.js'
 import {
   somarMeses, hojeISO, planoDeParcelas, totaisDaVenda, dividirCentavos,
   normalizarPagamentos, pagamentosDaCondicao, planoDePagamentos,
-  resumoDosPagamentos, diferencaDosPagamentos, taxaDe,
+  resumoDosPagamentos, diferencaDosPagamentos, taxaDe, formatBRL,
   competenciaDe, daFolha, folhaDoMes, somarMesesNoMes,
   CATEGORIA_VALE, CATEGORIA_SALARIO,
 } from './financeiro.js'
@@ -512,6 +512,7 @@ const MIGRACAO_DA_COLUNA = {
   conjuge_nascimento: 'sql/016_telefones_e_conjuge.sql',
   nascimento: 'sql/017_nascimento_do_cliente.sql',
   taxa_cartao: 'sql/021_taxa_do_cartao.sql',
+  intervalo_troca_meses: 'sql/022_intervalo_troca_combinado.sql',
 }
 
 export function explicarColunaFaltante(erro) {
@@ -586,6 +587,14 @@ export async function salvarVenda(form, itensForm, opcoes = {}) {
   }
   delete dados.itens
 
+  // Intervalo de troca combinado na venda (migração 022). Só vai para o banco
+  // quando preenchido — ou quando é preciso apagar um que já existia —, para
+  // quem ainda não rodou a migração só esbarrar nela ao usar.
+  const intervalo = Math.floor(Number(form.intervaloTrocaMeses) || 0)
+  if (intervalo > 0) dados.intervaloTrocaMeses = intervalo
+  else if (form.id && vendas.get(form.id)?.intervaloTrocaMeses) dados.intervaloTrocaMeses = ''
+  else delete dados.intervaloTrocaMeses
+
   const venda = form.id
     ? await vendas.update(form.id, dados).catch(explicarColunaFaltante)
     : await vendas.create(dados).catch(explicarColunaFaltante)
@@ -652,6 +661,9 @@ export async function agendarServicosDaVenda(venda) {
 
   // A data de referência é quando o produto chega ao cliente.
   const dataBase = venda.entregaPrevisao || venda.data || hojeISO()
+  // O intervalo combinado segue no agendamento: é por ele que a conclusão
+  // sabe, lá na frente, quantos meses contar para a próxima troca.
+  const combinado = Number(venda.intervaloTrocaMeses) || 0
   const criados = []
 
   // Aparelho na venda: instala tudo numa visita só. Sem aparelho, mas com
@@ -674,6 +686,7 @@ export async function agendarServicosDaVenda(venda) {
     parcelas: 1,
     statusPagamento: 'pendente',
     vendaOrigemId: venda.id,
+    ...(combinado ? { intervaloTrocaMeses: combinado } : {}),
   }))
 
   // Vender o aparelho já deixa a primeira troca de refil na agenda, contada a
@@ -684,6 +697,7 @@ export async function agendarServicosDaVenda(venda) {
       clienteId: venda.clienteId,
       refil: refilDoAparelho(aparelho),
       dataBase,
+      meses: combinado,
       observacoes: `1ª troca de refil do ${aparelho.nome}.`,
     })
     if (troca) criados.push(troca)
@@ -1744,6 +1758,7 @@ export async function removerDoFinanceiro(lancamento) {
 // instalado, não quando foi agendado.
 async function aplicarEfeitosConclusao(ag) {
   const base = ag.concluidoEm || ag.data
+  const combinado = Number(ag.intervaloTrocaMeses) || 0
   const ids = ag.produtoIds?.length ? ag.produtoIds : (ag.produtoId ? [ag.produtoId] : [])
 
   for (const pid of ids) {
@@ -1760,19 +1775,33 @@ async function aplicarEfeitosConclusao(ag) {
           produtoId: produto.id,
           dataInstalacao: base,
           dataUltimaTroca: '',
+          ...(combinado ? { intervaloTrocaMeses: combinado } : {}),
         })
+      } else if (combinado && Number(jaTem.intervaloTrocaMeses) !== combinado) {
+        await equipamentos.update(jaTem.id, { intervaloTrocaMeses: combinado })
       }
       const refil = refilDoAparelho(produto)
-      await realinharTrocaComAInstalacao(ag, refil, base)
-      await agendarTrocaDeRefil({ clienteId: ag.clienteId, refil, dataBase: base })
+      const meses = combinado || Number(jaTem?.intervaloTrocaMeses) || 0
+      await realinharTrocaComAInstalacao(ag, refil, base, meses)
+      await agendarTrocaDeRefil({ clienteId: ag.clienteId, refil, dataBase: base, meses })
     } else if (produto.tipo === 'refil') {
       const eq = equipamentos
         .list()
         .find((e) => e.clienteId === ag.clienteId && e.produtoId === produto.aparelhoCompativelId)
-      if (eq) await equipamentos.update(eq.id, { dataUltimaTroca: base })
+      if (eq) {
+        await equipamentos.update(eq.id, {
+          dataUltimaTroca: base,
+          ...(combinado ? { intervaloTrocaMeses: combinado } : {}),
+        })
+      }
       // A próxima troca é agendada mesmo sem equipamento cadastrado: o que
       // determina o ciclo é o refil e a data em que ele foi trocado.
-      await agendarTrocaDeRefil({ clienteId: ag.clienteId, refil: produto, dataBase: base })
+      await agendarTrocaDeRefil({
+        clienteId: ag.clienteId,
+        refil: produto,
+        dataBase: base,
+        meses: combinado || Number(eq?.intervaloTrocaMeses) || 0,
+      })
     }
   }
 }
@@ -1783,11 +1812,11 @@ async function aplicarEfeitosConclusao(ag) {
 //
 // Só reajusta se a data ainda for exatamente a calculada na venda, ou seja, se
 // ninguém a moveu à mão. Uma troca que você adiantou continua onde você pôs.
-async function realinharTrocaComAInstalacao(agendamentoInstalacao, refil, dataConclusao) {
-  if (!refil?.intervaloTrocaMeses || !agendamentoInstalacao.data) return
+async function realinharTrocaComAInstalacao(agendamentoInstalacao, refil, dataConclusao, combinado) {
+  const meses = mesesDeTroca(refil, combinado)
+  if (!refil || !meses || !agendamentoInstalacao.data) return
   if (agendamentoInstalacao.data === dataConclusao) return
 
-  const meses = Number(refil.intervaloTrocaMeses)
   const comoFoiCalculada = somarMeses(agendamentoInstalacao.data, meses)
 
   const aberta = agendamentos.list().find((a) =>
@@ -1807,14 +1836,25 @@ export function refilDoAparelho(aparelho) {
   return produtos.list().find((p) => p.tipo === 'refil' && p.aparelhoCompativelId === aparelho.id) ?? null
 }
 
-// Agenda a próxima troca de um refil: `dataBase` + o intervalo cadastrado.
+// De quantos em quantos meses o refil é trocado naquele caso. O intervalo
+// combinado com o cliente (na venda, e que dali segue no agendamento e no
+// equipamento) vale mais que o cadastrado no refil: o refil diz 6 meses, mas se
+// na venda ficou 9, são 9 — nesta troca e em todas as seguintes.
+export function mesesDeTroca(refil, combinado) {
+  return Number(combinado) > 0 ? Number(combinado) : (Number(refil?.intervaloTrocaMeses) || 0)
+}
+
+// Agenda a próxima troca de um refil: `dataBase` + o intervalo (o combinado em
+// `meses`, se houver; senão o cadastrado no refil).
 //
 // Não duplica: se o cliente já tem uma troca EM ABERTO daquele refil, nada é
 // criado — assim o agendamento que você adiantou ou remarcou à mão continua
 // valendo. Um agendamento cancelado não conta como aberto, então cancelar
 // encerra o ciclo (é exatamente o que se espera de um cancelamento).
-export async function agendarTrocaDeRefil({ clienteId, refil, dataBase, observacoes }) {
-  if (!clienteId || !refil?.intervaloTrocaMeses || !dataBase) return null
+export async function agendarTrocaDeRefil({ clienteId, refil, dataBase, observacoes, meses }) {
+  const intervalo = mesesDeTroca(refil, meses)
+  if (!clienteId || !refil || !intervalo || !dataBase) return null
+  const combinado = Number(meses) > 0 ? Number(meses) : 0
 
   const jaEmAberto = agendamentos.list().some((a) =>
     a.clienteId === clienteId &&
@@ -1826,7 +1866,7 @@ export async function agendarTrocaDeRefil({ clienteId, refil, dataBase, observac
 
   return agendamentos.create({
     clienteId,
-    data: somarMeses(dataBase, Number(refil.intervaloTrocaMeses)),
+    data: somarMeses(dataBase, intervalo),
     tipo: 'troca_refil',
     status: 'agendado',
     observacoes: observacoes || 'Troca programada automaticamente.',
@@ -1839,6 +1879,8 @@ export async function agendarTrocaDeRefil({ clienteId, refil, dataBase, observac
     formaPagamento: 'pix',
     parcelas: 1,
     statusPagamento: 'pendente',
+    // Guardado para a conclusão desta troca agendar a seguinte no mesmo ritmo.
+    ...(combinado ? { intervaloTrocaMeses: combinado } : {}),
   })
 }
 
@@ -1849,6 +1891,7 @@ export async function agendarProximaTroca(equipamento) {
     clienteId: equipamento?.clienteId,
     refil: refilDoEquipamento(equipamento),
     dataBase: equipamento?.dataUltimaTroca || equipamento?.dataInstalacao,
+    meses: equipamento?.intervaloTrocaMeses,
   })
 }
 
@@ -2396,7 +2439,7 @@ export function refilDoEquipamento(equipamento) {
 // Data prevista da próxima troca de refil de um equipamento do cliente
 export function proximaTroca(equipamento) {
   const base = equipamento?.dataUltimaTroca || equipamento?.dataInstalacao
-  const refil = refilDoEquipamento(equipamento)
-  if (!base || !refil?.intervaloTrocaMeses) return null
-  return somarMeses(base, Number(refil.intervaloTrocaMeses))
+  const meses = mesesDeTroca(refilDoEquipamento(equipamento), equipamento?.intervaloTrocaMeses)
+  if (!base || !meses) return null
+  return somarMeses(base, meses)
 }

@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   clientes, produtos, equipamentos, vendas, lancamentos, agendamentos,
-  salvarVenda, darBaixa, excluirVenda, itensDaVenda, agendarProximaTroca,
+  salvarVenda, darBaixa, excluirVenda, itensDaVenda, agendarProximaTroca, agendarTrocaDeRefil,
+  refilDoAparelho,
   registrarEquipamento, definirFotoPerfil, removerFotoPerfil, resolverPagamentos,
   explicarColunaFaltante,
   proximoPasso, linhaDoTempoDoCliente, oportunidadesDoCliente, conversaDoCliente,
@@ -34,7 +35,7 @@ const CLIENTE_VAZIO = {
 
 const VENDA_VAZIA = {
   produtoId: '', valor: '',
-  status: 'pago', data: hojeISO(), dataInstalacao: '',
+  status: 'pago', data: hojeISO(), dataInstalacao: '', intervaloTrocaMeses: '',
 }
 
 const LINHA_EQUIPAMENTO_VAZIA = { produtoId: '', quantidade: 1 }
@@ -127,6 +128,7 @@ export default function ClienteDetalhe() {
           data: vendaForm.data,
           tipo: 'venda',
           status: 'confirmada',
+          intervaloTrocaMeses: vendaForm.intervaloTrocaMeses,
           // As formas de pagamento mandam; a condição antiga (forma, parcelas,
           // 1º vencimento) é derivada delas ao salvar.
           pagamentos: resolverPagamentos(pagamentos, Number(vendaForm.valor || 0)),
@@ -147,17 +149,44 @@ export default function ClienteDetalhe() {
         }
       }
 
+      // Intervalo combinado nesta venda: vale mais que o cadastrado no refil e
+      // fica no equipamento, para as trocas seguintes seguirem o mesmo ritmo.
+      const combinado = Math.floor(Number(vendaForm.intervaloTrocaMeses) || 0)
+      const dataServico = vendaForm.dataInstalacao || vendaForm.data
+
       if (produto?.tipo === 'aparelho') {
         const jaTem = equipamentos
           .list()
           .find((eq) => eq.clienteId === id && eq.produtoId === produto.id)
-        const equipamento = jaTem ?? await equipamentos.create({
+        let equipamento = jaTem ?? await equipamentos.create({
           clienteId: id,
           produtoId: produto.id,
-          dataInstalacao: vendaForm.dataInstalacao || vendaForm.data,
+          dataInstalacao: dataServico,
           dataUltimaTroca: '',
-        })
+          ...(combinado ? { intervaloTrocaMeses: combinado } : {}),
+        }).catch(explicarColunaFaltante)
+        if (jaTem && combinado) {
+          equipamento = await equipamentos.update(jaTem.id, { intervaloTrocaMeses: combinado }).catch(explicarColunaFaltante)
+        }
         await agendarProximaTroca(equipamento)
+      } else if (produto?.tipo === 'refil') {
+        // Refil vendido é refil trocado: marca a troca no aparelho do cliente
+        // (se ele estiver na ficha) e já deixa a próxima na agenda.
+        const eq = equipamentos
+          .list()
+          .find((e) => e.clienteId === id && e.produtoId === produto.aparelhoCompativelId)
+        if (eq) {
+          await equipamentos.update(eq.id, {
+            dataUltimaTroca: dataServico,
+            ...(combinado ? { intervaloTrocaMeses: combinado } : {}),
+          }).catch(explicarColunaFaltante)
+        }
+        await agendarTrocaDeRefil({
+          clienteId: id,
+          refil: produto,
+          dataBase: dataServico,
+          meses: combinado || Number(eq?.intervaloTrocaMeses) || 0,
+        })
       }
 
       setVendaForm(null)
@@ -876,10 +905,30 @@ export default function ClienteDetalhe() {
                   <option value="pendente">A receber</option>
                 </select>
               </Field>
-              <Field label="Data de instalação (se aparelho)">
+              <Field label="Data da instalação / troca">
                 <input className={inputCls} type="date" value={vendaForm.dataInstalacao} onChange={setV('dataInstalacao')} />
               </Field>
             </div>
+            {(() => {
+              const produto = produtos.get(vendaForm.produtoId)
+              if (produto?.tipo !== 'aparelho' && produto?.tipo !== 'refil') return null
+              const padrao = produto.tipo === 'refil'
+                ? produto.intervaloTrocaMeses
+                : refilDoAparelho(produto)?.intervaloTrocaMeses
+              return (
+                <Field label="Troca de refil a cada (meses)">
+                  <InputNumero
+                    className={inputCls} min="1" step="1"
+                    placeholder={padrao ? `Padrão do refil: ${padrao}` : 'Refil sem intervalo cadastrado'}
+                    value={vendaForm.intervaloTrocaMeses}
+                    onChange={setV('intervaloTrocaMeses')}
+                  />
+                  <span className="block text-xs text-slate-400 mt-1">
+                    Deixe vazio para usar o padrão do refil. Preenchido, vale para este cliente em todas as trocas.
+                  </span>
+                </Field>
+              )
+            })()}
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="secondary" onClick={() => setVendaForm(null)}>Cancelar</Button>
               <Button type="submit">Registrar</Button>

@@ -5,7 +5,7 @@ import {
   salvarVenda, excluirVenda, itensDaVenda, lancamentosDaVenda, totaisDaVenda,
   formatData, formatBRL, hojeISO, resolverPagamentos, normalizarPagamentos,
   FORMAS_PAGAMENTO, STATUS_VENDA, CANAIS_VENDA, UNIDADES, unidadeDo, nomeCompletoProduto,
-  quantidadeComUnidade,
+  quantidadeComUnidade, refilDoAparelho,
 } from '../data/repository.js'
 import { PERIODOS, dentroDoPeriodo } from '../lib/datas.js'
 import { semAcento } from '../lib/texto.js'
@@ -30,6 +30,7 @@ const FORM_VAZIO = {
   entregaTipo: '', entregaEndereco: '', entregaPrevisao: '',
   observacoes: '',
   lancarFinanceiro: true,
+  intervaloTrocaMeses: '',
 }
 
 const STATUS_BADGE = {
@@ -603,6 +604,36 @@ export default function Vendas() {
                 <IconPlus size={14} /> Adicionar item
               </Button>
             </div>
+
+            {/* Manutenção: só aparece quando a venda tem aparelho ou refil. O
+                intervalo digitado aqui vale mais que o cadastrado no refil. */}
+            {(() => {
+              const vendidos = itens.map((i) => produtos.get(i.produtoId)).filter(Boolean)
+              const refis = vendidos
+                .map((p) => (p.tipo === 'refil' ? p : p.tipo === 'aparelho' ? refilDoAparelho(p) : null))
+                .filter(Boolean)
+              if (!vendidos.some((p) => p.tipo === 'aparelho' || p.tipo === 'refil')) return null
+              const padroes = [...new Set(refis.map((r) => r.intervaloTrocaMeses).filter(Boolean))]
+              return (
+                <div className="rounded-lg border border-slate-200 p-4 space-y-3">
+                  <p className="text-[13px] font-semibold text-slate-700">Manutenção</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
+                    <Field label="Troca de refil a cada (meses)">
+                      <InputNumero
+                        className={inputCls} min="1" step="1"
+                        placeholder={padroes.length ? `Padrão do refil: ${padroes.join(' / ')}` : 'Refil sem intervalo cadastrado'}
+                        value={form.intervaloTrocaMeses}
+                        onChange={set('intervaloTrocaMeses')}
+                      />
+                    </Field>
+                    <p className="text-xs text-slate-400 sm:pt-7">
+                      Deixe vazio para usar o padrão do refil. Preenchido, vale para este
+                      cliente nesta troca e em todas as seguintes.
+                    </p>
+                  </div>
+                </div>
+              )
+            })()}
 
             {/* Totais */}
             <div className="rounded-lg border border-slate-200 p-4 space-y-3">

@@ -149,6 +149,9 @@ export const inputCls =
 export function normalizarNumero(texto, { inteiro = false, negativo = false } = {}) {
   let t = String(texto ?? '').replace(/\s/g, '')
   if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.')
+  // Sem vírgula, ponto seguido de grupos de 3 dígitos é MILHAR: "1.500" é mil e
+  // quinhentos, não 1,5 (que se escreve "1,5" — ou "1.5", que continua valendo).
+  else if (/^-?\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '')
   t = t.replace(negativo ? /[^\d.-]/g : /[^\d.]/g, '')
   const [int, ...resto] = t.split('.')
   t = resto.length ? `${int}.${resto.join('')}` : int
