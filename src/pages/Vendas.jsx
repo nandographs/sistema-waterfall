@@ -659,7 +659,14 @@ export default function Vendas() {
             {/* Pagamento — uma ou várias formas na mesma venda */}
             <div className="rounded-lg border border-slate-200 p-4 space-y-3">
               <p className="text-[13px] font-semibold text-slate-700">Pagamento</p>
-              <PagamentosVenda pagamentos={pagamentos} onChange={setPagamentos} total={total} />
+              <PagamentosVenda
+                pagamentos={pagamentos}
+                onChange={setPagamentos}
+                total={total}
+                // Com parcela já recebida, trocar entre antecipado e parcelado
+                // remontaria o plano por cima das baixas dadas.
+                antecipacaoTravada={!!form?.id && lancamentosDaVenda(form.id).some((l) => l.status === 'realizado')}
+              />
               <label className="flex items-start gap-2.5 cursor-pointer rounded-lg bg-slate-50 border border-slate-200 p-3">
                 <input
                   type="checkbox"

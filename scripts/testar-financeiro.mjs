@@ -7,6 +7,7 @@ import {
   normalizarPagamentos, diferencaDosPagamentos, pagamentosDaCondicao, resolverPagamentos,
   planoDePagamentos, resumoDosPagamentos,
   contaSalario, folhaDoMes, competenciaDe, daFolha, taxaDe, totalDasTaxas,
+  saldoEm, serieDoSaldo, movimentosDoPeriodo, painelDoPeriodo, fluxoDosMeses,
 } from '../src/data/financeiro.js'
 
 let falhas = 0
@@ -472,6 +473,83 @@ console.log('\n--- taxa do cartão ---')
   eq(normalizarPagamentos([{ forma: 'pix', valor: 10 }]), [{ forma: 'pix', valor: 10, parcelas: 1, primeiroVencimento: '', entrada: false }], 'sem taxa, o formato gravado não muda')
   const ag = planoDeParcelas({ descricao: 'Instalação', total: 200, parcelas: 2, data: '2026-09-21', formaPagamento: 'cartao', taxa: 4 })
   eq(ag.map((l) => l.valor), [96, 96], 'agendamento no cartão também entra líquido')
+}
+
+console.log('\n--- painel do financeiro ---')
+{
+  const hoje = '2026-09-21'
+  const L = [
+    { tipo: 'entrada', status: 'realizado', valor: 1000, vencimento: '2026-09-01', dataPagamento: '2026-09-02' },
+    { tipo: 'saida', status: 'realizado', valor: 300, vencimento: '2026-08-10', dataPagamento: '2026-08-10' },
+    // Cartão recebido de uma vez, parcelas vencendo depois: já está no caixa.
+    { tipo: 'entrada', status: 'realizado', valor: 200, vencimento: '2026-11-15', dataPagamento: '2026-09-15' },
+    { tipo: 'saida', status: 'previsto', valor: 150, vencimento: '2026-09-05' }, // vencida
+    { tipo: 'entrada', status: 'previsto', valor: 400, vencimento: '2026-09-28' },
+    { tipo: 'saida', status: 'previsto', valor: 100, vencimento: '2026-10-10' },
+  ]
+  const setembro = { de: '2026-09-01', ate: '2026-09-30' }
+  eq(saldoEm(L, hoje, hoje), 900, 'em caixa hoje = entrou − saiu até hoje')
+  eq(saldoEm(L, '2026-09-01', hoje), -300, 'saldo num dia passado ignora o que foi pago depois')
+  eq(saldoEm(L, '2026-09-30', hoje), 1150, 'saldo futuro = hoje + o que vence até lá (inclusive o vencido)')
+
+  const p = painelDoPeriodo(L, setembro, hoje)
+  eq([p.emCaixa, p.entrou, p.saiu, p.aReceber, p.aPagar], [900, 1200, 0, 400, 150], 'números do painel de setembro')
+  eq(Math.round((p.emCaixa + p.aReceber - p.aPagar) * 100) / 100, p.saldoFinal, 'no mês atual: caixa + a receber − a pagar = saldo final')
+  eq(p.atrasados, 1, 'conta o vencido')
+
+  const out = painelDoPeriodo(L, { de: '2026-10-01', ate: '2026-10-31' }, hoje)
+  eq([out.entrou, out.aPagar, out.saldoFinal], [0, 100, 1050], 'mês futuro: só o que vence nele, saldo acumulado')
+  eq(movimentosDoPeriodo(L, { de: '2026-08-01', ate: '2026-08-31' }, hoje).length, 1, 'mês passado não puxa o vencido de setembro')
+
+  const f = fluxoDosMeses(L, hoje, 3)
+  eq(f.map((m) => [m.entra, m.sai, m.acumulado]), [[400, 150, 1150], [0, 100, 1050], [0, 0, 1050]],
+    'fluxo soma só o que está em aberto (sem contar o pago duas vezes)')
+
+  const serie = serieDoSaldo(L, setembro, hoje)
+  eq(serie.length, 30, 'um ponto por dia no mês')
+  check(!serie[20].previsto && serie[21].previsto, 'depois de hoje o trecho é previsto')
+  eq(serie.at(-1).saldo, p.saldoFinal, 'o gráfico termina no saldo final do painel')
+  eq(serieDoSaldo(L, { de: '2026-01-01', ate: '2026-12-31' }, hoje).length, 12, 'no ano, um ponto por mês')
+}
+
+console.log('\n--- cartão antecipado ---')
+{
+  const pagamentos = [
+    { forma: 'pix', valor: 1000 },
+    { forma: 'cartao', valor: 5000, parcelas: 12, taxa: 12.4, antecipado: true },
+  ]
+  const plano = planoDePagamentos({ descricao: 'Venda 9', data: '2026-09-16', pagamentos })
+  eq(plano.length, 2, 'antecipado vira UM recebimento, e não 12')
+  eq(plano[1].valor, 4380, 'líquido: 5.000 − 12,4%')
+  eq(plano[1].vencimento, '2026-09-16', 'cai na data da venda')
+  check(plano[1].descricao.includes('12x antecipado'), 'a descrição diz que foi antecipado')
+  eq(totalDasTaxas(pagamentos), 620, 'a taxa mostrada antes de salvar é a mesma que o plano desconta')
+  const semAntecipar = planoDePagamentos({
+    descricao: 'Venda 9', data: '2026-09-16',
+    pagamentos: [{ forma: 'cartao', valor: 5000, parcelas: 12, taxa: 12.4 }],
+  })
+  eq(semAntecipar.length, 12, 'sem marcar, continua uma parcela por mês (venda antiga não muda)')
+  eq(normalizarPagamentos([{ forma: 'pix', valor: 10, parcelas: 3, antecipado: true }])[0].antecipado, undefined,
+    'Pix não antecipa')
+  eq(normalizarPagamentos([{ forma: 'cartao', valor: 10, parcelas: 1, antecipado: true }])[0].antecipado, undefined,
+    'cartão à vista não tem o que antecipar')
+}
+
+console.log('\n--- ajuste de saldo ---')
+{
+  const hoje = '2026-09-21'
+  const L = [
+    { tipo: 'entrada', status: 'realizado', valor: 1000, categoria: 'venda', vencimento: '2026-09-05', dataPagamento: '2026-09-05' },
+    { tipo: 'saida', status: 'realizado', valor: 300, categoria: 'aluguel', vencimento: '2026-09-10', dataPagamento: '2026-09-10' },
+    { tipo: 'saida', status: 'realizado', valor: 500, categoria: 'ajuste', vencimento: '2026-09-20', dataPagamento: '2026-09-20' },
+  ]
+  const p = painelDoPeriodo(L, { de: '2026-09-01', ate: '2026-09-30' }, hoje)
+  eq(p.emCaixa, 200, 'o ajuste corrige o caixa')
+  eq([p.entrou, p.saiu], [1000, 300], 'mas não conta como saída do mês')
+  eq(p.ajustes, -500, 'o painel sabe quanto foi ajustado')
+  const r = resumoDoMes(L, '2026-09')
+  eq([r.saidas.realizado, r.resultado], [300, 700], 'nem no relatório')
+  check(!r.categorias.saidas.some((c) => c.categoria === 'ajuste'), 'nem na lista por categoria')
 }
 
 console.log(falhas ? `\n${falhas} verificação(ões) falharam.` : '\nTudo certo.')

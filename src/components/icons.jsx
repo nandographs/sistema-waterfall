@@ -282,3 +282,19 @@ export const IconLua = (p) => (
     <path d="M12 3a6.5 6.5 0 0 0 9 9 9 9 0 1 1-9-9z" />
   </Icon>
 )
+
+// Entrada e saída de dinheiro: seta para baixo-esquerda (chega) e para
+// cima-direita (vai embora), como nos extratos de banco.
+export const IconEntrada = (p) => (
+  <Icon {...p}>
+    <path d="M17 7 7 17" />
+    <path d="M17 17H7V7" />
+  </Icon>
+)
+
+export const IconSaida = (p) => (
+  <Icon {...p}>
+    <path d="M7 17 17 7" />
+    <path d="M7 7h10v10" />
+  </Icon>
+)

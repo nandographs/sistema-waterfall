@@ -8,49 +8,50 @@ import {
   folhaDaCompetencia, lancamentoDaFolha, contaSalario, competenciaDe, daFolha,
   CATEGORIA_VALE,
   formatBRL, formatData, hojeISO, somarMeses,
-  resumoDoMes, resumoDoPeriodo, variacao, somarMesesNoMes, mesDe,
+  resumoDoPeriodo, variacao, mesDe,
   FORMAS_PAGAMENTO, CATEGORIAS_SAIDA,
 } from '../data/repository.js'
+import { painelDoPeriodo, serieDoSaldo, movimentosDoPeriodo, fluxoDosMeses } from '../data/financeiro.js'
 import {
   ESCALAS_RELATORIO, intervaloDoRelatorio, andarNoRelatorio,
-  rotuloDoRelatorio, periodoEmCurso,
+  rotuloDoRelatorio, periodoEmCurso, somarDias,
 } from '../lib/datas.js'
 import { gerarRelatorioPdf } from '../relatorio/gerarPdf.js'
-import { Card, Page, PageTitle, Button, Field, inputCls, InputNumero, Empty, Modal, Badge, notificar, usePaginacao, Paginacao } from '../components/ui.jsx'
+import { Page, PageTitle, Button, Field, inputCls, InputNumero, Empty, Modal, Badge, notificar, usePaginacao, Paginacao } from '../components/ui.jsx'
+import { GraficoSaldo, GraficoFluxo } from '../components/GraficosFinanceiro.jsx'
 import {
-  IconPlus, IconPencil, IconTrash, IconWallet, IconClock, IconAlert,
-  IconChevronLeft, IconChevronRight, IconSearch, IconFileText,
+  IconPlus, IconWallet, IconAlert, IconCheck,
+  IconChevronLeft, IconChevronRight, IconSearch, IconFileText, IconEntrada, IconSaida,
 } from '../components/icons.jsx'
 
-const CATEGORIAS_ENTRADA = { venda: 'Venda', servico: 'Serviço', outros: 'Outros' }
+// A tela é organizada em torno de UM período (semana, mês ou ano), escolhido no
+// topo. Os números, o gráfico, o extrato, o relatório e a folha obedecem a ele
+// — antes cada bloco olhava para um período diferente e nada fechava com nada.
+// Toda a conta mora em data/financeiro.js (painelDoPeriodo e vizinhas).
+
+const CATEGORIAS_ENTRADA = { venda: 'Venda', servico: 'Serviço', outros: 'Outros', ajuste: 'Ajuste de saldo' }
 const nomeCategoria = (c) => CATEGORIAS_SAIDA[c] ?? CATEGORIAS_ENTRADA[c] ?? c
 
-// Variação percentual ao lado de um número. Sem base no mês anterior não há
-// percentual — mostra "—" em vez de inventar um "+100%".
+const ESCALAS_CURTAS = { semanal: 'Semana', mensal: 'Mês', anual: 'Ano' }
+
+const ABAS = [
+  ['movimentos', 'Movimentos'],
+  ['fluxo', 'Fluxo de caixa'],
+  ['relatorio', 'Por categoria'],
+  ['salarios', 'Salários'],
+]
+
+// Variação percentual ao lado de um número. Sem base no período anterior não
+// há percentual — mostra "—" em vez de inventar um "+100%".
 function Variacao({ atual, anterior, invertido = false }) {
   const v = variacao(atual, anterior)
   if (v === null) return <span className="text-xs text-slate-400">—</span>
   const positivo = invertido ? v < 0 : v > 0
   const cor = v === 0 ? 'text-slate-400' : (positivo ? 'text-emerald-600' : 'text-red-600')
   return (
-    <span className={`text-xs font-medium ${cor}`}>
+    <span className={`text-xs font-semibold ${cor}`}>
       {v > 0 ? '▲' : (v < 0 ? '▼' : '')} {Math.abs(v).toFixed(0)}%
     </span>
-  )
-}
-
-// Uma linha do relatório: rótulo, valor do mês e comparação com o anterior.
-function LinhaRelatorio({ label, valor, anterior, cor = 'text-slate-900', invertido, forte }) {
-  return (
-    <div className="flex items-baseline justify-between gap-3 py-1.5">
-      <span className={`text-sm ${forte ? 'font-semibold text-slate-900' : 'text-slate-600'}`}>{label}</span>
-      <span className="flex items-baseline gap-2">
-        <Variacao atual={valor} anterior={anterior} invertido={invertido} />
-        <span className={`tnum ${forte ? 'text-base font-bold' : 'text-sm font-medium'} ${cor}`}>
-          {formatBRL(valor)}
-        </span>
-      </span>
-    </div>
   )
 }
 
@@ -62,12 +63,32 @@ const FUNCIONARIO_VAZIO = {
   admissao: '', ativo: true, observacoes: '',
 }
 
-// 'AAAA-MM' por extenso, para o cabeçalho da folha.
+// 'AAAA-MM' por extenso ("setembro de 2026").
 const rotuloDoMes = (mes) => {
   const [ano, m] = String(mes || '').split('-')
   if (!ano || !m) return '—'
   return new Date(Number(ano), Number(m) - 1, 1)
     .toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+}
+
+// 'AAAA-MM' curto para o eixo do gráfico ("set", e "jan 27" na virada do ano).
+const mesCurto = (mes) => {
+  const [ano, m] = String(mes || '').split('-').map(Number)
+  const nome = new Date(ano, m - 1, 1).toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')
+  return m === 1 ? `${nome} ${String(ano).slice(2)}` : nome
+}
+
+// O dia (no fuso de quem está usando) de um carimbo de data e hora do banco.
+const diaLocal = (ts) => {
+  const d = new Date(ts)
+  if (Number.isNaN(d.getTime())) return String(ts || '').slice(0, 10)
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+const diaMes = (iso) => {
+  const [, m, d] = String(iso || '').split('-')
+  return d && m ? `${d}/${m}` : ''
 }
 
 const FORM_VAZIO = {
@@ -78,16 +99,48 @@ const FORM_VAZIO = {
   funcionarioId: '', competencia: '',
 }
 
-function Resumo({ icon, iconBg, label, value, hint }) {
+// Um dos três números coloridos ao lado do saldo.
+const TONS = {
+  verde: 'bg-emerald-50 border-emerald-200 text-emerald-700',
+  vermelho: 'bg-red-50 border-red-200 text-red-700',
+  azul: 'bg-blue-50 border-blue-200 text-blue-700',
+}
+function CartaoNumero({ tom, icone, rotulo, valor, detalhe }) {
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-5">
-      <div className="flex items-center gap-3">
-        <span className={`flex items-center justify-center w-10 h-10 rounded-lg ${iconBg}`}>{icon}</span>
-        <p className="text-[13px] font-medium text-slate-500">{label}</p>
+    <article className={`rounded-2xl border p-4 flex flex-col justify-between gap-3 sm:min-h-36 min-w-0 ${TONS[tom]}`}>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-[13px] font-semibold opacity-90 leading-tight">{rotulo}</p>
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-slate-500/15">{icone}</span>
       </div>
-      <p className="text-2xl font-bold text-slate-900 tracking-tight tnum mt-3">{value}</p>
-      <p className="text-xs text-slate-400 mt-0.5">{hint}</p>
-    </div>
+      <div className="min-w-0">
+        <p className="text-xl font-extrabold tracking-[-0.03em] tnum text-slate-900 whitespace-nowrap">{valor}</p>
+        <p className="text-[11px] font-medium opacity-80 leading-snug mt-1">{detalhe}</p>
+      </div>
+    </article>
+  )
+}
+
+// Botão redondo de "pago / em aberto" — a ação do dia a dia, a um clique.
+function BotaoBaixa({ l, atrasado, onClick }) {
+  const pago = l.status === 'realizado'
+  const verbo = l.tipo === 'entrada' ? 'recebido' : 'pago'
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={pago ? `Desfazer: voltar para em aberto` : `Marcar como ${verbo}`}
+      aria-label={pago ? `Desfazer ${verbo}: ${l.descricao}` : `Marcar como ${verbo}: ${l.descricao}`}
+      aria-pressed={pago}
+      className={`group flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 cursor-pointer transition-colors ${
+        pago
+          ? 'bg-emerald-500 border-emerald-500 text-[var(--btn-primary-fg)] hover:opacity-80'
+          : atrasado
+            ? 'border-red-500 text-transparent hover:text-red-500 hover:bg-red-50'
+            : 'border-slate-300 text-transparent hover:text-slate-500 hover:bg-slate-100'
+      }`}
+    >
+      <IconCheck size={16} />
+    </button>
   )
 }
 
@@ -95,8 +148,10 @@ export default function Financeiro() {
   const [, forceRender] = useState(0)
   const refresh = () => forceRender((n) => n + 1)
 
-  const [aba, setAba] = useState('receber')
+  const [aba, setAba] = useState('movimentos')
   const [busca, setBusca] = useState('')
+  const [filtroTipo, setFiltroTipo] = useState('todos')
+  const [filtroSituacao, setFiltroSituacao] = useState('geral')
   const [form, setForm] = useState(null)
   const [excluir, setExcluir] = useState(null)
   // Repetição fica FORA do form porque não é campo do lançamento: é instrução
@@ -104,11 +159,6 @@ export default function Financeiro() {
   const [repeticao, setRepeticao] = useState(REPETICAO_VAZIA)
   const [removendo, setRemovendo] = useState(false)
 
-  // ---- Folha de pagamento ----
-  // A COMPETÊNCIA é o mês de trabalho, e não o mês em que o dinheiro sai: o
-  // vale de 28/09 e o salário pago em 05/10 são da mesma folha (setembro).
-  // Por isso ela tem navegação própria, independente do período do relatório.
-  const [competencia, setCompetencia] = useState(() => mesDe(hojeISO()))
   const [mostrarInativos, setMostrarInativos] = useState(false)
   const [formFuncionario, setFormFuncionario] = useState(null)
   const [excluirFunc, setExcluirFunc] = useState(null)
@@ -120,69 +170,48 @@ export default function Financeiro() {
   const hoje = hojeISO()
   const todos = lancamentos.list()
 
-  const entradas = todos.filter((l) => l.tipo === 'entrada')
-  const saidas = todos.filter((l) => l.tipo === 'saida')
-
-  const aReceber = entradas.filter((l) => l.status === 'previsto')
-  const aPagar = saidas.filter((l) => l.status === 'previsto')
-  const recebido = entradas.filter((l) => l.status === 'realizado')
-  const pago = saidas.filter((l) => l.status === 'realizado')
-
-  const soma = (lista) => lista.reduce((s, l) => s + Number(l.valor || 0), 0)
-  const saldoRealizado = soma(recebido) - soma(pago)
-  const saldoPrevisto = saldoRealizado + soma(aReceber) - soma(aPagar)
-
-  const vencidos = (lista) => lista.filter((l) => l.vencimento && l.vencimento < hoje)
-
-  // ---- Fluxo de caixa: os próximos 6 meses, mês a mês ----
-  const fluxo = useMemo(() => {
-    const meses = Array.from({ length: 6 }, (_, i) => somarMeses(hoje.slice(0, 8) + '01', i).slice(0, 7))
-    let acumulado = saldoRealizado
-    return meses.map((mes) => {
-      const doMes = todos.filter((l) => (l.vencimento || '').startsWith(mes))
-      const entra = soma(doMes.filter((l) => l.tipo === 'entrada'))
-      const sai = soma(doMes.filter((l) => l.tipo === 'saida'))
-      acumulado += entra - sai
-      return { mes, entra, sai, resultado: entra - sai, acumulado }
-    })
-  }, [todos, saldoRealizado, hoje])
-
-  const maiorMovimento = Math.max(1, ...fluxo.map((f) => Math.max(f.entra, f.sai)))
-
-  // ---- Relatório (com o período anterior lado a lado) ----
+  // ---- O período da tela ----
   //
   // O par (escala, âncora): a escala diz o tamanho da janela — semana, mês, ano
   // — e a âncora é um dia qualquer dentro dela. Navegar é mexer só na âncora.
+  // Trocar de escala NÃO mexe na âncora, de propósito: assim ir de Setembro
+  // para o Ano e voltar cai de novo em Setembro, e não em Janeiro.
   const [escala, setEscala] = useState('mensal')
   const [ancora, setAncora] = useState(() => hojeISO())
 
   const periodo = intervaloDoRelatorio(escala, ancora)
   const ancoraAnterior = andarNoRelatorio(escala, ancora, -1)
   const periodoAnterior = intervaloDoRelatorio(escala, ancoraAnterior)
+  const noPeriodoAtual = periodoEmCurso(escala, ancora, hoje)
+  const rotuloPeriodo = rotuloDoRelatorio(escala, ancora)
 
+  // A folha é sempre de um MÊS: no semanal e no anual vale o mês da âncora.
+  const competencia = mesDe(ancora)
+
+  const painel = useMemo(() => painelDoPeriodo(todos, periodo, hoje), [todos, periodo.de, periodo.ate, hoje])
+  const serie = useMemo(() => serieDoSaldo(todos, periodo, hoje), [todos, periodo.de, periodo.ate, hoje])
+  const fluxo = useMemo(() => fluxoDosMeses(todos, hoje, 6), [todos, hoje])
   const relatorio = useMemo(() => resumoDoPeriodo(todos, periodo), [todos, periodo.de, periodo.ate])
   const relatorioAnterior = useMemo(
     () => resumoDoPeriodo(todos, periodoAnterior),
     [todos, periodoAnterior.de, periodoAnterior.ate],
   )
-  const noPeriodoAtual = periodoEmCurso(escala, ancora, hoje)
-  const [baixandoPdf, setBaixandoPdf] = useState(false)
 
-  // Trocar de escala NÃO mexe na âncora, de propósito. Normalizá-la para o
-  // início do período novo parece inofensivo e não é: ir de Setembro para Anual
-  // levaria a âncora para 1º de janeiro, e voltar para Mensal cairia em Janeiro
-  // em vez de Setembro — você perde o lugar só de espiar o ano.
-  //
-  // Mantendo o dia, as três escalas são três janelas sobre o MESMO ponto no
-  // tempo, e ir e voltar entre elas não muda nada.
-  const trocarEscala = setEscala
+  // ---- Precisa de atenção: o vencido e o que vence nos próximos 7 dias ----
+  const limiteSemana = somarDias(hoje, 7)
+  const atencao = todos
+    .filter((l) => l.status === 'previsto' && l.vencimento && l.vencimento <= limiteSemana)
+    .sort((a, b) => a.vencimento.localeCompare(b.vencimento))
+  const atrasadosTodos = atencao.filter((l) => l.vencimento < hoje)
+
+  const [baixandoPdf, setBaixandoPdf] = useState(false)
 
   async function baixarRelatorio() {
     setBaixandoPdf(true)
     try {
       await gerarRelatorioPdf({
         rotuloEscala: ESCALAS_RELATORIO[escala],
-        rotuloPeriodo: rotuloDoRelatorio(escala, ancora),
+        rotuloPeriodo,
         emCurso: noPeriodoAtual,
         emitidoEm: hoje,
         resumo: relatorio,
@@ -211,6 +240,7 @@ export default function Financeiro() {
       notificar(`${criados.length} lançamentos criados.`)
     } else {
       await salvarLancamento(form)
+      notificar(form.id ? 'Alterações salvas.' : (form.tipo === 'entrada' ? 'Entrada lançada.' : 'Saída lançada.'))
     }
     setForm(null)
     setRepeticao(REPETICAO_VAZIA)
@@ -234,6 +264,7 @@ export default function Financeiro() {
         await removerDoFinanceiro(excluir)
       }
       setExcluir(null)
+      setForm(null)
     } catch (erro) {
       notificar('Não foi possível remover do financeiro: ' + (erro?.message || erro), 'erro')
     } finally {
@@ -298,14 +329,14 @@ export default function Financeiro() {
   }
 
   // Abre o formulário de lançamento já como vale (ou como o salário do mês) do
-  // funcionário — é o mesmo formulário de qualquer conta a pagar, só preenchido.
+  // funcionário — é o mesmo formulário de qualquer saída, só preenchido.
   function lancarNaFolha(funcionario, tipo, valorSugerido) {
     setRepeticao(REPETICAO_VAZIA)
     setForm({ ...FORM_VAZIO, ...lancamentoDaFolha(funcionario, competencia, { tipo, valor: valorSugerido }) })
   }
 
-  // A conta salário do funcionário escolhido NO FORMULÁRIO, na competência
-  // digitada lá — que não é necessariamente a que a aba Salários está vendo.
+  // A conta salário do funcionário escolhido NO FORMULÁRIO, no mês digitado
+  // lá — que não é necessariamente o que a aba Salários está vendo.
   const contaDoForm = useMemo(() => {
     if (!form?.funcionarioId) return null
     const f = funcionarios.get(form.funcionarioId)
@@ -338,7 +369,26 @@ export default function Financeiro() {
   const escolherFuncionarioNoForm = (e) =>
     setForm(comFuncionario(form, e.target.value ? funcionarios.get(e.target.value) : null))
 
-  // Abre o mesmo formulário do "Novo lançamento", já preenchido. Campos que só
+  // Novo lançamento: o botão já diz se é entrada ou saída.
+  function novo(tipo) {
+    setRepeticao(REPETICAO_VAZIA)
+    setForm({ ...FORM_VAZIO, tipo, categoria: tipo === 'entrada' ? 'outros' : 'fornecedor', vencimento: hojeISO() })
+  }
+
+  // Trocar entre entrada e saída no formulário leva junto uma categoria que
+  // exista do outro lado — "Aluguel" não é categoria de entrada.
+  function trocarTipo(tipo) {
+    if (tipo === form.tipo) return
+    setForm({
+      ...form,
+      tipo,
+      categoria: tipo === 'entrada' ? 'outros' : 'fornecedor',
+      funcionarioId: '',
+      competencia: '',
+    })
+  }
+
+  // Abre o mesmo formulário do novo lançamento, já preenchido. Campos que só
   // existem em lançamentos antigos (ou gerados) são normalizados para o form
   // controlado não trocar de "uncontrolled" para "controlled" no meio do caminho.
   function editar(l) {
@@ -358,7 +408,7 @@ export default function Financeiro() {
     })
   }
 
-  // Busca simples nas contas: descrição, categoria, forma, cliente e valor.
+  // ---- Movimentos do período ----
   const termo = busca.trim().toLowerCase()
   const combina = (l) => {
     if (!termo) return true
@@ -376,530 +426,875 @@ export default function Financeiro() {
     ].some((campo) => (campo || '').toString().toLowerCase().includes(termo))
   }
 
-  const listaDaAba = ({
-    receber: aReceber,
-    pagar: aPagar,
-    realizados: [...recebido, ...pago],
-  }[aba] ?? [])
+  // A data que conta para a ordem: o dia em que foi pago, ou o vencimento.
+  const dataDe = (l) => (l.status === 'realizado' ? l.dataPagamento : l.vencimento) || ''
+
+  // Três jeitos de ler a lista:
+  //   Geral      o que foi LANÇADO no período, na ordem em que foi lançado —
+  //              registrou uma entrada, ela aparece no topo; depois uma saída,
+  //              a saída fica em cima dela. É o "diário" do caixa.
+  //   Em aberto  o que falta pagar/receber, na ordem de vencimento (o atrasado
+  //              primeiro).
+  //   Pagos      o que de fato se moveu, do pagamento mais recente ao mais antigo.
+  const registroDe = (l) => String(l.criadoEm || '')
+  const lista = filtroSituacao === 'geral'
+    ? todos.filter((l) => {
+        // Sem data de registro (acabou de ser gravado e o banco ainda não
+        // devolveu), é de agora.
+        const dia = l.criadoEm ? diaLocal(l.criadoEm) : hoje
+        return dia >= periodo.de && dia <= periodo.ate
+      })
+    : movimentosDoPeriodo(todos, periodo, hoje)
+        .filter((l) => (filtroSituacao === 'pago' ? l.status === 'realizado' : l.status !== 'realizado'))
+  const movimentos = lista
+    .filter((l) => filtroTipo === 'todos' || l.tipo === filtroTipo)
     .filter(combina)
-    .sort((a, b) => (a.vencimento || '').localeCompare(b.vencimento || ''))
+    .sort((a, b) => {
+      if (filtroSituacao === 'geral') {
+        if (!a.criadoEm || !b.criadoEm) return (a.criadoEm ? 1 : 0) - (b.criadoEm ? 1 : 0)
+        return registroDe(b).localeCompare(registroDe(a))
+      }
+      if (filtroSituacao === 'aberto') return dataDe(a).localeCompare(dataDe(b))
+      return dataDe(b).localeCompare(dataDe(a)) || registroDe(b).localeCompare(registroDe(a))
+    })
 
-  const { visiveis: lancamentosDaPagina, barra } = usePaginacao(listaDaAba)
+  const { visiveis: movimentosDaPagina, barra } = usePaginacao(movimentos)
 
-  function Linha({ l }) {
-    const atrasado = l.status === 'previsto' && l.vencimento && l.vencimento < hoje
+  // No Geral a lista é separada pelo dia em que cada coisa foi lançada.
+  const rotuloDoRegistro = (l) => {
+    const dia = l.criadoEm ? diaLocal(l.criadoEm) : hoje
+    if (dia === hoje) return 'Lançado hoje'
+    if (dia === somarDias(hoje, -1)) return 'Lançado ontem'
+    return `Lançado em ${formatData(dia)}`
+  }
+
+  // O que aparece embaixo da descrição: de quem é e do que é.
+  function detalheDe(l) {
     const cliente = l.clienteId ? clientes.get(l.clienteId) : null
     const funcionario = l.funcionarioId ? funcionarios.get(l.funcionarioId) : null
     return (
-      <li className="py-3 flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-slate-900 flex items-center gap-1.5">
-            {atrasado && <IconAlert size={15} className="text-red-500 shrink-0" />}
-            {l.descricao || '(sem descrição)'}
-          </p>
-          <p className="text-xs text-slate-500 mt-0.5">
-            {l.status === 'realizado'
-              ? `Baixado em ${formatData(l.dataPagamento)}`
-              : `Vence em ${formatData(l.vencimento)}`}
-            {l.categoria ? ` · ${CATEGORIAS_SAIDA[l.categoria] ?? l.categoria}` : ''}
-            {l.formaPagamento ? ` · ${FORMAS_PAGAMENTO[l.formaPagamento] ?? l.formaPagamento}` : ''}
-            {cliente ? ' · ' : ''}
-            {cliente && (
-              <Link to={`/clientes/${cliente.id}`} className="hover:text-blue-600">{cliente.nome}</Link>
-            )}
-            {funcionario ? ` · ${funcionario.nome}` : ''}
-            {funcionario && l.competencia ? ` (folha ${l.competencia})` : ''}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className={`text-sm font-semibold tnum ${l.tipo === 'entrada' ? 'text-emerald-700' : 'text-red-600'}`}>
-            {l.tipo === 'entrada' ? '+' : '−'} {formatBRL(l.valor)}
-          </span>
-          {l.status === 'realizado' ? (
-            <Badge color="green">{l.tipo === 'entrada' ? 'Recebido' : 'Pago'}</Badge>
-          ) : (
-            <Badge color={atrasado ? 'red' : 'amber'}>
-              {atrasado ? 'Vencido' : (l.tipo === 'entrada' ? 'A receber' : 'A pagar')}
-            </Badge>
-          )}
-          <Button variant="ghost" onClick={() => alternarBaixa(l)}>
-            {l.status === 'realizado' ? 'Estornar' : 'Dar baixa'}
-          </Button>
-          <Button variant="ghost" onClick={() => editar(l)} title="Editar lançamento" aria-label="Editar lançamento">
-            <IconPencil size={15} />
-          </Button>
-          {/* Lançamentos vinculados também podem sair, mas a remoção age na
-              ORIGEM (desliga "Lançar no financeiro" lá) — apagar só a linha aqui
-              não adiantaria: a próxima gravação da venda/agendamento a recria. */}
-          <Button variant="danger" onClick={() => setExcluir(l)} title="Remover do financeiro">
-            <IconTrash size={15} />
-          </Button>
-        </div>
-      </li>
+      <>
+        {cliente && (
+          <>
+            <Link to={`/clientes/${cliente.id}`} className="hover:text-blue-600" onClick={(e) => e.stopPropagation()}>
+              {cliente.nome}
+            </Link>
+            {' · '}
+          </>
+        )}
+        {funcionario ? `${funcionario.nome} · ` : ''}
+        {nomeCategoria(l.categoria) || 'Sem categoria'}
+      </>
     )
   }
 
-  // Um funcionário na folha do mês: o salário dele, o que já foi lançado e o
-  // que sobra. É a "conta salário" — a conta inteira cabe numa linha:
-  //     salário − vales − salário já lançado = saldo
-  function LinhaFolha({ conta }) {
-    const f = conta.funcionario
-    const negativo = conta.saldo < -0.004
-    const fechada = Math.abs(conta.saldo) < 0.005
+  // Quando foi (ou quando vence), em palavras.
+  function quando(l) {
+    if (l.status === 'realizado') return `${l.tipo === 'entrada' ? 'Recebido' : 'Pago'} ${diaMes(l.dataPagamento)}`
+    if (l.vencimento < hoje) return `Venceu ${diaMes(l.vencimento)}`
+    if (l.vencimento === hoje) return 'Vence hoje'
+    return `Vence ${diaMes(l.vencimento)}`
+  }
+
+  function LinhaMovimento({ l }) {
+    const atrasado = l.status === 'previsto' && l.vencimento && l.vencimento < hoje
+    const entrada = l.tipo === 'entrada'
     return (
-      <li className="py-3">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-slate-900 flex items-center gap-2">
-              {f.nome || '(sem nome)'}
-              {f.ativo === false && <Badge>Desligado</Badge>}
-            </p>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {f.cargo || 'Sem função definida'} · Salário {formatBRL(f.salario)}
-              {f.diaPagamento ? ` · paga dia ${f.diaPagamento}` : ''}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" onClick={() => lancarNaFolha(f, 'vale')}>Lançar vale</Button>
-            <Button
-              variant="ghost"
-              onClick={() => lancarNaFolha(f, 'salario', conta.saldo > 0 ? conta.saldo.toFixed(2) : '')}
-            >
-              Pagar saldo
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => abrirCadastroFuncionario(f)}
-              title="Editar funcionário"
-              aria-label="Editar funcionário"
-            >
-              <IconPencil size={15} />
-            </Button>
-            <Button variant="danger" onClick={() => setExcluirFunc(f)} title="Excluir funcionário">
-              <IconTrash size={15} />
-            </Button>
-          </div>
-        </div>
-
-        {/* A conta, na ordem em que se faz de cabeça. */}
-        <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-          {[
-            ['Salário', formatBRL(conta.salario), 'text-slate-900'],
-            [`Vales (${conta.quantidadeVales})`, `− ${formatBRL(conta.vales)}`, 'text-amber-700'],
-            ['Salário lançado', `− ${formatBRL(conta.folha)}`, 'text-slate-600'],
-            ['Falta lançar', formatBRL(conta.saldo), negativo ? 'text-red-600' : (fechada ? 'text-emerald-700' : 'text-slate-900')],
-          ].map(([rotulo, valor, cor]) => (
-            <div key={rotulo} className="rounded-lg bg-slate-50 border border-slate-100 px-2.5 py-1.5">
-              <p className="text-[11px] text-slate-500">{rotulo}</p>
-              <p className={`tnum font-semibold ${cor}`}>{valor}</p>
-            </div>
-          ))}
-        </div>
-
-        {negativo && (
-          <p className="text-[11px] text-red-600 mt-1.5">
-            Já foi lançado {formatBRL(Math.abs(conta.saldo))} a mais do que o salário deste mês.
+      <li className="grid grid-cols-[2.25rem_minmax(0,1fr)_auto] sm:grid-cols-[2.25rem_minmax(0,1fr)_7rem_5.5rem_8.5rem] items-center gap-x-3 py-2.5">
+        <BotaoBaixa l={l} atrasado={atrasado} onClick={() => alternarBaixa(l)} />
+        <button
+          type="button"
+          onClick={() => editar(l)}
+          className="min-w-0 text-left cursor-pointer rounded-lg -mx-1.5 px-1.5 py-1 hover:bg-slate-100"
+          title="Abrir para editar"
+        >
+          <p className="text-sm font-semibold text-slate-900 truncate">{l.descricao || '(sem descrição)'}</p>
+          <p className="text-xs text-slate-500 truncate mt-0.5">{detalheDe(l)}</p>
+        </button>
+        <p className={`hidden sm:block text-xs font-medium ${atrasado ? 'text-red-600' : 'text-slate-500'}`}>{quando(l)}</p>
+        <p className="hidden sm:block text-xs text-slate-500">{FORMAS_PAGAMENTO[l.formaPagamento] ?? l.formaPagamento ?? ''}</p>
+        <div className="text-right">
+          <p className={`text-sm font-bold tnum ${entrada ? 'text-emerald-700' : 'text-slate-900'} ${l.status === 'realizado' ? '' : 'opacity-70'}`}>
+            {entrada ? '+' : '−'} {formatBRL(l.valor)}
           </p>
-        )}
-
-        {conta.lancamentos.length > 0 && (
-          <details className="mt-2">
-            <summary className="text-xs text-blue-700 cursor-pointer">
-              {conta.lancamentos.length} lançamento{conta.lancamentos.length === 1 ? '' : 's'} nesta folha
-              {' · '}{formatBRL(conta.pago)} já pago{conta.aPagar > 0 ? `, ${formatBRL(conta.aPagar)} em aberto` : ''}
-            </summary>
-            <ul className="mt-1.5 divide-y divide-slate-100 border-t border-slate-100">
-              {conta.lancamentos.map((l) => <Linha key={l.id} l={l} />)}
-            </ul>
-          </details>
-        )}
+          <p className={`sm:hidden text-[11px] font-medium ${atrasado ? 'text-red-600' : 'text-slate-500'}`}>{quando(l)}</p>
+        </div>
       </li>
     )
   }
+
+  // Um grupo de botões de filtro, do mesmo jeito em todo lugar da tela.
+  function Segmentos({ valor, opcoes, onChange, rotulo }) {
+    return (
+      <div role="group" aria-label={rotulo} className="inline-flex rounded-xl bg-slate-100 p-1">
+        {opcoes.map(([v, r]) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => onChange(v)}
+            aria-pressed={valor === v}
+            className={`rounded-lg px-3 py-1.5 text-xs font-semibold cursor-pointer transition-colors min-h-9 sm:min-h-0 ${
+              valor === v ? 'ui-card bg-white text-slate-900 shadow-sm ring-1 ring-slate-300' : 'text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            {r}
+          </button>
+        ))}
+      </div>
+    )
+  }
+
+  // ---- Os números do topo ----
+  const passado = !painel.finalPrevisto
+  const fimDoPeriodo = diaMes(periodo.ate)
 
   return (
     <Page>
       <PageTitle
-        subtitle="Entradas, saídas e o caixa dos próximos meses"
+        subtitle="O que entrou, o que saiu e como o caixa vai ficar"
         action={
-          <Button onClick={() => { setRepeticao(REPETICAO_VAZIA); setForm({ ...FORM_VAZIO }) }}>
-            <IconPlus size={16} /> Novo lançamento
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => novo('entrada')}>
+              <IconEntrada size={16} className="text-emerald-600" /> Entrada
+            </Button>
+            <Button onClick={() => novo('saida')}>
+              <IconSaida size={16} /> Saída
+            </Button>
+          </div>
         }
       >
         Financeiro
       </PageTitle>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-        <Resumo
-          icon={<IconWallet size={20} className="text-emerald-600" />}
-          iconBg="bg-emerald-50"
-          label="A receber"
-          value={formatBRL(soma(aReceber))}
-          hint={`${aReceber.length} conta(s) · ${vencidos(aReceber).length} vencida(s)`}
-        />
-        <Resumo
-          icon={<IconWallet size={20} className="text-red-600" />}
-          iconBg="bg-red-50"
-          label="A pagar"
-          value={formatBRL(soma(aPagar))}
-          hint={`${aPagar.length} conta(s) · ${vencidos(aPagar).length} vencida(s)`}
-        />
-        <Resumo
-          icon={<IconClock size={20} className="text-blue-600" />}
-          iconBg="bg-blue-50"
-          label="Saldo realizado"
-          value={formatBRL(saldoRealizado)}
-          hint="O que já entrou menos o que já saiu"
-        />
-        <Resumo
-          icon={<IconClock size={20} className="text-amber-600" />}
-          iconBg="bg-amber-50"
-          label="Saldo projetado"
-          value={formatBRL(saldoPrevisto)}
-          hint="Se tudo que está previsto se confirmar"
-        />
-      </div>
-
-      {/* Relatório — semanal, mensal ou anual, com download em PDF */}
-      <Card
-        className="mb-6"
-        title="Relatório"
-        action={
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <div className="w-28 shrink-0">
-              <select
-                className={inputCls + ' cursor-pointer'}
-                value={escala}
-                onChange={(e) => trocarEscala(e.target.value)}
-                aria-label="Escala do relatório"
-              >
-                {Object.entries(ESCALAS_RELATORIO).map(([v, r]) => <option key={v} value={v}>{r}</option>)}
-              </select>
-            </div>
-
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => setAncora(andarNoRelatorio(escala, ancora, -1))}
-                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 cursor-pointer"
-                aria-label="Período anterior"
-                title="Período anterior"
-              >
-                <IconChevronLeft size={16} />
-              </button>
-              <span className="text-sm font-semibold text-slate-900 min-w-[11rem] text-center first-letter:uppercase">
-                {rotuloDoRelatorio(escala, ancora)}
-              </span>
-              <button
-                type="button"
-                onClick={() => setAncora(andarNoRelatorio(escala, ancora, 1))}
-                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 cursor-pointer"
-                aria-label="Próximo período"
-                title="Próximo período"
-              >
-                <IconChevronRight size={16} />
-              </button>
-              {!noPeriodoAtual && (
-                <Button variant="ghost" onClick={() => setAncora(hoje)}>Hoje</Button>
-              )}
-            </div>
-
-            <Button variant="secondary" onClick={baixarRelatorio} disabled={baixandoPdf}>
-              <IconFileText size={16} /> {baixandoPdf ? 'Gerando…' : 'Baixar PDF'}
-            </Button>
-          </div>
-        }
-      >
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Números do mês, comparados com o mês anterior */}
-          <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1">
-            <div>
-              <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1 pb-1.5 border-b border-slate-100">
-                Entrou
-              </p>
-              <LinhaRelatorio
-                label="Recebido"
-                valor={relatorio.entradas.realizado}
-                anterior={relatorioAnterior.entradas.realizado}
-                cor="text-emerald-700"
-              />
-              <LinhaRelatorio
-                label="Ainda a receber no mês"
-                valor={relatorio.entradas.previsto}
-                anterior={relatorioAnterior.entradas.previsto}
-                cor="text-slate-500"
-              />
-            </div>
-
-            <div>
-              <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1 pb-1.5 border-b border-slate-100">
-                Saiu
-              </p>
-              <LinhaRelatorio
-                label="Pago"
-                valor={relatorio.saidas.realizado}
-                anterior={relatorioAnterior.saidas.realizado}
-                cor="text-red-600"
-                invertido
-              />
-              <LinhaRelatorio
-                label="Ainda a pagar no mês"
-                valor={relatorio.saidas.previsto}
-                anterior={relatorioAnterior.saidas.previsto}
-                cor="text-slate-500"
-                invertido
-              />
-            </div>
-
-            <div className="sm:col-span-2 mt-2 pt-3 border-t border-slate-200">
-              <LinhaRelatorio
-                label="Resultado do mês"
-                valor={relatorio.resultado}
-                anterior={relatorioAnterior.resultado}
-                cor={relatorio.resultado >= 0 ? 'text-emerald-700' : 'text-red-600'}
-                forte
-              />
-              <LinhaRelatorio
-                label={noPeriodoAtual ? 'Projeção de fechamento' : 'Resultado com o previsto'}
-                valor={relatorio.projetado}
-                anterior={relatorioAnterior.projetado}
-                cor="text-slate-500"
-              />
-              <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
-                O resultado conta o dinheiro que de fato se moveu no período (pela data da baixa).
-                O previsto conta o que vence nele e ainda está em aberto.
-                A comparação é com {rotuloDoRelatorio(escala, ancoraAnterior)}.
-              </p>
-            </div>
-          </div>
-
-          {/* Para onde foi o dinheiro */}
-          <div className="space-y-5">
-            <div>
-              <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-2">
-                Saídas por categoria
-              </p>
-              {relatorio.categorias.saidas.length === 0 ? (
-                <p className="text-xs text-slate-400">Nenhuma saída paga neste mês.</p>
-              ) : (
-                <ul className="space-y-2">
-                  {relatorio.categorias.saidas.map(({ categoria, total }) => (
-                    <li key={categoria}>
-                      <div className="flex items-center justify-between text-xs mb-1">
-                        <span className="text-slate-600">{nomeCategoria(categoria)}</span>
-                        <span className="tnum font-medium text-slate-900">{formatBRL(total)}</span>
-                      </div>
-                      <div className="h-1.5 rounded-full bg-slate-100" role="presentation">
-                        <div
-                          className="h-1.5 rounded-full bg-red-400"
-                          style={{ width: `${Math.round((total / Math.max(1, relatorio.saidas.realizado)) * 100)}%` }}
-                        />
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            <div>
-              <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-2">
-                Entradas por categoria
-              </p>
-              {relatorio.categorias.entradas.length === 0 ? (
-                <p className="text-xs text-slate-400">Nenhum recebimento neste mês.</p>
-              ) : (
-                <ul className="space-y-2">
-                  {relatorio.categorias.entradas.map(({ categoria, total }) => (
-                    <li key={categoria}>
-                      <div className="flex items-center justify-between text-xs mb-1">
-                        <span className="text-slate-600">{nomeCategoria(categoria)}</span>
-                        <span className="tnum font-medium text-slate-900">{formatBRL(total)}</span>
-                      </div>
-                      <div className="h-1.5 rounded-full bg-slate-100" role="presentation">
-                        <div
-                          className="h-1.5 rounded-full bg-emerald-400"
-                          style={{ width: `${Math.round((total / Math.max(1, relatorio.entradas.realizado)) * 100)}%` }}
-                        />
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
-        </div>
-      </Card>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          <div className="flex gap-2 mb-4 flex-wrap">
-            {[['receber', `A receber (${aReceber.length})`],
-              ['pagar', `A pagar (${aPagar.length})`],
-              ['realizados', `Realizados (${recebido.length + pago.length})`],
-              ['salarios', `Salários (${folha.contas.length})`]].map(([valor, rotulo]) => (
-              <button
-                key={valor}
-                onClick={() => setAba(valor)}
-                className={`rounded-full px-4 py-1.5 text-sm font-medium cursor-pointer ${
-                  aba === valor ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-                }`}
-              >
-                {rotulo}
-              </button>
-            ))}
-          </div>
-
-          {aba === 'salarios' ? (
-            <Card
-              title={`Folha de ${rotuloDoMes(competencia)}`}
-              action={
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setCompetencia(somarMesesNoMes(competencia, -1))}
-                      className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 cursor-pointer"
-                      aria-label="Mês anterior"
-                    >
-                      <IconChevronLeft size={16} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setCompetencia(somarMesesNoMes(competencia, 1))}
-                      className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 cursor-pointer"
-                      aria-label="Próximo mês"
-                    >
-                      <IconChevronRight size={16} />
-                    </button>
-                    {competencia !== mesDe(hoje) && (
-                      <Button variant="ghost" onClick={() => setCompetencia(mesDe(hoje))}>Mês atual</Button>
-                    )}
-                  </div>
-                  <Button onClick={() => abrirCadastroFuncionario()}>
-                    <IconPlus size={16} /> Novo funcionário
-                  </Button>
-                </div>
-              }
+      {/* O período: vale para a tela inteira. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+        <div className="flex flex-wrap items-center gap-2">
+          <Segmentos
+            rotulo="Tamanho do período"
+            valor={escala}
+            onChange={setEscala}
+            opcoes={Object.entries(ESCALAS_CURTAS)}
+          />
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setAncora(andarNoRelatorio(escala, ancora, -1))}
+              className="inline-flex min-h-11 min-w-11 sm:min-h-9 sm:min-w-9 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 cursor-pointer"
+              aria-label="Período anterior"
             >
-              {/* Os totais do mês inteiro, antes de descer ao nome a nome. */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-                {[
-                  ['Folha do mês', formatBRL(folha.total.salario), 'O somatório dos salários'],
-                  ['Vales', formatBRL(folha.total.vales), 'Adiantados neste mês'],
-                  ['Já pago', formatBRL(folha.total.pago), 'Baixas dadas na folha'],
-                  ['Falta lançar', formatBRL(folha.total.saldo), 'Salário ainda não lançado'],
-                ].map(([rotulo, valor, dica]) => (
-                  <div key={rotulo} className="rounded-xl border border-slate-200 p-3">
-                    <p className="text-[11px] font-medium text-slate-500">{rotulo}</p>
-                    <p className="text-lg font-bold text-slate-900 tnum mt-0.5">{valor}</p>
-                    <p className="text-[11px] text-slate-400">{dica}</p>
-                  </div>
-                ))}
-              </div>
+              <IconChevronLeft size={16} />
+            </button>
+            <span className="text-base font-bold text-slate-900 min-w-[9rem] text-center first-letter:uppercase">
+              {rotuloPeriodo}
+            </span>
+            <button
+              type="button"
+              onClick={() => setAncora(andarNoRelatorio(escala, ancora, 1))}
+              className="inline-flex min-h-11 min-w-11 sm:min-h-9 sm:min-w-9 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 cursor-pointer"
+              aria-label="Próximo período"
+            >
+              <IconChevronRight size={16} />
+            </button>
+            {!noPeriodoAtual && (
+              <Button variant="ghost" onClick={() => setAncora(hoje)}>Voltar para hoje</Button>
+            )}
+          </div>
+        </div>
+        <Button variant="secondary" onClick={baixarRelatorio} disabled={baixandoPdf}>
+          <IconFileText size={16} /> {baixandoPdf ? 'Gerando…' : 'Relatório em PDF'}
+        </Button>
+      </div>
 
-              {folha.contas.length === 0 ? (
-                // O botão fica AQUI, e não só no cabeçalho: é aqui que a pessoa
-                // está olhando quando descobre que a folha está vazia.
-                <div className="py-8 text-center">
-                  <p className="text-sm text-slate-500">
-                    {mostrarInativos
-                      ? 'Nenhum funcionário cadastrado ainda.'
-                      : 'Nenhum funcionário ativo na folha deste mês.'}
-                  </p>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Cadastre quem está na folha — nome, função e salário — para abrir a conta salário dele.
-                  </p>
-                  <div className="mt-4">
-                    <Button onClick={() => abrirCadastroFuncionario()}>
-                      <IconPlus size={16} /> Cadastrar funcionário
-                    </Button>
+      {/* Saldo + os três números do período */}
+      <div className="grid gap-4 2xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] mb-6">
+        <section className="ui-card bg-white rounded-2xl border border-slate-200 p-5 min-w-0">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-[13px] font-semibold text-slate-500">Em caixa hoje</p>
+              <p className={`text-3xl font-extrabold tracking-[-0.04em] tnum mt-1 ${painel.emCaixa < 0 ? 'text-red-600' : 'text-slate-900'}`}>
+                {formatBRL(painel.emCaixa)}
+              </p>
+              <p className="text-xs text-slate-500 mt-1">Tudo o que já entrou menos tudo o que já saiu</p>
+            </div>
+            <div className="flex items-center gap-3 text-[11px] text-slate-500">
+              <span className="flex items-center gap-1.5">
+                <span className="h-0.5 w-4 rounded bg-[var(--accent-blue)]" /> Real
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="h-0 w-4 border-t-2 border-dashed border-[var(--accent-blue)] opacity-70" /> Previsto
+              </span>
+            </div>
+          </div>
+          <div className="mt-3 min-w-0 overflow-hidden">
+            <GraficoSaldo
+              serie={serie}
+              formatar={formatBRL}
+              rotuloDia={(dia) => (escala === 'anual' ? mesCurto(dia.slice(0, 7)) : diaMes(dia))}
+            />
+          </div>
+        </section>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <CartaoNumero
+            tom="verde"
+            icone={<IconEntrada size={18} />}
+            rotulo="Entrou"
+            valor={formatBRL(painel.entrou)}
+            detalhe={painel.aReceber > 0 ? `+ ${formatBRL(painel.aReceber)} a receber` : 'Nada a receber'}
+          />
+          <CartaoNumero
+            tom="vermelho"
+            icone={<IconSaida size={18} />}
+            rotulo="Saiu"
+            valor={formatBRL(painel.saiu)}
+            detalhe={painel.aPagar > 0 ? `+ ${formatBRL(painel.aPagar)} a pagar` : 'Nada a pagar'}
+          />
+          <CartaoNumero
+            tom="azul"
+            icone={<IconWallet size={18} />}
+            rotulo={passado ? `Saldo em ${fimDoPeriodo}` : `Previsto p/ ${fimDoPeriodo}`}
+            valor={formatBRL(painel.saldoFinal)}
+            detalhe={passado ? 'Como o caixa fechou' : 'Se tudo em aberto se confirmar'}
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+        {/* Abas */}
+        <section className="ui-card bg-white rounded-2xl border border-slate-200 lg:col-span-2 order-2 lg:order-1 min-w-0">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-5">
+            <div role="tablist" aria-label="Seções do financeiro" className="flex flex-wrap gap-1">
+              {ABAS.map(([v, r]) => (
+                <button
+                  key={v}
+                  type="button"
+                  role="tab"
+                  aria-selected={aba === v}
+                  onClick={() => setAba(v)}
+                  className={`rounded-xl px-3.5 py-2 text-sm font-semibold cursor-pointer transition-colors ${
+                    aba === v ? 'bg-slate-900 text-slate-50' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
+                  }`}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+            {aba === 'salarios' && (
+              <Button variant="secondary" onClick={() => abrirCadastroFuncionario()}>
+                <IconPlus size={16} /> Funcionário
+              </Button>
+            )}
+          </div>
+
+          <div className="px-5 pb-5 pt-4">
+            {aba === 'movimentos' && (
+              <>
+                <div className="flex flex-wrap items-center gap-2 mb-3">
+                  <Segmentos
+                    rotulo="Tipo"
+                    valor={filtroTipo}
+                    onChange={setFiltroTipo}
+                    opcoes={[['todos', 'Tudo'], ['entrada', 'Entradas'], ['saida', 'Saídas']]}
+                  />
+                  <Segmentos
+                    rotulo="Situação"
+                    valor={filtroSituacao}
+                    onChange={setFiltroSituacao}
+                    opcoes={[['geral', 'Geral'], ['aberto', 'Em aberto'], ['pago', 'Pagos']]}
+                  />
+                  <div className="relative flex-1 min-w-[12rem]">
+                    <IconSearch size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    <input
+                      className={`${inputCls} pl-9`}
+                      type="search"
+                      value={busca}
+                      onChange={(e) => setBusca(e.target.value)}
+                      placeholder="Buscar descrição, cliente, valor…"
+                      aria-label="Buscar nos movimentos"
+                    />
                   </div>
                 </div>
-              ) : (
-                <ul className="divide-y divide-slate-100">
-                  {folha.contas.map((conta) => <LinhaFolha key={conta.funcionarioId} conta={conta} />)}
-                </ul>
+
+                <div className="hidden sm:grid grid-cols-[2.25rem_minmax(0,1fr)_7rem_5.5rem_8.5rem] gap-x-3 pb-2 border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                  <span />
+                  <span>Descrição</span>
+                  <span>Data</span>
+                  <span>Forma</span>
+                  <span className="text-right">Valor</span>
+                </div>
+
+                {movimentos.length === 0 ? (
+                  <Empty>
+                    {termo
+                      ? `Nada encontrado para “${busca.trim()}”.`
+                      : filtroSituacao === 'geral'
+                        ? `Nada foi lançado em ${rotuloPeriodo.toLowerCase()}.`
+                        : `Nada ${filtroSituacao === 'pago' ? 'pago' : 'em aberto'} em ${rotuloPeriodo.toLowerCase()}.`}
+                  </Empty>
+                ) : (
+                  <ul className="divide-y divide-slate-100">
+                    {movimentosDaPagina.map((l, i) => {
+                      const grupo = filtroSituacao === 'geral' ? rotuloDoRegistro(l) : null
+                      const abreGrupo = grupo && (i === 0 || rotuloDoRegistro(movimentosDaPagina[i - 1]) !== grupo)
+                      return abreGrupo ? (
+                        <li key={l.id} className="!border-t-0">
+                          <p className={`${i === 0 ? 'pt-3' : 'pt-5'} pb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-200`}>
+                            {grupo}
+                          </p>
+                          <ul><LinhaMovimento l={l} /></ul>
+                        </li>
+                      ) : <LinhaMovimento key={l.id} l={l} />
+                    })}
+                  </ul>
+                )}
+                <Paginacao {...barra} />
+              </>
+            )}
+
+            {aba === 'fluxo' && (
+              <>
+                <p className="text-sm text-slate-500 mb-4">
+                  Começa com os <span className="font-semibold text-slate-900 tnum">{formatBRL(painel.emCaixa)}</span> em
+                  caixa hoje e soma o que está em aberto em cada mês. O que já venceu e não foi pago entra no mês atual.
+                </p>
+                <GraficoFluxo meses={fluxo} formatar={formatBRL} rotuloMes={mesCurto} />
+                <div className="flex flex-wrap gap-4 text-[11px] text-slate-500 mt-2 mb-4">
+                  <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" /> Entra</span>
+                  <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-red-500" /> Sai</span>
+                  <span className="flex items-center gap-1.5"><span className="h-0.5 w-4 rounded bg-[var(--accent-blue)]" /> Saldo no fim do mês</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-200">
+                        <th className="text-left font-semibold py-2">Mês</th>
+                        <th className="text-right font-semibold py-2">Entra</th>
+                        <th className="text-right font-semibold py-2">Sai</th>
+                        <th className="text-right font-semibold py-2">Saldo no fim</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {fluxo.map((f) => (
+                        <tr key={f.mes}>
+                          <td className="py-2.5 font-medium text-slate-900 first-letter:uppercase">{rotuloDoMes(f.mes)}</td>
+                          <td className="py-2.5 text-right tnum text-emerald-700">{formatBRL(f.entra)}</td>
+                          <td className="py-2.5 text-right tnum text-slate-700">{formatBRL(f.sai)}</td>
+                          <td className={`py-2.5 text-right tnum font-bold ${f.acumulado < 0 ? 'text-red-600' : 'text-slate-900'}`}>
+                            {formatBRL(f.acumulado)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+
+            {aba === 'relatorio' && (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+                  {[
+                    ['Entrou', relatorio.entradas.realizado, relatorioAnterior.entradas.realizado, false],
+                    ['Saiu', relatorio.saidas.realizado, relatorioAnterior.saidas.realizado, true],
+                    ['Resultado', relatorio.resultado, relatorioAnterior.resultado, false],
+                  ].map(([rotulo, valor, anterior, invertido]) => (
+                    <div key={rotulo} className="rounded-xl border border-slate-200 p-3">
+                      <p className="text-[12px] font-semibold text-slate-500">{rotulo}</p>
+                      <p className={`text-lg font-extrabold tnum mt-0.5 ${rotulo === 'Resultado' && valor < 0 ? 'text-red-600' : 'text-slate-900'}`}>
+                        {formatBRL(valor)}
+                      </p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        <Variacao atual={valor} anterior={anterior} invertido={invertido} /> vs {rotuloDoRelatorio(escala, ancoraAnterior)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                  {[
+                    ['Para onde foi o dinheiro', relatorio.categorias.saidas, relatorio.saidas.realizado, 'bg-red-500', 'Nenhuma saída paga no período.'],
+                    ['De onde veio o dinheiro', relatorio.categorias.entradas, relatorio.entradas.realizado, 'bg-emerald-500', 'Nenhum recebimento no período.'],
+                  ].map(([titulo, lista, total, cor, vazio]) => (
+                    <div key={titulo}>
+                      <p className="text-sm font-semibold text-slate-900 mb-3">{titulo}</p>
+                      {lista.length === 0 ? (
+                        <p className="text-xs text-slate-400">{vazio}</p>
+                      ) : (
+                        <ul className="space-y-3">
+                          {lista.map(({ categoria, total: valor }) => (
+                            <li key={categoria}>
+                              <div className="flex items-center justify-between text-xs mb-1">
+                                <span className="text-slate-600">{nomeCategoria(categoria)}</span>
+                                <span className="tnum font-semibold text-slate-900">
+                                  {formatBRL(valor)}
+                                  <span className="text-slate-400 font-medium ml-1.5">
+                                    {Math.round((valor / Math.max(1, total)) * 100)}%
+                                  </span>
+                                </span>
+                              </div>
+                              <div className="h-1.5 rounded-full bg-slate-100" role="presentation">
+                                <div className={`h-1.5 rounded-full ${cor}`} style={{ width: `${Math.round((valor / Math.max(1, total)) * 100)}%` }} />
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {aba === 'salarios' && (
+              <>
+                <p className="text-sm text-slate-500 mb-4">
+                  Salários de <span className="font-semibold text-slate-900">{rotuloDoMes(competencia)}</span>
+                  {folha.contas.length > 0 && (
+                    <>
+                      {' · '}folha de <span className="tnum font-semibold text-slate-900">{formatBRL(folha.total.salario)}</span>
+                      {', '}falta pagar <span className={`tnum font-semibold ${folha.total.saldo < 0 ? 'text-red-600' : 'text-slate-900'}`}>{formatBRL(folha.total.saldo)}</span>
+                    </>
+                  )}
+                </p>
+
+                {folha.contas.length === 0 ? (
+                  <div className="py-8 text-center">
+                    <p className="text-sm text-slate-500">
+                      {mostrarInativos ? 'Nenhum funcionário cadastrado ainda.' : 'Nenhum funcionário ativo neste mês.'}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Cadastre nome e salário para o sistema calcular quanto falta pagar a cada um.
+                    </p>
+                    <div className="mt-4">
+                      <Button onClick={() => abrirCadastroFuncionario()}>
+                        <IconPlus size={16} /> Cadastrar funcionário
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="hidden sm:grid grid-cols-[minmax(0,1fr)_6.5rem_7rem_9.5rem] gap-x-3 pb-2 border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                      <span>Funcionário</span>
+                      <span className="text-right">Já pago</span>
+                      <span className="text-right">Falta</span>
+                      <span />
+                    </div>
+                    <ul className="divide-y divide-slate-100">
+                      {folha.contas.map((conta) => {
+                        const f = conta.funcionario
+                        const negativo = conta.saldo < -0.004
+                        const fechada = Math.abs(conta.saldo) < 0.005
+                        return (
+                          <li
+                            key={conta.funcionarioId}
+                            className="grid grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[minmax(0,1fr)_6.5rem_7rem_9.5rem] items-center gap-x-3 gap-y-2 py-3"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => abrirCadastroFuncionario(f)}
+                              className="min-w-0 text-left cursor-pointer rounded-lg -mx-1.5 px-1.5 py-1 hover:bg-slate-100"
+                              title="Editar funcionário"
+                            >
+                              <p className="text-sm font-semibold text-slate-900 truncate flex items-center gap-2">
+                                {f.nome || '(sem nome)'}
+                                {f.ativo === false && <Badge>Desligado</Badge>}
+                              </p>
+                              <p className="text-xs text-slate-500 leading-relaxed">
+                                {f.cargo || 'Sem função'} · salário {formatBRL(conta.salario)}
+                                {conta.vales > 0 && (
+                                  <span className="text-amber-700">
+                                    {' · '}{conta.quantidadeVales} vale{conta.quantidadeVales === 1 ? '' : 's'} de {formatBRL(conta.vales)}
+                                  </span>
+                                )}
+                              </p>
+                            </button>
+                            <span className="hidden sm:block text-right text-sm tnum text-slate-700">{formatBRL(conta.pago)}</span>
+                            <span
+                              className={`text-right text-sm tnum font-bold ${negativo ? 'text-red-600' : fechada ? 'text-emerald-700' : 'text-slate-900'}`}
+                              title={negativo ? `Já foi lançado ${formatBRL(Math.abs(conta.saldo))} a mais do que o salário` : ''}
+                            >
+                              {fechada ? 'Pago' : formatBRL(conta.saldo)}
+                            </span>
+                            <div className="col-span-2 sm:col-span-1 flex gap-1 justify-end">
+                              <Button variant="ghost" onClick={() => lancarNaFolha(f, 'vale')}>Vale</Button>
+                              <Button
+                                variant="secondary"
+                                disabled={conta.saldo <= 0.004}
+                                onClick={() => lancarNaFolha(f, 'salario', conta.saldo > 0 ? conta.saldo.toFixed(2) : '')}
+                              >
+                                Pagar
+                              </Button>
+                            </div>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </>
+                )}
+
+                <label className="flex items-center gap-2 text-xs text-slate-500 mt-4 pt-3 border-t border-slate-100">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 accent-slate-900"
+                    checked={mostrarInativos}
+                    onChange={(e) => setMostrarInativos(e.target.checked)}
+                  />
+                  Mostrar também os desligados
+                </label>
+              </>
+            )}
+          </div>
+        </section>
+
+        {/* Precisa de atenção — o que pede ação hoje, fora de qualquer período. */}
+        <section
+          className={`rounded-2xl border p-5 order-1 lg:order-2 ${
+            atrasadosTodos.length ? 'bg-red-50 border-red-200' : 'ui-card bg-white border-slate-200'
+          }`}
+        >
+          <div className="flex items-start gap-3">
+            <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
+              atrasadosTodos.length ? 'bg-red-500 text-[var(--btn-primary-fg)]' : 'bg-slate-100 text-slate-500'
+            }`}>
+              <IconAlert size={18} />
+            </span>
+            <div>
+              <h3 className="text-base font-bold text-slate-900">Precisa de atenção</h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {atencao.length === 0
+                  ? 'Nada vencido nem vencendo nos próximos 7 dias.'
+                  : [
+                      atrasadosTodos.length ? `${atrasadosTodos.length} vencido${atrasadosTodos.length === 1 ? '' : 's'}` : '',
+                      atencao.length - atrasadosTodos.length
+                        ? `${atencao.length - atrasadosTodos.length} vence${atencao.length - atrasadosTodos.length === 1 ? '' : 'm'} em até 7 dias`
+                        : '',
+                    ].filter(Boolean).join(' · ')}
+              </p>
+            </div>
+          </div>
+
+          {atencao.length > 0 && (
+            <ul className="mt-4 space-y-1">
+              {atencao.slice(0, 8).map((l) => {
+                const atrasado = l.vencimento < hoje
+                return (
+                  <li key={l.id} className="flex items-center gap-3 py-1.5">
+                    <BotaoBaixa l={l} atrasado={atrasado} onClick={() => alternarBaixa(l)} />
+                    <button type="button" onClick={() => editar(l)} className="min-w-0 flex-1 text-left cursor-pointer">
+                      <p className="text-sm font-semibold text-slate-900 truncate">{l.descricao || '(sem descrição)'}</p>
+                      <p className={`text-[11px] font-medium ${atrasado ? 'text-red-600' : 'text-slate-500'}`}>{quando(l)}</p>
+                    </button>
+                    <span className={`text-sm font-bold tnum shrink-0 ${l.tipo === 'entrada' ? 'text-emerald-700' : 'text-slate-900'}`}>
+                      {l.tipo === 'entrada' ? '+' : '−'} {formatBRL(l.valor)}
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+          {atencao.length > 8 && (
+            <p className="text-xs text-slate-500 mt-2">
+              E mais {atencao.length - 8}. Veja todos em Movimentos, filtrando por “Em aberto”.
+            </p>
+          )}
+        </section>
+      </div>
+
+      {/* Enquanto o cadastro de funcionário (ou a confirmação de exclusão) está
+          por cima, o Esc é dele: sem isto, uma tecla fecharia os dois e o
+          lançamento digitado se perderia. */}
+      <Modal
+        title={form?.id
+          ? (form.tipo === 'entrada' ? 'Editar entrada' : 'Editar saída')
+          : (form?.tipo === 'entrada' ? 'Nova entrada' : 'Nova saída')}
+        open={!!form}
+        onClose={() => { if (!formFuncionario && !excluir) setForm(null) }}
+      >
+        {form && (() => {
+          const vinculado = !!(form.vendaId || form.agendamentoId)
+          const pago = form.status === 'realizado'
+          const verbo = form.tipo === 'entrada' ? 'recebido' : 'pago'
+          const mesFolha = form.competencia || competenciaDe(form)
+          // Um lançamento igual a outro que já existe (tipo, valor, descrição e
+          // vencimento) quase sempre é o mesmo digitado duas vezes. Avisa, mas
+          // deixa salvar: duas compras iguais no mesmo dia também acontecem.
+          const chave = (t) => String(t || '').trim().toUpperCase()
+          const repetido = !form.id && form.descricao && Number(form.valor) > 0
+            ? todos.find((l) => l.tipo === form.tipo
+                && Math.round(Number(l.valor) * 100) === Math.round(Number(form.valor) * 100)
+                && chave(l.descricao) === chave(form.descricao)
+                && l.vencimento === form.vencimento)
+            : null
+          return (
+            <form onSubmit={salvar} className="space-y-4">
+              {/* Editar aqui vale para JÁ; a origem continua sendo a fonte de
+                  verdade e recalcula valor, vencimento e parcelas na próxima vez
+                  que for salva. Melhor o usuário saber disso antes de digitar. */}
+              {vinculado && (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed">
+                  Veio d{form.agendamentoId ? 'e um agendamento' : 'e uma venda'}. Se {form.agendamentoId ? 'o agendamento' : 'a venda'} for
+                  salvo de novo, valor e datas voltam a ser calculados de lá.
+                </p>
               )}
 
-              <label className="flex items-center gap-2 text-xs text-slate-500 mt-4 pt-3 border-t border-slate-100">
-                <input
-                  type="checkbox"
-                  className="w-4 h-4 accent-slate-900"
-                  checked={mostrarInativos}
-                  onChange={(e) => setMostrarInativos(e.target.checked)}
+              {!vinculado && (
+                <Segmentos
+                  rotulo="Tipo do lançamento"
+                  valor={form.tipo}
+                  onChange={trocarTipo}
+                  opcoes={[['entrada', 'Entrada'], ['saida', 'Saída']]}
                 />
-                Mostrar também os desligados (eles continuam na folha dos meses em que trabalharam)
-              </label>
-            </Card>
-          ) : (
-            <>
-              <div className="relative mb-4">
-                <IconSearch size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="Valor (R$)">
+                  <InputNumero className={inputCls} step="0.01" min="0" required value={form.valor} onChange={set('valor')} autoFocus={!form.id} />
+                </Field>
+                <Field label="Vencimento">
+                  <input className={inputCls} type="date" required value={form.vencimento} onChange={set('vencimento')} />
+                </Field>
+              </div>
+              <Field label="Descrição">
                 <input
-                  className={`${inputCls} pl-9`}
-                  type="search"
-                  value={busca}
-                  onChange={(e) => setBusca(e.target.value)}
-                  placeholder="Buscar por descrição, cliente, funcionário, categoria ou valor"
-                  aria-label="Buscar nas contas"
+                  className={inputCls}
+                  required
+                  placeholder={form.tipo === 'entrada' ? 'ex.: Manutenção avulsa — cliente X' : 'ex.: Compra de refis — fornecedor X'}
+                  value={form.descricao}
+                  onChange={set('descricao')}
                 />
+              </Field>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="Categoria">
+                  <select className={inputCls} value={form.categoria} onChange={set('categoria')}>
+                    {Object.entries(form.tipo === 'saida' ? CATEGORIAS_SAIDA : CATEGORIAS_ENTRADA)
+                      .map(([v, r]) => <option key={v} value={v}>{r}</option>)}
+                  </select>
+                </Field>
+                <Field label="Forma de pagamento">
+                  <select className={inputCls} value={form.formaPagamento} onChange={set('formaPagamento')}>
+                    {Object.entries(FORMAS_PAGAMENTO).map(([v, r]) => <option key={v} value={v}>{r}</option>)}
+                  </select>
+                </Field>
               </div>
 
-              <Card>
-                {listaDaAba.length === 0 && (
-                  <Empty>{termo ? `Nada encontrado para “${busca.trim()}”.` : 'Nada por aqui.'}</Empty>
-                )}
-                <ul className="divide-y divide-slate-100">
-                  {lancamentosDaPagina.map((l) => <Linha key={l.id} l={l} />)}
-                </ul>
-                <Paginacao {...barra} />
-              </Card>
-            </>
-          )}
-        </div>
+              {form.categoria === 'ajuste' && (
+                <p className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 leading-relaxed">
+                  Ajuste de saldo acerta o caixa com o extrato do banco. Ele muda o &ldquo;Em caixa&rdquo;, mas não
+                  conta como {form.tipo === 'entrada' ? 'faturamento' : 'despesa'} nos relatórios.
+                </p>
+              )}
 
-        <Card title="Fluxo de caixa — próximos 6 meses">
-          <ul className="space-y-4">
-            {fluxo.map((f) => {
-              const [ano, mes] = f.mes.split('-')
-              const rotulo = new Date(Number(ano), Number(mes) - 1, 1)
-                .toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' })
-              return (
-                <li key={f.mes}>
-                  <div className="flex items-center justify-between text-sm mb-1.5">
-                    <span className="text-slate-600 first-letter:uppercase">{rotulo}</span>
-                    <span className={`font-semibold tnum ${f.resultado >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
-                      {f.resultado >= 0 ? '+' : '−'} {formatBRL(Math.abs(f.resultado))}
-                    </span>
+              {/* SALÁRIO E VALE — a saída tem dono e mês. O vale é abatido do
+                  salário daquele mês em vez de virar despesa nova. */}
+              {form.tipo === 'saida' && daFolha(form.categoria) && (
+                <div className="rounded-xl border border-slate-200 p-3 space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Field label="Funcionário">
+                      <select className={inputCls} required value={form.funcionarioId || ''} onChange={escolherFuncionarioNoForm}>
+                        <option value="">Selecione…</option>
+                        {funcionarios
+                          .list()
+                          .filter((f) => f.ativo !== false || f.id === form.funcionarioId)
+                          .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'))
+                          .map((f) => (
+                            <option key={f.id} value={f.id}>{f.nome}{f.cargo ? ` — ${f.cargo}` : ''}</option>
+                          ))}
+                      </select>
+                    </Field>
+                    <Field label="Salário de qual mês">
+                      <input className={inputCls} type="month" value={mesFolha} onChange={set('competencia')} />
+                    </Field>
                   </div>
-                  <div className="space-y-1" role="presentation">
-                    <div className="h-1.5 rounded-full bg-slate-100">
-                      <div
-                        className="h-1.5 rounded-full bg-emerald-400"
-                        style={{ width: `${Math.round((f.entra / maiorMovimento) * 100)}%` }}
-                      />
+
+                  {contaDoForm ? (() => {
+                    const valor = Number(form.valor || 0)
+                    const depois = contaDoForm.saldo - valor
+                    const passou = depois < -0.004
+                    return (
+                      <p className={`text-xs leading-relaxed ${passou ? 'text-red-600' : 'text-slate-500'}`}>
+                        Salário de {formatBRL(contaDoForm.salario)} em {rotuloDoMes(mesFolha)}
+                        {contaDoForm.vales > 0 ? `, ${formatBRL(contaDoForm.vales)} em vales` : ''}.{' '}
+                        {valor > 0
+                          ? <>Depois deste, falta <span className="font-semibold tnum">{formatBRL(depois)}</span>.</>
+                          : <>Falta <span className="font-semibold tnum">{formatBRL(contaDoForm.saldo)}</span>.</>}
+                        {passou && ' Passa do salário do mês — dá para salvar, mas confira.'}{' '}
+                        <button
+                          type="button"
+                          className="text-blue-700 font-semibold cursor-pointer hover:underline"
+                          onClick={() => abrirCadastroFuncionario(funcionarios.get(form.funcionarioId), true)}
+                        >
+                          Alterar salário
+                        </button>
+                      </p>
+                    )
+                  })() : (
+                    <button
+                      type="button"
+                      className="text-xs text-blue-700 font-semibold cursor-pointer hover:underline"
+                      onClick={() => abrirCadastroFuncionario(null, true)}
+                    >
+                      + Cadastrar funcionário
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Pago ou em aberto: um interruptor, e a data só quando importa. */}
+              <div className="rounded-xl bg-slate-100 px-3 py-2.5 flex flex-wrap items-center justify-between gap-3">
+                <label className="flex items-center gap-2.5 text-sm font-semibold text-slate-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 accent-emerald-500"
+                    checked={pago}
+                    onChange={(e) => setForm({
+                      ...form,
+                      status: e.target.checked ? 'realizado' : 'previsto',
+                      // Sem data de pagamento o caixa não saberia QUANDO o dinheiro
+                      // se moveu: assume o vencimento (ou hoje).
+                      dataPagamento: e.target.checked ? (form.dataPagamento || form.vencimento || hoje) : '',
+                    })}
+                  />
+                  Já foi {verbo}
+                </label>
+                {pago && (
+                  <label className="flex items-center gap-2 text-xs text-slate-500">
+                    em
+                    <input
+                      className={`${inputCls} !w-auto !py-1.5`}
+                      type="date"
+                      value={form.dataPagamento}
+                      onChange={set('dataPagamento')}
+                      aria-label={`Data em que foi ${verbo}`}
+                    />
+                  </label>
+                )}
+              </div>
+
+              <details className="group" open={!!form.observacoes || repeticao.ativo || undefined}>
+                <summary className="text-sm font-semibold text-blue-700 cursor-pointer select-none list-none flex items-center gap-1">
+                  <IconChevronRight size={14} className="transition-transform group-open:rotate-90" />
+                  Mais opções
+                  <span className="font-normal text-slate-400">{form.id ? '(observações)' : '(repetir todo mês, observações)'}</span>
+                </summary>
+                <div className="space-y-4 mt-3">
+                  {!form.id && (
+                    <div className="rounded-xl border border-slate-200 p-3 space-y-3">
+                      <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                        <input
+                          type="checkbox"
+                          className="w-4 h-4 accent-slate-900"
+                          checked={repeticao.ativo}
+                          onChange={(e) => setRepeticao({ ...repeticao, ativo: e.target.checked })}
+                        />
+                        Repetir todo mês (parcelado ou conta fixa)
+                      </label>
+                      {repeticao.ativo && (
+                        <>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <Field label="Quantas vezes">
+                              <InputNumero
+                                className={inputCls}
+                                min="2" max="360" step="1"
+                                value={repeticao.vezes}
+                                onChange={(e) => setRepeticao({ ...repeticao, vezes: e.target.value })}
+                              />
+                            </Field>
+                            <Field label="O valor digitado é">
+                              <select
+                                className={inputCls}
+                                value={repeticao.dividir ? 'total' : 'parcela'}
+                                onChange={(e) => setRepeticao({ ...repeticao, dividir: e.target.value === 'total' })}
+                              >
+                                <option value="parcela">De cada parcela</option>
+                                <option value="total">O total, a dividir</option>
+                              </select>
+                            </Field>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <Field label="Parcelas já pagas">
+                              <InputNumero
+                                className={inputCls}
+                                min="0" max="359" step="1"
+                                value={repeticao.jaPagas}
+                                onChange={(e) => setRepeticao({ ...repeticao, jaPagas: e.target.value })}
+                              />
+                            </Field>
+                            {Number(repeticao.jaPagas) > 0 && (
+                              <Field label="As já pagas">
+                                <select
+                                  className={inputCls}
+                                  value={repeticao.lancarPagas ? 'lancar' : 'ignorar'}
+                                  onChange={(e) => setRepeticao({ ...repeticao, lancarPagas: e.target.value === 'lancar' })}
+                                >
+                                  <option value="ignorar">Não lançar</option>
+                                  <option value="lancar">Lançar como pagas</option>
+                                </select>
+                              </Field>
+                            )}
+                          </div>
+                          {/* O vencimento é sempre o da 1ª parcela: é dele que sai o
+                              calendário inteiro. A prévia diz as duas pontas. */}
+                          <p className="text-xs text-slate-500 leading-relaxed">
+                            {(() => {
+                              const n = Math.max(2, Math.min(360, Number(repeticao.vezes) || 2))
+                              const pagas = Math.min(Math.max(0, Number(repeticao.jaPagas) || 0), n - 1)
+                              const valor = Number(form.valor || 0)
+                              const cada = repeticao.dividir ? valor / n : valor
+                              const total = repeticao.dividir ? valor : valor * n
+                              const linhas = [
+                                `${n}× de ${formatBRL(cada)} = ${formatBRL(total)}.`,
+                                `A 1ª vence em ${formatData(form.vencimento)} e a ${n}ª em ${formatData(somarMeses(form.vencimento, n - 1))}.`,
+                              ]
+                              if (pagas > 0) {
+                                linhas.push(
+                                  `Em aberto: da ${pagas + 1}ª à ${n}ª (${formatBRL(cada * (n - pagas))}).`,
+                                  repeticao.lancarPagas
+                                    ? `As ${pagas} já pagas entram como pagas, cada uma no seu mês.`
+                                    : `As ${pagas} já pagas não serão lançadas.`,
+                                )
+                              }
+                              return linhas.join(' ')
+                            })()}
+                          </p>
+                        </>
+                      )}
                     </div>
-                    <div className="h-1.5 rounded-full bg-slate-100">
-                      <div
-                        className="h-1.5 rounded-full bg-red-400"
-                        style={{ width: `${Math.round((f.sai / maiorMovimento) * 100)}%` }}
-                      />
-                    </div>
-                  </div>
-                  <p className="text-[11px] text-slate-400 mt-1 tnum">
-                    Acumulado: {formatBRL(f.acumulado)}
-                  </p>
-                </li>
-              )
-            })}
-          </ul>
-          <p className="text-[11px] text-slate-400 mt-4 pt-3 border-t border-slate-100">
-            Barra verde: entradas previstas no mês. Barra vermelha: saídas.
-            O acumulado parte do saldo já realizado.
-          </p>
-        </Card>
-      </div>
+                  )}
+                  <Field label="Observações">
+                    <textarea className={inputCls} rows="2" value={form.observacoes} onChange={set('observacoes')} />
+                  </Field>
+                </div>
+              </details>
+
+              {repetido && (
+                <p className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed" role="status">
+                  <IconAlert size={15} className="shrink-0 mt-px" />
+                  <span>
+                    Já existe um lançamento igual: <span className="font-semibold">{repetido.descricao.trim()}</span>,{' '}
+                    {formatBRL(repetido.valor)}, vencimento {formatData(repetido.vencimento)}
+                    {repetido.status === 'realizado' ? ` (já ${repetido.tipo === 'entrada' ? 'recebido' : 'pago'})` : ''}.
+                    Se não for o mesmo, pode salvar.
+                  </span>
+                </p>
+              )}
+
+              <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2 pt-2">
+                <div>
+                  {form.id && (
+                    <Button type="button" variant="danger" onClick={() => setExcluir(lancamentos.get(form.id) || form)}>
+                      {vinculado ? 'Remover do financeiro' : 'Excluir'}
+                    </Button>
+                  )}
+                </div>
+                <div className="flex flex-col-reverse sm:flex-row gap-2">
+                  <Button type="button" variant="secondary" onClick={() => { setForm(null); setRepeticao(REPETICAO_VAZIA) }}>Cancelar</Button>
+                  <Button type="submit">{repetido ? 'Salvar mesmo assim' : 'Salvar'}</Button>
+                </div>
+              </div>
+            </form>
+          )
+        })()}
+      </Modal>
 
       <Modal
         title={excluir?.origem === 'manual' ? 'Excluir lançamento' : 'Remover do financeiro'}
@@ -935,13 +1330,13 @@ export default function Financeiro() {
                     {pagos.length > 0 && (
                       <li className="px-3 py-2 flex justify-between gap-3">
                         <span>{pagos.length} já recebida{pagos.length === 1 ? '' : 's'}</span>
-                        <span className="font-medium text-emerald-700">vira{pagos.length === 1 ? '' : 'm'} lançamento manual</span>
+                        <span className="font-medium text-emerald-700">continua{pagos.length === 1 ? '' : 'm'} no caixa</span>
                       </li>
                     )}
                   </ul>
                   {pagos.length > 0 && (
                     <p className="text-xs text-slate-400">
-                      Dinheiro que já entrou continua no histórico e no relatório do mês; só deixa de ser
+                      Dinheiro que já entrou continua no histórico e no relatório; só deixa de ser
                       recalculado a partir de {origem}.
                     </p>
                   )}
@@ -960,265 +1355,6 @@ export default function Financeiro() {
         })()}
       </Modal>
 
-      {/* Enquanto o cadastro de funcionário está por cima, o Esc é dele: sem
-          isto, uma tecla fecharia os dois e o lançamento digitado se perderia. */}
-      <Modal
-        title={form?.id ? 'Editar lançamento' : 'Novo lançamento'}
-        open={!!form}
-        onClose={() => { if (!formFuncionario) setForm(null) }}
-      >
-        {form && (
-          <form onSubmit={salvar} className="space-y-4">
-            {/* Editar aqui vale para JÁ; a origem continua sendo a fonte de
-                verdade e recalcula valor, vencimento e parcelas na próxima vez
-                que for salva. Melhor o usuário saber disso antes de digitar. */}
-            {(form.vendaId || form.agendamentoId) && (
-              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed">
-                Este lançamento vem d{form.agendamentoId ? 'e um agendamento' : 'e uma venda'}.
-                A edição vale agora, mas se {form.agendamentoId ? 'o agendamento' : 'a venda'} for
-                salvo de novo, valor, vencimento e parcelas voltam a ser calculados de lá.
-              </p>
-            )}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Field label="Tipo">
-                <select
-                  className={inputCls}
-                  value={form.tipo}
-                  onChange={set('tipo')}
-                  disabled={!!(form.vendaId || form.agendamentoId)}
-                >
-                  <option value="saida">Saída (conta a pagar)</option>
-                  <option value="entrada">Entrada (a receber)</option>
-                </select>
-              </Field>
-              <Field label="Valor (R$)">
-                <InputNumero className={inputCls} step="0.01" min="0" required value={form.valor} onChange={set('valor')} />
-              </Field>
-            </div>
-            <Field label="Descrição">
-              <input className={inputCls} required placeholder="ex.: Compra de refis — fornecedor X" value={form.descricao} onChange={set('descricao')} />
-            </Field>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Field label="Categoria">
-                <select className={inputCls} value={form.categoria} onChange={set('categoria')}>
-                  {form.tipo === 'saida'
-                    ? Object.entries(CATEGORIAS_SAIDA).map(([v, r]) => <option key={v} value={v}>{r}</option>)
-                    : [['venda', 'Venda'], ['servico', 'Serviço'], ['outros', 'Outros']].map(([v, r]) => (
-                        <option key={v} value={v}>{r}</option>
-                      ))}
-                </select>
-              </Field>
-              <Field label="Forma de pagamento">
-                <select className={inputCls} value={form.formaPagamento} onChange={set('formaPagamento')}>
-                  {Object.entries(FORMAS_PAGAMENTO).map(([v, r]) => <option key={v} value={v}>{r}</option>)}
-                </select>
-              </Field>
-            </div>
-
-            {/* CONTA SALÁRIO — aparece quando a saída é da folha (vale ou o
-                salário em si). O vale continua sendo uma conta a pagar normal:
-                a diferença é que ele tem dono e competência, e por isso é
-                abatido do salário daquele mês em vez de virar despesa nova. */}
-            {form.tipo === 'saida' && daFolha(form.categoria) && (
-              <div className="rounded-lg border border-slate-200 p-3 space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Field label="Funcionário">
-                    <select className={inputCls} required value={form.funcionarioId || ''} onChange={escolherFuncionarioNoForm}>
-                      <option value="">Selecione o funcionário…</option>
-                      {funcionarios
-                        .list()
-                        .filter((f) => f.ativo !== false || f.id === form.funcionarioId)
-                        .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'))
-                        .map((f) => (
-                          <option key={f.id} value={f.id}>
-                            {f.nome}{f.cargo ? ` — ${f.cargo}` : ''} ({formatBRL(f.salario)})
-                          </option>
-                        ))}
-                    </select>
-                  </Field>
-                  <Field label="Competência (de qual salário sai)">
-                    <input
-                      className={inputCls}
-                      type="month"
-                      value={form.competencia || competenciaDe(form)}
-                      onChange={set('competencia')}
-                    />
-                  </Field>
-                </div>
-
-                {/* Sem sair do lançamento: cadastra e volta já escolhido. */}
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button type="button" variant="secondary" onClick={() => abrirCadastroFuncionario(null, true)}>
-                    <IconPlus size={16} /> Cadastrar funcionário
-                  </Button>
-                  {form.funcionarioId && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => abrirCadastroFuncionario(funcionarios.get(form.funcionarioId), true)}
-                    >
-                      <IconPencil size={15} /> Alterar o salário dele
-                    </Button>
-                  )}
-                  {funcionarios.list().length === 0 && (
-                    <span className="text-xs text-slate-500">
-                      Nenhum funcionário cadastrado ainda.
-                    </span>
-                  )}
-                </div>
-
-                {contaDoForm && (() => {
-                  const valor = Number(form.valor || 0)
-                  const depois = contaDoForm.saldo - valor
-                  return (
-                    <>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                        {[
-                          ['Salário', formatBRL(contaDoForm.salario), 'text-slate-900'],
-                          [`Vales (${contaDoForm.quantidadeVales})`, `− ${formatBRL(contaDoForm.vales)}`, 'text-amber-700'],
-                          ['Salário lançado', `− ${formatBRL(contaDoForm.folha)}`, 'text-slate-600'],
-                          ['Disponível', formatBRL(contaDoForm.saldo), contaDoForm.saldo < 0 ? 'text-red-600' : 'text-slate-900'],
-                        ].map(([rotulo, v, cor]) => (
-                          <div key={rotulo} className="rounded-lg bg-slate-50 border border-slate-100 px-2.5 py-1.5">
-                            <p className="text-[11px] text-slate-500">{rotulo}</p>
-                            <p className={`tnum font-semibold ${cor}`}>{v}</p>
-                          </div>
-                        ))}
-                      </div>
-                      <p className={`text-xs ${depois < -0.004 ? 'text-red-600' : 'text-slate-500'}`}>
-                        {valor > 0
-                          ? `Depois deste lançamento sobram ${formatBRL(depois)} do salário de ${rotuloDoMes(form.competencia || competenciaDe(form))}.`
-                          : `Restam ${formatBRL(contaDoForm.saldo)} do salário de ${rotuloDoMes(form.competencia || competenciaDe(form))}.`}
-                        {depois < -0.004 && ' O lançamento passa do salário do mês — dá para salvar assim mesmo, mas confira.'}
-                      </p>
-                    </>
-                  )
-                })()}
-              </div>
-            )}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Field label="Vencimento">
-                <input className={inputCls} type="date" required value={form.vencimento} onChange={set('vencimento')} />
-              </Field>
-              <Field label="Situação">
-                <select
-                  className={inputCls}
-                  value={form.status}
-                  onChange={(e) => setForm({
-                    ...form,
-                    status: e.target.value,
-                    // Dar baixa sem data de pagamento deixaria o caixa sem saber
-                    // QUANDO o dinheiro se moveu; assume o vencimento.
-                    dataPagamento: e.target.value === 'realizado'
-                      ? (form.dataPagamento || form.vencimento || hoje)
-                      : '',
-                  })}
-                >
-                  <option value="previsto">Previsto</option>
-                  <option value="realizado">Já {form.tipo === 'entrada' ? 'recebido' : 'pago'}</option>
-                </select>
-              </Field>
-            </div>
-            {form.status === 'realizado' && (
-              <Field label="Data do pagamento">
-                <input className={inputCls} type="date" value={form.dataPagamento} onChange={set('dataPagamento')} />
-              </Field>
-            )}
-            {!form.id && (
-              <div className="rounded-lg border border-slate-200 p-3 space-y-3">
-                <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                  <input
-                    type="checkbox"
-                    className="w-4 h-4 accent-slate-900"
-                    checked={repeticao.ativo}
-                    onChange={(e) => setRepeticao({ ...repeticao, ativo: e.target.checked })}
-                  />
-                  Repetir todo mês (parcelado / conta fixa)
-                </label>
-                {repeticao.ativo && (
-                  <>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <Field label="Quantas vezes">
-                        <InputNumero
-                          className={inputCls}
-                          min="2" max="360" step="1"
-                          value={repeticao.vezes}
-                          onChange={(e) => setRepeticao({ ...repeticao, vezes: e.target.value })}
-                        />
-                      </Field>
-                      <Field label="O valor informado é">
-                        <select
-                          className={inputCls}
-                          value={repeticao.dividir ? 'total' : 'parcela'}
-                          onChange={(e) => setRepeticao({ ...repeticao, dividir: e.target.value === 'total' })}
-                        >
-                          <option value="parcela">O valor de cada parcela</option>
-                          <option value="total">O total, a dividir entre as parcelas</option>
-                        </select>
-                      </Field>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <Field label="Parcelas já pagas">
-                        <InputNumero
-                          className={inputCls}
-                          min="0" max="359" step="1"
-                          value={repeticao.jaPagas}
-                          onChange={(e) => setRepeticao({ ...repeticao, jaPagas: e.target.value })}
-                        />
-                      </Field>
-                      {Number(repeticao.jaPagas) > 0 && (
-                        <Field label="As já pagas">
-                          <select
-                            className={inputCls}
-                            value={repeticao.lancarPagas ? 'lancar' : 'ignorar'}
-                            onChange={(e) => setRepeticao({ ...repeticao, lancarPagas: e.target.value === 'lancar' })}
-                          >
-                            <option value="ignorar">Não lançar — só o que falta pagar</option>
-                            <option value="lancar">Lançar como pagas (entra no histórico)</option>
-                          </select>
-                        </Field>
-                      )}
-                    </div>
-                    {/* O vencimento é sempre o da 1ª parcela: é dele que sai o
-                        calendário inteiro. Como isso não é óbvio numa dívida que
-                        já vinha correndo, a prévia diz as duas datas. */}
-                    <p className="text-xs text-slate-500 leading-relaxed">
-                      {(() => {
-                        const n = Math.max(2, Math.min(360, Number(repeticao.vezes) || 2))
-                        const pagas = Math.min(Math.max(0, Number(repeticao.jaPagas) || 0), n - 1)
-                        const valor = Number(form.valor || 0)
-                        const cada = repeticao.dividir ? valor / n : valor
-                        const total = repeticao.dividir ? valor : valor * n
-                        const linhas = [
-                          `${n}× de ${formatBRL(cada)} = ${formatBRL(total)}.`,
-                          `A 1ª parcela vence em ${formatData(form.vencimento)} e a ${n}ª em ${formatData(somarMeses(form.vencimento, n - 1))}.`,
-                        ]
-                        if (pagas > 0) {
-                          linhas.push(
-                            `Em aberto: da ${pagas + 1}ª à ${n}ª (${n - pagas} lançamentos, ${formatBRL(cada * (n - pagas))}), a partir de ${formatData(somarMeses(form.vencimento, pagas))}.`,
-                            repeticao.lancarPagas
-                              ? `As ${pagas} já pagas entram como realizadas, cada uma no mês em que venceu.`
-                              : `As ${pagas} já pagas não serão lançadas.`,
-                          )
-                        }
-                        return linhas.join(' ')
-                      })()}
-                    </p>
-                  </>
-                )}
-              </div>
-            )}
-            <Field label="Observações">
-              <textarea className={inputCls} rows="2" value={form.observacoes} onChange={set('observacoes')} />
-            </Field>
-            <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="secondary" onClick={() => { setForm(null); setRepeticao(REPETICAO_VAZIA) }}>Cancelar</Button>
-              <Button type="submit">Salvar</Button>
-            </div>
-          </form>
-        )}
-      </Modal>
-
       {/* Cadastro do funcionário: quem é, o que faz e quanto ganha. O salário
           pode ser alterado a qualquer momento — passa a valer da folha em que
           for digitado em diante; os meses já lançados não mudam. */}
@@ -1233,7 +1369,7 @@ export default function Financeiro() {
               <input className={inputCls} required value={formFuncionario.nome} onChange={setFunc('nome')} />
             </Field>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Field label="Função / cargo">
+              <Field label="Função">
                 <input
                   className={inputCls}
                   placeholder="ex.: Técnico instalador"
@@ -1273,7 +1409,7 @@ export default function Financeiro() {
                   value={formFuncionario.ativo === false ? 'inativo' : 'ativo'}
                   onChange={(e) => setFormFuncionario({ ...formFuncionario, ativo: e.target.value === 'ativo' })}
                 >
-                  <option value="ativo">Ativo (entra na folha do mês)</option>
+                  <option value="ativo">Ativo</option>
                   <option value="inativo">Desligado</option>
                 </select>
               </Field>
@@ -1283,22 +1419,35 @@ export default function Financeiro() {
             </Field>
             {formFuncionario.id && (
               <p className="text-xs text-slate-500 leading-relaxed">
-                Mudar o salário vale da folha atual em diante. Os vales e pagamentos já lançados
-                continuam como estão — é o que mantém os meses fechados fechados.
+                Mudar o salário vale do mês atual em diante. O que já foi lançado não muda.
               </p>
             )}
-            <div className="flex justify-end gap-2 pt-2">
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => { setFormFuncionario(null); setCadastroVoltaAoLancamento(false) }}
-                disabled={salvandoFuncionario}
-              >
-                Cancelar
-              </Button>
-              <Button type="submit" disabled={salvandoFuncionario}>
-                {salvandoFuncionario ? 'Salvando…' : 'Salvar'}
-              </Button>
+            <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2 pt-2">
+              <div>
+                {formFuncionario.id && !cadastroVoltaAoLancamento && (
+                  <Button
+                    type="button"
+                    variant="danger"
+                    onClick={() => { setExcluirFunc(formFuncionario); setFormFuncionario(null) }}
+                    disabled={salvandoFuncionario}
+                  >
+                    Excluir
+                  </Button>
+                )}
+              </div>
+              <div className="flex flex-col-reverse sm:flex-row gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => { setFormFuncionario(null); setCadastroVoltaAoLancamento(false) }}
+                  disabled={salvandoFuncionario}
+                >
+                  Cancelar
+                </Button>
+                <Button type="submit" disabled={salvandoFuncionario}>
+                  {salvandoFuncionario ? 'Salvando…' : 'Salvar'}
+                </Button>
+              </div>
             </div>
           </form>
         )}
@@ -1315,9 +1464,9 @@ export default function Financeiro() {
                 ) : (
                   <>
                     <span className="font-semibold text-slate-900">{excluirFunc.nome}</span> tem{' '}
-                    {doFuncionario.length} lançamento{doFuncionario.length === 1 ? '' : 's'} no caixa, então ele será{' '}
-                    <span className="font-medium text-slate-900">desligado</span> em vez de excluído: sai da folha
-                    do mês, mas o dinheiro que já saiu continua no histórico e nos relatórios.
+                    {doFuncionario.length} lançamento{doFuncionario.length === 1 ? '' : 's'} no caixa, então será{' '}
+                    <span className="font-medium text-slate-900">desligado</span> em vez de excluído: sai da folha,
+                    mas o dinheiro que já saiu continua no histórico e nos relatórios.
                   </>
                 )}
               </p>

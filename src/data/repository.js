@@ -14,7 +14,7 @@ import {
   normalizarPagamentos, pagamentosDaCondicao, planoDePagamentos,
   resumoDosPagamentos, diferencaDosPagamentos, taxaDe, formatBRL, resolverPagamentos,
   competenciaDe, daFolha, folhaDoMes, somarMesesNoMes,
-  CATEGORIA_VALE, CATEGORIA_SALARIO,
+  CATEGORIA_VALE, CATEGORIA_SALARIO, ehAjuste,
 } from './financeiro.js'
 
 // Reexportados: as telas importam tudo do repositório.
@@ -29,6 +29,7 @@ export {
 export {
   contaSalario, folhaDoMes, competenciaDe, daFolha,
   CATEGORIA_SALARIO, CATEGORIA_VALE, CATEGORIAS_DA_FOLHA,
+  CATEGORIA_AJUSTE, ehAjuste,
 } from './financeiro.js'
 
 const TABELAS = [
@@ -425,6 +426,8 @@ export const CATEGORIAS_SAIDA = {
   veiculo: 'Veículo e combustível',
   marketing: 'Marketing',
   outros: 'Outros',
+  // Acerta o caixa com o extrato; não conta como despesa (ver CATEGORIA_AJUSTE).
+  ajuste: 'Ajuste de saldo',
 }
 
 // formatBRL mora em financeiro.js (ver a reexportação no topo).
@@ -2377,10 +2380,10 @@ export function resumoDoDia(dia) {
   const vendasFechadas = vendas.list().filter((v) => v.status === 'confirmada' && em(v.data))
   const recebidos = lancamentos
     .list()
-    .filter((l) => l.tipo === 'entrada' && l.status === 'realizado' && em(l.dataPagamento))
+    .filter((l) => l.tipo === 'entrada' && l.status === 'realizado' && em(l.dataPagamento) && !ehAjuste(l))
   const pagos = lancamentos
     .list()
-    .filter((l) => l.tipo === 'saida' && l.status === 'realizado' && em(l.dataPagamento))
+    .filter((l) => l.tipo === 'saida' && l.status === 'realizado' && em(l.dataPagamento) && !ehAjuste(l))
 
   // Os retornos que você deixou marcados a partir do que fez hoje: a medida de
   // quantos clientes saíram do dia com um próximo passo definido.

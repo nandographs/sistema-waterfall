@@ -94,8 +94,10 @@ export function resumoDoPeriodo(lista, { de, ate } = {}) {
     return !!dia && dia >= de && dia <= ate
   }
 
-  const realizados = (lista || []).filter((l) => l.status === 'realizado' && dentro(l.dataPagamento))
-  const previstos = (lista || []).filter((l) => l.status === 'previsto' && dentro(l.vencimento))
+  // O ajuste de saldo não é movimento do negócio (ver CATEGORIA_AJUSTE).
+  const doNegocio = (lista || []).filter((l) => !ehAjuste(l))
+  const realizados = doNegocio.filter((l) => l.status === 'realizado' && dentro(l.dataPagamento))
+  const previstos = doNegocio.filter((l) => l.status === 'previsto' && dentro(l.vencimento))
 
   const doTipo = (arr, tipo) => arr.filter((l) => l.tipo === tipo)
   const entradasR = doTipo(realizados, 'entrada')
@@ -129,6 +131,161 @@ export function resumoDoPeriodo(lista, { de, ate } = {}) {
       previstos: [...previstos].sort(porData('vencimento')),
     },
   }
+}
+
+// ---------------------------------------------------------------- ajuste
+//
+// "Ajuste de saldo" é o lançamento que acerta o caixa com o extrato do banco
+// (dinheiro que entrou ou saiu e nunca foi lançado, taxa esquecida…). Ele MEXE
+// no saldo, mas não é faturamento nem despesa: fica fora de "entrou", "saiu",
+// do resultado e do relatório por categoria — senão um acerto de R$ 25 mil
+// apareceria como o maior gasto do mês.
+export const CATEGORIA_AJUSTE = 'ajuste'
+export const ehAjuste = (l) => l?.categoria === CATEGORIA_AJUSTE
+
+// ---------------------------------------------------------------- painel
+//
+// Tudo o que a tela do Financeiro mostra sai de UMA regra só, para os números
+// sempre fecharem entre si:
+//
+//   o saldo num dia D é
+//     D até hoje   →  o que de fato entrou menos o que saiu até D (pela baixa);
+//     D no futuro  →  o saldo de hoje + o que está em aberto e vence até D.
+//
+// Em aberto e vencido conta como "hoje" na projeção: é dinheiro que ainda vai
+// entrar ou sair, não some só porque passou da data.
+
+const sinal = (l) => (l.tipo === 'saida' ? -1 : 1)
+const centavosDoLancamento = (l) => Math.round(Number(l.valor || 0) * 100)
+const diaDe = (iso) => String(iso || '').slice(0, 10)
+
+// Saldo (em reais) em um dia qualquer, pela regra acima.
+export function saldoEm(lista, dia, hoje = hojeISO()) {
+  const alvo = diaDe(dia)
+  // Até onde vale o dinheiro que de fato se moveu: o próprio dia, ou hoje se
+  // o dia ainda não chegou (baixa com data futura não conta antes da hora).
+  const limiteReal = alvo < hoje ? alvo : hoje
+  let centavos = 0
+  for (const l of lista || []) {
+    if (l.status === 'realizado') {
+      const pago = diaDe(l.dataPagamento)
+      if (pago && pago <= limiteReal) centavos += sinal(l) * centavosDoLancamento(l)
+    } else if (alvo > hoje && diaDe(l.vencimento) <= alvo) {
+      centavos += sinal(l) * centavosDoLancamento(l)
+    }
+  }
+  return centavos / 100
+}
+
+// Os dias (ou fins de mês, no ano) em que o gráfico do saldo marca um ponto.
+function pontosDoPeriodo({ de, ate }) {
+  const pontos = []
+  const [ya, ma] = de.split('-').map(Number)
+  const [yb, mb] = ate.split('-').map(Number)
+  const meses = (yb - ya) * 12 + (mb - ma)
+  if (meses >= 2) {
+    // Período longo (o ano): um ponto por fim de mês.
+    for (let i = 0; i <= meses; i++) {
+      const inicio = somarMeses(`${de.slice(0, 7)}-01`, i)
+      const [y, m] = inicio.split('-').map(Number)
+      const fim = `${inicio.slice(0, 8)}${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`
+      pontos.push(fim > ate ? ate : fim)
+    }
+    return pontos
+  }
+  for (let d = de; d <= ate; d = somarUmDia(d)) pontos.push(d)
+  return pontos
+}
+
+function somarUmDia(iso) {
+  const [y, m, d] = iso.split('-').map(Number)
+  const dt = new Date(y, m - 1, d + 1)
+  const p = (n) => String(n).padStart(2, '0')
+  return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}`
+}
+
+// A linha do gráfico de saldo de um período. `previsto` marca os pontos depois
+// de hoje — a tela desenha esse trecho tracejado.
+export function serieDoSaldo(lista, periodo, hoje = hojeISO()) {
+  return pontosDoPeriodo(periodo).map((dia) => ({
+    dia,
+    saldo: saldoEm(lista, dia, hoje),
+    previsto: dia > hoje,
+  }))
+}
+
+// Os lançamentos que pertencem a um período, do jeito que o extrato mostra:
+// o que foi pago, pela data do pagamento; o que está em aberto, pelo vencimento.
+//
+// Quando o período inclui hoje, o que está em aberto e VENCIDO de antes também
+// entra — continua sendo conta do agora, e é o que faz "a receber" e "a pagar"
+// do painel fecharem com o saldo previsto.
+export function movimentosDoPeriodo(lista, { de, ate }, hoje = hojeISO()) {
+  const emCurso = de <= hoje && hoje <= ate
+  return (lista || []).filter((l) => {
+    if (l.status === 'realizado') {
+      const dia = diaDe(l.dataPagamento)
+      return !!dia && dia >= de && dia <= ate
+    }
+    const venc = diaDe(l.vencimento)
+    if (venc >= de && venc <= ate) return true
+    return emCurso && venc < de
+  })
+}
+
+// Os números do topo do Financeiro para um período.
+//
+//   emCaixa      o saldo de hoje (não depende do período)
+//   entrou/saiu  o que de fato se moveu no período
+//   aReceber/aPagar  o que está em aberto no período (e o vencido, se é o atual)
+//   saldoFinal   o saldo no último dia do período — real se já passou,
+//                previsto se ainda vai chegar
+//
+// No período atual vale sempre: emCaixa + aReceber − aPagar = saldoFinal.
+export function painelDoPeriodo(lista, periodo, hoje = hojeISO()) {
+  const movs = movimentosDoPeriodo(lista, periodo, hoje)
+  // Ajuste mexe no caixa (emCaixa, saldoFinal) mas não é entrada nem saída.
+  const soma = (tipo, status) => movs
+    .filter((l) => l.tipo === tipo && l.status === status && !ehAjuste(l))
+    .reduce((s, l) => s + centavosDoLancamento(l), 0) / 100
+  const atrasados = movs.filter((l) => l.status === 'previsto' && diaDe(l.vencimento) < hoje)
+
+  return {
+    emCaixa: saldoEm(lista, hoje, hoje),
+    entrou: soma('entrada', 'realizado'),
+    saiu: soma('saida', 'realizado'),
+    aReceber: soma('entrada', 'previsto'),
+    aPagar: soma('saida', 'previsto'),
+    saldoFinal: saldoEm(lista, periodo.ate, hoje),
+    finalPrevisto: periodo.ate > hoje,
+    ajustes: movs.filter((l) => ehAjuste(l) && l.status === 'realizado')
+      .reduce((s, l) => s + sinal(l) * centavosDoLancamento(l), 0) / 100,
+    atrasados: atrasados.length,
+  }
+}
+
+// Fluxo de caixa dos próximos meses, a partir do mês de `hoje`.
+//
+// Parte do saldo de hoje e soma só o que está EM ABERTO — o que já foi pago já
+// está no saldo. O vencido fica no primeiro mês, para não sumir da projeção.
+export function fluxoDosMeses(lista, hoje = hojeISO(), quantos = 6) {
+  const primeiro = hoje.slice(0, 7)
+  const abertos = (lista || []).filter((l) => l.status === 'previsto')
+  let acumulado = Math.round(saldoEm(lista, hoje, hoje) * 100)
+
+  return Array.from({ length: quantos }, (_, i) => {
+    const mes = somarMesesNoMes(primeiro, i)
+    let entra = 0
+    let sai = 0
+    for (const l of abertos) {
+      const venc = String(l.vencimento || '').slice(0, 7)
+      if (i === 0 ? venc > mes : venc !== mes) continue
+      if (l.tipo === 'saida') sai += centavosDoLancamento(l)
+      else entra += centavosDoLancamento(l)
+    }
+    acumulado += entra - sai
+    return { mes, entra: entra / 100, sai: sai / 100, resultado: (entra - sai) / 100, acumulado: acumulado / 100 }
+  })
 }
 
 // Variação percentual de um mês para o outro. Sem base anterior não existe
@@ -182,9 +339,18 @@ export function normalizarPagamentos(pagamentos) {
       // Taxa da maquininha (%), só no cartão. A chave só existe quando há taxa,
       // para uma forma sem taxa continuar exatamente como era gravada antes.
       ...(taxaDe(p) > 0 ? { taxa: taxaDe(p) } : {}),
+      // Cartão parcelado ANTECIPADO: a operadora paga tudo de uma vez. Mesma
+      // regra da taxa — a chave só existe quando vale, para o que já estava
+      // gravado continuar idêntico.
+      ...(antecipado(p) ? { antecipado: true } : {}),
     }))
     .filter((p) => p.valor > 0)
 }
+
+// Antecipação só existe no cartão parcelado: à vista já cai de uma vez, e Pix
+// ou boleto não têm operadora para antecipar.
+export const antecipado = (p) =>
+  !!p?.antecipado && p?.forma === 'cartao' && !p?.entrada && Math.max(1, Number(p?.parcelas || 1)) > 1
 
 // A taxa (%) que a operadora cobra sobre um pagamento. Só cartão tem taxa:
 // trocar a forma para Pix não pode deixar uma taxa esquecida para trás.
@@ -200,7 +366,8 @@ export function taxaDe(p) {
 // parcela, igual ao plano, para os dois números nunca discordarem no centavo.
 export function totalDasTaxas(pagamentos) {
   const centavos = normalizarPagamentos(pagamentos).reduce(
-    (soma, p) => soma + dividirCentavos(Math.round(p.valor * 100), p.parcelas)
+    // Antecipado: um repasse só, e a taxa é sobre ele inteiro — igual ao plano.
+    (soma, p) => soma + dividirCentavos(Math.round(p.valor * 100), p.antecipado ? 1 : p.parcelas)
       .reduce((s, c) => s + Math.round((c * taxaDe(p)) / 100), 0),
     0,
   )
@@ -313,6 +480,20 @@ export function planoDePagamentos({
   const linhas = []
   for (const pg of lista) {
     const inicio = pg.primeiroVencimento || data
+    // Antecipado vira UM recebimento: o valor inteiro, numa data só. Doze
+    // linhas "recebidas" com vencimentos até o ano que vem era o que tornava o
+    // caixa impossível de conferir com o extrato.
+    if (pg.antecipado) {
+      const rotulo = rotularForma ? (FORMAS_PAGAMENTO[pg.forma] ?? pg.forma) : ''
+      linhas.push({
+        sufixo: `(${[`${pg.parcelas}x antecipado`, rotulo].filter(Boolean).join(' · ')})`,
+        centavos: Math.round(pg.valor * 100),
+        vencimento: inicio || '',
+        forma: pg.forma,
+        taxa: taxaDe(pg),
+      })
+      continue
+    }
     dividirCentavos(Math.round(pg.valor * 100), pg.parcelas).forEach((centavos, i) => {
       const marca = pg.entrada ? 'entrada' : (pg.parcelas > 1 ? `${i + 1}/${pg.parcelas}` : '')
       const rotulo = rotularForma ? (FORMAS_PAGAMENTO[pg.forma] ?? pg.forma) : ''

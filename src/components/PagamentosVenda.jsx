@@ -60,6 +60,30 @@ export function CampoTaxa({ pagamento, valorResolvido, onChange }) {
   )
 }
 
+// Cartão parcelado: a operadora repassa mês a mês, ou tudo de uma vez
+// (antecipação). Marcado, a venda gera UM recebimento líquido na data da venda
+// em vez de uma parcela por mês — ver planoDePagamentos.
+export function CampoAntecipado({ pagamento, travado, onChange }) {
+  const parcelas = Math.max(1, Number(pagamento.parcelas || 1))
+  if (pagamento.forma !== 'cartao' || parcelas < 2) return null
+  return (
+    <label className={`col-span-full flex items-start gap-2 text-xs ${travado ? 'text-slate-400' : 'text-slate-600 cursor-pointer'}`}>
+      <input
+        type="checkbox"
+        className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600"
+        checked={!!pagamento.antecipado}
+        disabled={travado}
+        onChange={(e) => onChange({ antecipado: e.target.checked })}
+      />
+      <span>
+        <span className="font-semibold text-slate-700">Antecipado</span> — a operadora paga as {parcelas} parcelas de uma vez.
+        Entra um recebimento só, já sem a taxa.
+        {travado && ' (Esta venda já tem parcela recebida; para mudar, estorne as baixas primeiro.)'}
+      </span>
+    </label>
+  )
+}
+
 export const PAGAMENTO_VAZIO = {
   forma: FORMA_PADRAO, valor: '', parcelas: 1, primeiroVencimento: '', entrada: false,
 }
@@ -86,7 +110,7 @@ export function pagamentosIniciais(venda, total) {
     : [{ ...PAGAMENTO_VAZIO, forma: venda?.formaPagamento || FORMA_PADRAO }]
 }
 
-export default function PagamentosVenda({ pagamentos, onChange, total }) {
+export default function PagamentosVenda({ pagamentos, onChange, total, antecipacaoTravada = false }) {
   // O que será de fato gravado — com o campo em branco já resolvido. É sobre
   // ISSO que a conferência da soma fala, senão ela acusaria falta num plano que
   // na verdade fecha.
@@ -262,6 +286,11 @@ export default function PagamentosVenda({ pagamentos, onChange, total }) {
                   onChange={(campos) => alterar(indice, campos)}
                 />
               )}
+              <CampoAntecipado
+                pagamento={pg}
+                travado={antecipacaoTravada}
+                onChange={(campos) => alterar(indice, campos)}
+              />
             </div>
           )
         })}
