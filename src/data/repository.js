@@ -1619,9 +1619,8 @@ export function folhaDaCompetencia(competencia, { incluirInativos = false } = {}
 // diferente de lançamento, é uma saída com dono e competência.
 export function lancamentoDaFolha(funcionario, competencia, { tipo = 'vale', valor = '' } = {}) {
   const vale = tipo === 'vale'
-  // Salário vence no dia combinado do mês seguinte à competência (é assim que
-  // se paga: setembro cai em outubro); vale vence hoje, porque é dinheiro que
-  // sai na hora em que se pede.
+  // Salário vence no dia combinado do próprio mês (ver vencimentoDoSalario);
+  // vale vence hoje, porque é dinheiro que sai na hora em que se pede.
   const vencimento = vale ? hojeISO() : vencimentoDoSalario(funcionario, competencia)
 
   return {

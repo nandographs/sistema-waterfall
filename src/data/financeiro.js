@@ -720,10 +720,10 @@ export function folhaDoMes(listaFuncionarios, lista, competencia) {
 }
 
 // O dia em que o salário de uma competência vence: o dia combinado com o
-// funcionário, no mês SEGUINTE (setembro se paga em outubro). Dia 31 num mês
-// de 30 cai no último dia — "2026-11-31" não é data.
+// funcionário, no PRÓPRIO mês (o salário de setembro se paga em 20/09). Dia 31
+// num mês de 30 cai no último dia — "2026-11-31" não é data.
 export function vencimentoDoSalario(funcionario, competencia) {
-  const mes = somarMesesNoMes(competencia, 1)
+  const mes = String(competencia || '').slice(0, 7)
   const [y, m] = mes.split('-').map(Number)
   const ultimo = new Date(y, m, 0).getDate()
   const dia = Math.min(ultimo, Math.max(1, Number(funcionario?.diaPagamento || 5)))
