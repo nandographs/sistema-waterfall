@@ -28,17 +28,22 @@ export function soDigitos(texto) {
 }
 
 // Tira o sufixo do JID do WhatsApp: '5547991234567@s.whatsapp.net' -> dígitos.
-// Grupos ('...@g.us') e status ('status@broadcast') devolvem '' — quem chama
-// decide o que fazer, mas nenhum dos dois é um telefone.
+// Grupos ('...@g.us'), status ('status@broadcast') e LID ('...@lid') devolvem
+// '' — quem chama decide o que fazer, mas nenhum dos três é um telefone.
 export function jidParaNumero(jid) {
   const texto = String(jid ?? '')
   if (!texto) return ''
-  if (ehGrupo(texto) || ehStatus(texto)) return ''
+  if (ehGrupo(texto) || ehStatus(texto) || ehLid(texto)) return ''
   return soDigitos(texto.split('@')[0].split(':')[0])
 }
 
 export const ehGrupo = (jid) => String(jid ?? '').includes('@g.us')
 export const ehStatus = (jid) => String(jid ?? '').startsWith('status@')
+// LID: identificador interno que o WhatsApp passou a usar no lugar do telefone
+// em algumas conversas. Parece número e não é — ler os dígitos como telefone
+// foi o que criou a conversa fantasma "74384874193115". O telefone de verdade
+// vem à parte no evento (SenderAlt / RecipientAlt).
+export const ehLid = (jid) => String(jid ?? '').endsWith('@lid')
 
 // Telefone do cadastro -> E.164 sem o '+': 5547991234567.
 //

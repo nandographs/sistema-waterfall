@@ -18,12 +18,15 @@ export const soDigitos = (texto: unknown): string =>
 
 export const ehGrupo = (jid: unknown): boolean => String(jid ?? '').includes('@g.us')
 export const ehStatus = (jid: unknown): boolean => String(jid ?? '').startsWith('status@')
+// LID: identificador interno que o WhatsApp usa no lugar do telefone em algumas
+// conversas. Ver a cópia em src/lib/telefone.js.
+export const ehLid = (jid: unknown): boolean => String(jid ?? '').endsWith('@lid')
 
 // '5547991234567:63@s.whatsapp.net' -> '5547991234567'
 // O sufixo ':63' é o número do aparelho pareado; não faz parte do telefone.
 export function jidParaNumero(jid: unknown): string {
   const texto = String(jid ?? '')
-  if (!texto || ehGrupo(texto) || ehStatus(texto)) return ''
+  if (!texto || ehGrupo(texto) || ehStatus(texto) || ehLid(texto)) return ''
   return soDigitos(texto.split('@')[0].split(':')[0])
 }
 

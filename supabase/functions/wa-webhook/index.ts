@@ -30,8 +30,9 @@
 //             Message: { conversation: "texto" } } }
 
 import { createClient } from 'jsr:@supabase/supabase-js@2'
-import { jidParaNumero, ehGrupo, ehStatus, clienteTemNumero } from '../_compartilhado/telefone.ts'
+import { jidParaNumero, ehGrupo, ehStatus, ehLid, soDigitos, clienteTemNumero } from '../_compartilhado/telefone.ts'
 import { sincronizarAvatar } from '../_compartilhado/avatar.ts'
+import { guardarMidiaDaMensagem, temMidia } from '../_compartilhado/midia.ts'
 
 const TOKEN_ESPERADO = Deno.env.get('WEBHOOK_TOKEN') ?? ''
 const INSTANCIA = Deno.env.get('EVOLUTION_INSTANCIA') ?? 'waterfall'
@@ -66,10 +67,118 @@ function tipoDaMensagem(info: any, mensagem: any): string {
   const bruto = String(info?.MediaType || info?.Type || '').toLowerCase()
   if (TIPOS[bruto]) return TIPOS[bruto]
   if (mensagem?.imageMessage) return 'imagem'
+  // Figurinha é uma imagem (webp) para quem está lendo — tratá-la como "outro"
+  // deixava um balão vazio no meio da conversa.
+  if (mensagem?.stickerMessage) return 'imagem'
   if (mensagem?.audioMessage) return 'audio'
   if (mensagem?.videoMessage) return 'video'
-  if (mensagem?.documentMessage) return 'documento'
+  if (mensagem?.documentMessage || mensagem?.documentWithCaptionMessage) return 'documento'
   return textoDaMensagem(mensagem) ? 'texto' : 'outro'
+}
+
+// O que a lista da caixa de entrada mostra quando a mensagem não tem texto. É o
+// vocabulário do próprio WhatsApp, para ninguém precisar aprender outro.
+const PREVIA_DE_MIDIA: Record<string, string> = {
+  imagem: '📷 Foto', audio: '🎤 Áudio', video: '🎥 Vídeo', documento: '📄 Documento',
+}
+
+// O TELEFONE de quem está do outro lado — que nem sempre é o que está em `Chat`.
+//
+// O WhatsApp passou a endereçar algumas conversas por LID ("...@lid"), um
+// identificador interno, e manda o telefone de verdade num campo à parte. Ler os
+// dígitos do LID como se fossem telefone foi o que criou a conversa fantasma
+// "74384874193115" — e o que fazia a mensagem que VOCÊ manda pelo celular cair
+// numa conversa diferente da do contato.
+//
+// Qual campo alternativo olhar depende de quem falou:
+//   * mensagem que CHEGA: o outro lado é o remetente -> `SenderAlt`;
+//   * mensagem que você mandou (inclusive do celular, fora do sistema): o outro
+//     lado é o destinatário -> `RecipientAlt`.
+// Tentamos o esperado primeiro e o outro depois, porque recibos de leitura
+// preenchem esses campos de forma menos previsível.
+//
+// Devolve também o LID, quando houver, para o chamador poder reencontrar uma
+// conversa que foi gravada errada antes desta correção.
+function contatoDoEvento(fonte: any, daGente: boolean): { numero: string; lid: string } {
+  const chat = String(fonte?.Chat ?? '')
+  const lid = ehLid(chat) ? soDigitos(chat.split('@')[0]) : ''
+  if (!lid) return { numero: jidParaNumero(chat), lid: '' }
+
+  const alternativas = daGente
+    ? [fonte?.RecipientAlt, fonte?.SenderAlt]
+    : [fonte?.SenderAlt, fonte?.RecipientAlt]
+  for (const alt of alternativas) {
+    const numero = jidParaNumero(alt)
+    if (numero) return { numero, lid }
+  }
+  return { numero: '', lid }
+}
+
+// Conversa gravada com o LID no lugar do telefone, antes desta correção.
+//
+// Quando chega a primeira mensagem que traz o telefone de verdade, a conversa
+// antiga é RENOMEADA para ele — o histórico fica, e a pessoa passa a ser uma só.
+// Só renomeia se ainda não existir conversa com o telefone real: se existir,
+// juntar as duas exigiria mover mensagens, cartões e anotações, e isso não é
+// coisa para um webhook fazer às cegas. Nesse caso fica registrado no log.
+async function corrigirConversaDoLid(lid: string, numero: string) {
+  if (!lid || !numero || lid === numero) return
+  const { data: fantasma } = await supabase
+    .from('conversas').select('id').eq('numero', lid).maybeSingle()
+  if (!fantasma) return
+
+  const { data: verdadeira } = await supabase
+    .from('conversas').select('id').eq('numero', numero).maybeSingle()
+  if (verdadeira) {
+    console.warn(`conversa do LID ${lid} e do número ${numero} coexistem; não juntei automaticamente`)
+    return
+  }
+  await supabase.from('conversas').update({ numero }).eq('id', fantasma.id)
+  // O cartão do lead carregava o LID como telefone de contato.
+  await supabase.from('oportunidades').update({ contato_telefone: numero })
+    .eq('conversa_id', fantasma.id).eq('contato_telefone', lid)
+}
+
+// Recibo de entrega/leitura.
+//
+// É o que faz o sistema ACOMPANHAR o celular. Dois casos, e eles são diferentes:
+//
+//   * "read-self": VOCÊ leu a conversa em outro aparelho — o celular, o
+//     WhatsApp Web. O contador de não lidas do sistema zera, porque você já viu.
+//     Sem isto, ler no celular deixava a caixa de entrada gritando mensagens que
+//     ninguém precisa mais ler.
+//
+//   * o CONTATO recebeu/leu o que você mandou: o ✓ vira ✓✓ e depois azul.
+//
+// O formato vem do whatsmeow (events.Receipt): os campos de origem da mensagem
+// no mesmo nível de `MessageIDs` e `Type`.
+async function tratarRecibo(dados: any) {
+  const recibo = dados?.Receipt ?? dados ?? {}
+  const tipo = String(recibo.Type ?? '').toLowerCase()
+  const ids: string[] = (Array.isArray(recibo.MessageIDs) ? recibo.MessageIDs : []).map(String)
+  const daGente = recibo.IsFromMe === true
+
+  if (ehGrupo(recibo.Chat) || ehStatus(recibo.Chat)) return
+
+  if (tipo === 'read-self' || tipo === 'played-self') {
+    const { numero } = contatoDoEvento(recibo, true)
+    if (!numero) return
+    await supabase.from('conversas').update({ nao_lidas: 0 }).eq('numero', numero)
+    return
+  }
+
+  if (!ids.length || daGente) return
+
+  if (tipo === 'read' || tipo === 'played') {
+    // Falha não vira lida: se o envio falhou, o recibo é de outra coisa.
+    await supabase.from('mensagens').update({ status: 'lida' })
+      .in('wa_message_id', ids).neq('status', 'falhou')
+  } else if (tipo === '' || tipo === 'delivered') {
+    // Só sobe de "enviada" para "entregue" — nunca rebaixa uma que já foi lida
+    // (os recibos podem chegar fora de ordem).
+    await supabase.from('mensagens').update({ status: 'entregue' })
+      .in('wa_message_id', ids).in('status', ['pendente', 'enviada'])
+  }
 }
 
 // Acha o cliente dono deste número.
@@ -92,13 +201,26 @@ async function acharCliente(numero: string): Promise<string | null> {
   // cliente pode ter o celular dele, o fixo de casa e o da esposa, e a mensagem
   // pode chegar de qualquer um deles. `clienteTemNumero` olha todos e cai na
   // coluna `telefone` quando o cadastro é anterior à migração.
-  const { data, error } = await supabase.from('clientes').select('id, telefone, telefones')
-  if (error || !data) return null
+  //
+  // PAGINADO, e isto já foi bug: o Supabase devolve no máximo 1000 linhas por
+  // consulta, sem avisar. Depois da importação dos clientes históricos, quem
+  // estava além do milésimo nunca era reconhecido — escrevia e virava lead, com
+  // a ficha dele existindo. É o mesmo defeito que o aplicativo teve na lista de
+  // clientes ("Ver todos os clientes, não só os mil primeiros").
+  const PAGINA = 1000
+  for (let inicio = 0; ; inicio += PAGINA) {
+    const { data, error } = await supabase
+      .from('clientes')
+      .select('id, telefone, telefones')
+      .order('id')
+      .range(inicio, inicio + PAGINA - 1)
+    if (error || !data) return null
 
-  for (const cliente of data) {
-    if (clienteTemNumero(cliente, numero)) return cliente.id
+    for (const cliente of data) {
+      if (clienteTemNumero(cliente, numero)) return cliente.id
+    }
+    if (data.length < PAGINA) return null
   }
-  return null
 }
 
 // Esta conversa já virou cartão no funil alguma vez?
@@ -174,9 +296,37 @@ Deno.serve(async (req) => {
 
   try {
     const nomeEvento = String(evento?.event ?? '').toLowerCase()
+
+    // TEMPORÁRIO — o formato real dos eventos, para conferir o que esta versão
+    // supõe (nomes dos campos de LID, do recibo, da mídia). Só a ESTRUTURA: nem
+    // texto de mensagem nem o `instanceToken` passam por aqui. Sai no próximo
+    // commit, depois de conferido nos logs da função.
+    console.log('evento', JSON.stringify({
+      evento: evento?.event,
+      chaves: Object.keys(evento?.data ?? {}),
+      info: evento?.data?.Info ? {
+        Chat: evento.data.Info.Chat, SenderAlt: evento.data.Info.SenderAlt,
+        RecipientAlt: evento.data.Info.RecipientAlt, AddressingMode: evento.data.Info.AddressingMode,
+        IsFromMe: evento.data.Info.IsFromMe, Type: evento.data.Info.Type, MediaType: evento.data.Info.MediaType,
+      } : undefined,
+      mensagem: evento?.data?.Message ? Object.keys(evento.data.Message) : undefined,
+      recibo: evento?.data?.Type !== undefined || evento?.data?.MessageIDs ? {
+        Type: evento.data.Type, Chat: evento.data.Chat, IsFromMe: evento.data.IsFromMe,
+        SenderAlt: evento.data.SenderAlt, RecipientAlt: evento.data.RecipientAlt,
+        ids: evento.data.MessageIDs?.length,
+      } : undefined,
+    }))
+
+    // Recibo de entrega/leitura: é o que mantém o sistema em dia com o celular.
+    // O nome do evento varia entre versões; os três já apareceram.
+    if (nomeEvento === 'receipt' || nomeEvento === 'read_receipt' || nomeEvento === 'readreceipt') {
+      await tratarRecibo(evento?.data)
+      return new Response('ok', { status: 200 })
+    }
+
     if (nomeEvento !== 'message' && nomeEvento !== 'send_message') {
-      // Conexão, presença, recibo de leitura: ainda não tratados. Responder 200
-      // evita retentativa de algo que nunca vamos processar.
+      // Conexão, presença, histórico: ainda não tratados. Responder 200 evita
+      // retentativa de algo que nunca vamos processar.
       return new Response('ok', { status: 200 })
     }
 
@@ -187,10 +337,24 @@ Deno.serve(async (req) => {
     // na caixa de entrada empurrando o que importa para baixo.
     if (ehGrupo(chat) || ehStatus(chat)) return new Response('ok', { status: 200 })
 
-    const numero = jidParaNumero(chat)
-    if (!numero) return new Response('ok', { status: 200 })
-
     const daGente = info.IsFromMe === true
+
+    // O telefone de verdade, mesmo quando o WhatsApp endereçou por LID. Ver
+    // `contatoDoEvento`.
+    const resolvido = contatoDoEvento(info, daGente)
+    const { lid } = resolvido
+    let numero = resolvido.numero
+    if (!numero && lid) {
+      // LID sem o telefone junto. NÃO descarta: este webhook responde 200 sempre,
+      // então a Evolution nunca reenviaria — a mensagem estaria perdida para
+      // sempre. Grava sob o LID, como antes desta correção; na primeira mensagem
+      // dessa pessoa que trouxer o telefone, `corrigirConversaDoLid` renomeia a
+      // conversa e o histórico fica inteiro.
+      console.warn(`mensagem de LID ${lid} sem telefone alternativo; gravada sob o LID`)
+      numero = lid
+    }
+    if (!numero) return new Response('ok', { status: 200 })
+    if (lid && numero !== lid) await corrigirConversaDoLid(lid, numero)
     const mensagemBruta = evento?.data?.Message ?? {}
     const texto = textoDaMensagem(mensagemBruta)
     const tipo = tipoDaMensagem(info, mensagemBruta)
@@ -215,7 +379,10 @@ Deno.serve(async (req) => {
         .insert({
           numero,
           cliente_id: clienteId,
-          nome_whatsapp: info.PushName ?? null,
+          // Só quando a mensagem é DELES. Se foi você que escreveu primeiro —
+          // pelo celular, fora do sistema — o `PushName` do evento é o SEU nome,
+          // e o contato ficaria batizado como "Waterfall Company Brazil".
+          nome_whatsapp: daGente ? null : (info.PushName ?? null),
           instancia: INSTANCIA,
         })
         .select('id')
@@ -275,7 +442,7 @@ Deno.serve(async (req) => {
     }
 
     // 3. A mensagem. O unique do wa_message_id é o que segura a reentrega.
-    const { error: erroMensagem } = await supabase.from('mensagens').insert({
+    const { data: gravada, error: erroMensagem } = await supabase.from('mensagens').insert({
       conversa_id: conversaId,
       wa_message_id: waId || null,
       direcao: daGente ? 'saida' : 'entrada',
@@ -283,7 +450,7 @@ Deno.serve(async (req) => {
       texto,
       status: daGente ? 'enviada' : 'entregue',
       ocorrido_em: ocorridoEm,
-    })
+    }).select('id').single()
 
     const duplicada = erroMensagem?.code === '23505'
     if (erroMensagem && !duplicada) {
@@ -292,9 +459,27 @@ Deno.serve(async (req) => {
     }
     if (duplicada) return new Response('ok', { status: 200 })
 
+    // 3b. A mídia, FORA do caminho da resposta — como a foto de perfil.
+    //
+    // Baixar e decifrar um áudio leva segundos; segurar o 200 por isso encheria
+    // a fila de retentativa da Evolution. A mensagem já está gravada e aparece
+    // na tela com "carregando mídia"; quando o arquivo chega, o UPDATE dispara o
+    // Realtime e a tela troca o marcador pela foto ou pelo player.
+    //
+    // Vale também para a mídia que VOCÊ mandou pelo celular: ela chega aqui como
+    // mensagem de saída, e aparece no sistema igual.
+    if (gravada?.id && temMidia(mensagemBruta)) {
+      const tarefa = guardarMidiaDaMensagem({
+        mensagemId: gravada.id, conversaId, waId, mensagemBruta,
+      })
+      // @ts-ignore — EdgeRuntime existe no Supabase, não nos tipos do Deno.
+      if (typeof EdgeRuntime !== 'undefined') EdgeRuntime.waitUntil(tarefa)
+      else await tarefa
+    }
+
     // 4. O espelho na conversa, para a lista da caixa de entrada não precisar
     // varrer as mensagens. Só mensagem recebida soma não lidas.
-    const previa = (texto || `[${tipo}]`).slice(0, 120)
+    const previa = (texto || PREVIA_DE_MIDIA[tipo] || `[${tipo}]`).slice(0, 120)
     const atualizacao: Record<string, unknown> = {
       ultima_em: ocorridoEm,
       ultima_previa: previa,
@@ -302,6 +487,11 @@ Deno.serve(async (req) => {
     if (!daGente) {
       atualizacao.nao_lidas = (existente?.nao_lidas ?? 0) + 1
       if (info.PushName) atualizacao.nome_whatsapp = info.PushName
+    } else {
+      // Quem respondeu, leu. Se você escreveu pelo celular, as mensagens que
+      // estavam esperando já foram vistas — zerar aqui não depende do recibo de
+      // leitura chegar (e ele só chega se o evento estiver assinado no painel).
+      atualizacao.nao_lidas = 0
     }
     await supabase.from('conversas').update(atualizacao).eq('id', conversaId)
 

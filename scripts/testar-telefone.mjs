@@ -10,7 +10,7 @@
 // WhatsApp respondendo com ele.
 
 import {
-  soDigitos, jidParaNumero, ehGrupo, ehStatus,
+  soDigitos, jidParaNumero, ehGrupo, ehStatus, ehLid,
   paraE164, partesBR, variantesBR, mesmoNumero, formatarE164, numeroParaJid,
   normalizarTelefones, telefonesDoCliente, telefonePrincipal, comTelefonePrincipal, clienteTemNumero,
 } from '../src/lib/telefone.js'
@@ -99,6 +99,12 @@ eq(jidParaNumero('5547991234567@s.whatsapp.net'), '5547991234567', 'extrai o nú
 eq(jidParaNumero('5547991234567:12@s.whatsapp.net'), '5547991234567', 'ignora o sufixo de dispositivo')
 eq(jidParaNumero('120363000000000000@g.us'), '', 'grupo não é telefone')
 eq(jidParaNumero('status@broadcast'), '', 'status não é telefone')
+// O caso que criou a conversa "74384874193115": o WhatsApp endereçou o contato
+// pelo LID, um código interno, e os dígitos dele foram lidos como telefone.
+// LID não é telefone — o número de verdade vem em SenderAlt/RecipientAlt.
+eq(jidParaNumero('74384874193115@lid'), '', 'LID não é telefone')
+check(ehLid('74384874193115@lid'), 'reconhece LID')
+check(!ehLid('5547991234567@s.whatsapp.net'), 'telefone não é LID')
 check(ehGrupo('120363000000000000@g.us'), 'reconhece grupo')
 check(ehStatus('status@broadcast'), 'reconhece status')
 check(!ehGrupo('5547991234567@s.whatsapp.net'), 'conversa normal não é grupo')

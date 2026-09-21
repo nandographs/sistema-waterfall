@@ -85,6 +85,44 @@ export async function chamarEvolution(
   return { ok: resposta.ok, status: resposta.status, corpo }
 }
 
+// Irmã de `chamarEvolution` para quando a resposta pode ser um ARQUIVO.
+//
+// `chamarEvolution` lê o corpo como texto para parsear JSON — com uma foto ou um
+// áudio, isso corromperia os bytes sem dar erro nenhum: a imagem chegaria ao
+// bucket inteira no tamanho e ilegível no conteúdo. Aqui o corpo vem como
+// ArrayBuffer, e quem chama decide se é JSON (com base64 dentro) ou o arquivo
+// em si, olhando o `content-type`.
+export async function chamarEvolutionBinario(
+  caminho: string,
+  corpo: unknown,
+  limiteMs = 45_000,
+): Promise<{ ok: boolean; status: number; tipo: string; bytes: ArrayBuffer | null; erro?: string }> {
+  const url = `${URL_BASE.replace(/\/+$/, '')}${caminho}`
+  const cancelador = new AbortController()
+  // Mais folga que o padrão: baixar e decifrar a mídia do servidor do WhatsApp
+  // é trabalho de verdade do lado da Evolution, não uma consulta.
+  const alarme = setTimeout(() => cancelador.abort(), limiteMs)
+  try {
+    const resposta = await fetch(url, {
+      method: 'POST',
+      headers: { 'apikey': TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify(corpo),
+      signal: cancelador.signal,
+    })
+    return {
+      ok: resposta.ok,
+      status: resposta.status,
+      tipo: resposta.headers.get('content-type') ?? '',
+      bytes: await resposta.arrayBuffer(),
+    }
+  } catch (falha) {
+    const expirou = (falha as Error)?.name === 'AbortError'
+    return { ok: false, status: expirou ? 504 : 0, tipo: '', bytes: null, erro: String(falha) }
+  } finally {
+    clearTimeout(alarme)
+  }
+}
+
 // CORS. Sem estes cabeçalhos o navegador BLOQUEIA a resposta — e o sintoma é
 // traiçoeiro: a função responde 200, o servidor vê tudo certo, e no aplicativo
 // a chamada simplesmente falha. Como `functions.invoke` manda o JWT no header

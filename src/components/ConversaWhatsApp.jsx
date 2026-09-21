@@ -55,8 +55,77 @@ function StatusEntrega({ status }) {
   )
 }
 
+const TIPOS_COM_MIDIA = ['imagem', 'audio', 'video', 'documento']
+const NOME_DA_MIDIA = { imagem: 'Foto', audio: 'Áudio', video: 'Vídeo', documento: 'Documento' }
+
+// Quanto tempo a tela espera o arquivo antes de desistir de "carregando".
+// A mídia é baixada em segundo plano pelo webhook e costuma chegar em segundos.
+// Passado isso sem arquivo e sem erro registrado, ela não vem mais — é o caso
+// das fotos e áudios que chegaram ANTES de o sistema saber baixar mídia, que
+// sem este corte ficariam girando para sempre.
+const ESPERA_DA_MIDIA_MS = 5 * 60 * 1000
+
+function Midia({ mensagem, saiu }) {
+  const url = mensagem.midiaUrl
+  const nome = NOME_DA_MIDIA[mensagem.tipo] ?? 'Arquivo'
+
+  if (!url) {
+    const falhou = String(mensagem.erro || '').startsWith('mídia:')
+    const recente = Date.now() - new Date(mensagem.criadoEm || mensagem.ocorridoEm).getTime() < ESPERA_DA_MIDIA_MS
+    const aguardando = !falhou && !mensagem.midiaPath && recente
+    return (
+      <p
+        className={`text-xs italic ${saiu ? 'opacity-80' : 'text-slate-500'}`}
+        title={falhou ? mensagem.erro : undefined}
+      >
+        {aguardando ? `Carregando ${nome.toLowerCase()}…` : `${nome} indisponível`}
+      </p>
+    )
+  }
+
+  if (mensagem.tipo === 'imagem') {
+    // Abre em outra aba no tamanho real: no balão ela é miniatura, e foto de
+    // equipamento com defeito ou de comprovante precisa ser vista de perto.
+    return (
+      <a href={url} target="_blank" rel="noreferrer" className="block -mx-1 -mt-0.5 mb-1">
+        <img
+          src={url}
+          alt={mensagem.texto || 'Foto recebida pelo WhatsApp'}
+          loading="lazy"
+          className="max-h-72 w-auto max-w-full rounded-xl object-cover"
+        />
+      </a>
+    )
+  }
+
+  if (mensagem.tipo === 'audio') {
+    // `preload="metadata"`: carrega só a duração. Uma conversa com vinte
+    // áudios baixaria todos ao abrir se fosse "auto".
+    return <audio controls preload="metadata" src={url} className="w-64 max-w-full" />
+  }
+
+  if (mensagem.tipo === 'video') {
+    return (
+      <video controls preload="metadata" src={url} className="max-h-72 w-auto max-w-full rounded-xl" />
+    )
+  }
+
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      className={`inline-flex items-center gap-1.5 text-sm font-semibold underline underline-offset-2 ${saiu ? '' : 'text-blue-600'}`}
+    >
+      <IconFileText size={14} />
+      {mensagem.midiaNome || 'Abrir documento'}
+    </a>
+  )
+}
+
 function Balao({ mensagem }) {
   const saiu = mensagem.direcao === 'saida'
+  const temMidia = TIPOS_COM_MIDIA.includes(mensagem.tipo)
   return (
     <div className={`flex ${saiu ? 'justify-end' : 'justify-start'}`}>
       <div
@@ -66,7 +135,21 @@ function Balao({ mensagem }) {
             : 'bg-slate-100 text-slate-900 border border-slate-200 rounded-bl-md'
         }`}
       >
-        <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{mensagem.texto}</p>
+        {temMidia && <Midia mensagem={mensagem} saiu={saiu} />}
+        {/* Na mídia o texto é a legenda, e vem depois dela — como no WhatsApp. */}
+        {mensagem.texto && (
+          <p className={`text-sm leading-relaxed whitespace-pre-wrap break-words ${temMidia ? 'mt-1' : ''}`}>
+            {mensagem.texto}
+          </p>
+        )}
+        {/* Enquete, localização, contato: coisas que o sistema ainda não sabe
+            desenhar. Melhor dizer isso do que mostrar um balão vazio, que parece
+            defeito. */}
+        {!temMidia && !mensagem.texto && (
+          <p className={`text-xs italic ${saiu ? 'opacity-80' : 'text-slate-500'}`}>
+            Tipo de mensagem que o sistema ainda não mostra — veja no celular.
+          </p>
+        )}
         <div className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${saiu ? 'opacity-80' : 'text-slate-400'}`}>
           <span className="tnum">{formatHora(String(mensagem.ocorridoEm).slice(11, 16))}</span>
           {saiu && <StatusEntrega status={mensagem.status} />}

@@ -873,8 +873,16 @@ export async function carregarMensagens(conversaId, limite = 200) {
   if (error) throw error
 
   const lista = data.map(paraApp).reverse()
-  mensagensPorConversa.set(conversaId, lista)
-  return lista
+
+  // Foto e áudio ficam no bucket privado `whatsapp-midia`; a tela recebe a URL
+  // pronta em `midiaUrl`, assinada numa requisição só para a conversa inteira.
+  // Falhar aqui não pode esconder as mensagens: sem URL o balão mostra o aviso
+  // de mídia indisponível, e o texto continua legível.
+  const urls = await assinarVarias(lista.map((m) => m.midiaPath), BUCKET_WHATSAPP).catch(() => ({}))
+  const comMidia = lista.map((m) => (m.midiaPath ? { ...m, midiaUrl: urls[m.midiaPath] || '' } : m))
+
+  mensagensPorConversa.set(conversaId, comMidia)
+  return comMidia
 }
 
 // Marca a conversa como lida. Abrir é ler: o contador zera aqui e some do
