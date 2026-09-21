@@ -9,6 +9,7 @@ import {
   proximoPasso, linhaDoTempoDoCliente, oportunidadesDoCliente, conversaDoCliente,
   proximaTroca, formatBRL, formatData, enderecoCompleto,
   FORMAS_PAGAMENTO, STATUS_VENDA, RESULTADOS_ATIVIDADE, ETAPAS_FUNIL, ETAPAS_FECHADAS,
+  TIPOS_AGENDAMENTO,
 } from '../data/repository.js'
 import { hojeISO, formatHora, diaCurto } from '../lib/datas.js'
 import { Card, Page, PageTitle, Button, Field, inputCls, InputNumero, Empty, Modal, Badge, notificar } from '../components/ui.jsx'
@@ -90,6 +91,9 @@ export default function ClienteDetalhe() {
     .filter((l) => l.clienteId === id && l.tipo === 'entrada')
     .sort((a, b) => (a.vencimento || '').localeCompare(b.vencimento || ''))
   const meusAgendamentos = agendamentos.list().filter((a) => a.clienteId === id)
+  const meusServicos = meusAgendamentos
+    .slice()
+    .sort((a, b) => (b.data || '').localeCompare(a.data || ''))
 
   // As negociações deste cliente — abertas e fechadas, da mais recente para a
   // mais antiga. É o que o funil mostra em coluna, visto pelo lado do cliente.
@@ -575,6 +579,47 @@ export default function ClienteDetalhe() {
                       </Button>
                       <Button variant="danger" onClick={() => abrirExcluirVenda(v)} title="Excluir venda">
                         <IconTrash size={15} />
+                      </Button>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          </Card>
+
+          {/* Visitas e ordens de serviço do cliente — separado das contas a
+              receber de propósito: um é o que foi/será feito na casa dele, o
+              outro é dinheiro. Uma visita gera cobrança, mas são coisas
+              diferentes e misturar as duas confunde quem só quer ver a agenda
+              ou só quer ver o financeiro. */}
+          <Card title="Serviços">
+            {meusServicos.length === 0 && <Empty>Nenhum serviço registrado para este cliente.</Empty>}
+            <ul className="divide-y divide-slate-100">
+              {meusServicos.map((a) => {
+                const [cor, rotulo] = a.status === 'concluido'
+                  ? ['green', 'Concluído']
+                  : a.status === 'cancelado'
+                    ? ['red', 'Cancelado']
+                    : ['sky', 'Agendado']
+                const temValor = Number(a.valor) > 0
+                return (
+                  <li key={a.id} className="py-3 flex flex-wrap items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium">{TIPOS_AGENDAMENTO[a.tipo] ?? a.tipo}</p>
+                      <p className="text-xs text-slate-500">
+                        {formatData(a.data)}
+                        {formatHora(a.hora) ? ` às ${formatHora(a.hora)}` : ''}
+                        {temValor ? ` · ${formatBRL(a.valor)}` : ''}
+                        {a.osNumero ? ` · OS Nº ${a.osNumero}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge color={cor}>{rotulo}</Badge>
+                      <Button variant="ghost" onClick={() => setAgDetalhe(a)} title="Ver informações">
+                        <IconEye size={15} /> Ver
+                      </Button>
+                      <Button variant="ghost" onClick={() => setOsAgendamento(a)}>
+                        <IconFileText size={15} /> OS
                       </Button>
                     </div>
                   </li>
