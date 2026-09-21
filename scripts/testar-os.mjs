@@ -15,7 +15,6 @@ const exemplo = {
   data: '2026-07-25',
   hora: '14:30',
   status: 'aberta',
-  tipo_atendimento: 'instalacao',
   cliente: 'Maria da Silva & Filhos <Ltda>',
   autorizado_por: 'Maria da Silva',
   cpf_cnpj: '123.456.789-00',
@@ -33,8 +32,6 @@ const exemplo = {
   previsao_conclusao: null,
   equipamento_modelo: 'IonCenter',
   numero_serie: 'WF-2026-001',
-  defeito_relatado: null,
-  diagnostico_tecnico: null,
   servico_executado: 'Instalação com teste de vazão.',
   itens: [
     {
@@ -49,12 +46,7 @@ const exemplo = {
   total_ordem: 'R$ 2.990,00',
   pagamento: {
     forma: 'pix',
-    condicao: 'a vista',
-    parcelas: null,
-    primeiro_vencimento: null,
-    valor_total: 'R$ 2.990,00',
-    comprovante_id: null,
-    responsavel: 'Maria da Silva',
+    valor: 'R$ 2.990,00',
   },
 }
 
@@ -96,13 +88,16 @@ const contem = (txt) => preenchido.includes(txt)
 check(contem('OS Nº:') && contem('> 0001<'), 'número da OS')
 check(contem('> 25/07/2026<'), 'data formatada DD/MM/AAAA')
 check(contem('[X] Aberta  [ ] Concluída'), 'status marcado como aberta')
-check(contem('[X] Instalação  [ ] Manutenção'), 'tipo de atendimento marcado')
+check(!contem('TIPO DE ATENDIMENTO') && !contem('Defeito relatado') && !contem('Diagnóstico técnico'), 'campos removidos não aparecem')
 check(contem('Maria da Silva &amp; Filhos &lt;Ltda&gt;'), 'caracteres especiais escapados')
 check(contem('> João<'), 'técnico')
 check(contem('> IonCenter<'), 'equipamento e item')
-check(contem('> R$ 2.990,00<'), 'valores monetários')
-check(contem('[X] PIX'), 'forma de pagamento PIX marcada')
-check(contem('[X] À vista  [ ] Parcelado'), 'condição à vista marcada')
+check(preenchido.split('>R$ 2.990,00<').length - 1 === 4, 'valores monetários (unitário, total do item, total da ordem e pagamento)')
+check(contem('PAGAMENTO:') && contem('[X] PIX  [ ] Crédito'), 'forma de pagamento PIX marcada na linha de pagamento')
+check(!contem('4. PAGAMENTO') && !contem('Condição:') && !contem('Comprovante'), 'seção de pagamento detalhada removida')
+check(contem('4. AUTORIZAÇÃO E ACEITE'), 'aceite renumerado para seção 4')
+check(contem('VIA DO CLIENTE') && contem('recorte aqui'), 'via do cliente destacável no pé da página')
+check(/Serviço:<\/w:t>(?:(?!<\/w:p>).)*> IonCenter</.test(preenchido), 'via do cliente traz o serviço')
 check(!contem('undefined') && !contem('[object'), 'sem vazamentos de undefined/objetos')
 
 // 5. Campos null ficam com o rótulo sem valor (célula existe, sem texto extra)

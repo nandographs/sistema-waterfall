@@ -11,7 +11,7 @@
 // em ../documentos/docx.js, compartilhadas com o Pedido de Venda.
 
 import {
-  checked, criarEditor, labeled, multiline, plain,
+  checked, criarEditor, labeled, multiline, plain, paragraphXml, runXml,
   formatDate, nomeArquivoDocumento, checarCamposObrigatorios,
 } from '../documentos/docx.js'
 
@@ -19,21 +19,34 @@ import {
 export { formatDate }
 
 export const TOP_LEVEL_FIELDS = [
-  'os_numero', 'data', 'hora', 'status', 'tipo_atendimento', 'cliente',
+  'os_numero', 'data', 'hora', 'status', 'cliente',
   'autorizado_por', 'cpf_cnpj', 'telefone_whatsapp', 'email', 'endereco',
   'numero_complemento', 'cep', 'bairro', 'cidade', 'uf', 'atendente',
   'tecnico', 'agendado_para', 'previsao_conclusao', 'equipamento_modelo',
-  'numero_serie', 'defeito_relatado', 'diagnostico_tecnico',
-  'servico_executado', 'itens', 'total_ordem', 'pagamento',
+  'numero_serie', 'servico_executado', 'itens', 'total_ordem', 'pagamento',
 ]
 export const ITEM_FIELDS = [
   'descricao', 'quantidade', 'valor_unitario', 'desconto', 'valor_total',
   'garantia_validade',
 ]
-export const PAYMENT_FIELDS = [
-  'forma', 'condicao', 'parcelas', 'primeiro_vencimento', 'valor_total',
-  'comprovante_id', 'responsavel',
+// Pagamento resumido: só a forma marcada e o valor pago.
+export const PAYMENT_FIELDS = ['forma', 'valor']
+export const FORMAS_PAGAMENTO = [
+  ['pix', 'PIX'], ['credito', 'Crédito'], ['debito', 'Débito'],
+  ['dinheiro', 'Dinheiro'], ['boleto', 'Boleto'], ['transferencia', 'Transferência'],
 ]
+
+// O que vai na via do cliente: os itens da ordem numa linha só ("2x Refil,
+// Instalação") — ou o equipamento, se não houver itens — e o valor cobrado.
+export function resumoViaCliente(data) {
+  const itens = (data.itens || [])
+    .filter((item) => item.descricao)
+    .map((item) => (Number(item.quantidade) > 1 ? `${item.quantidade}x ${item.descricao}` : item.descricao))
+  return {
+    servico: itens.join(', ') || data.equipamento_modelo || '',
+    valor: data.total_ordem || data.pagamento?.valor || '',
+  }
+}
 
 export function nomeArquivo(data, ext = 'docx') {
   return nomeArquivoDocumento('ordem', data.data, data.cliente, ext)
@@ -77,11 +90,9 @@ export function validate(data) {
     }
   }
 
-  for (const f of ['defeito_relatado', 'diagnostico_tecnico', 'servico_executado']) {
-    if (String(data[f] ?? '').length > 180) errors.push(`${f} excede 180 caracteres`)
-  }
+  if (String(data.servico_executado ?? '').length > 180) errors.push('servico_executado excede 180 caracteres')
   for (const [field, value] of Object.entries(data)) {
-    if (['itens', 'pagamento', 'defeito_relatado', 'diagnostico_tecnico', 'servico_executado'].includes(field)) continue
+    if (['itens', 'pagamento', 'servico_executado'].includes(field)) continue
     const limit = ['endereco', 'email'].includes(field) ? 120 : 80
     if (String(value ?? '').length > limit) errors.push(`${field} excede ${limit} caracteres`)
   }
@@ -106,16 +117,6 @@ export function fillDocumentXml(xml, data) {
     'STATUS:',
     `${checked(data.status, 'aberta')} Aberta  ${checked(data.status, 'concluida')} Concluída`,
     7.7,
-  ))
-  setCell(1, 1, 0, labeled(
-    'TIPO DE ATENDIMENTO:',
-    [
-      `${checked(data.tipo_atendimento, 'instalacao')} Instalação`,
-      `${checked(data.tipo_atendimento, 'manutencao')} Manutenção`,
-      `${checked(data.tipo_atendimento, 'troca de filtro')} Troca de filtro`,
-      `${checked(data.tipo_atendimento, 'visita tecnica')} Visita técnica`,
-    ].join('  '),
-    7.4,
   ))
 
   // Tabela 2 — cliente e atendimento
@@ -146,10 +147,8 @@ export function fillDocumentXml(xml, data) {
     ['Equipamento / modelo:', data.equipamento_modelo],
     ['Nº de série:', data.numero_serie],
   ]))
-  setCell(3, 2, 0, multiline([['Defeito relatado pelo cliente:', data.defeito_relatado]], 7.1))
-  setCell(3, 2, 1, multiline([['Diagnóstico técnico:', data.diagnostico_tecnico]], 7.1))
 
-  // Tabela 4 — itens e total
+  // Tabela 4 — itens, total e pagamento resumido
   const items = data.itens || []
   for (let rowIndex = 0; rowIndex < 4; rowIndex++) {
     const item = items[rowIndex] || {}
@@ -160,30 +159,25 @@ export function fillDocumentXml(xml, data) {
   }
   setCell(4, 6, 5, plain(data.total_ordem || 'R$', 7.8))
 
-  // Tabela 5 — pagamento
   const payment = data.pagamento || {}
-  setCell(5, 1, 0, labeled(
-    'Forma:',
-    [
-      `${checked(payment.forma, 'pix')} PIX`,
-      `${checked(payment.forma, 'credito')} Crédito`,
-      `${checked(payment.forma, 'debito')} Débito`,
-      `${checked(payment.forma, 'dinheiro')} Dinheiro`,
-      `${checked(payment.forma, 'boleto')} Boleto`,
-      `${checked(payment.forma, 'transferencia')} Transferência`,
-    ].join('  '),
-    7.2,
+  setCell(4, 7, 0, labeled(
+    'PAGAMENTO:',
+    FORMAS_PAGAMENTO.map(([valor, rotulo]) => `${checked(payment.forma, valor)} ${rotulo}`).join('  '),
+    7.6,
   ))
-  setCell(5, 2, 0, labeled(
-    'Condição:',
-    `${checked(payment.condicao, 'a vista')} À vista  ${checked(payment.condicao, 'parcelado')} Parcelado`,
-    7.2,
+  setCell(4, 7, 5, plain(payment.valor || 'R$', 7.8))
+
+  // Tabela 6 — via do cliente, destacável no pé da página
+  const via = resumoViaCliente(data)
+  setCell(6, 0, 3, paragraphXml(
+    runXml('VIA DO CLIENTE', 8, true) + '<w:r><w:br/></w:r>' +
+    runXml('OS Nº:', 7.5, true) + (data.os_numero ? runXml(` ${data.os_numero}`, 7.5, false) : ''),
+    'center',
   ))
-  setCell(5, 2, 1, labeled('Parcelas:', payment.parcelas, 7.2))
-  setCell(5, 2, 2, labeled('1º vencimento:', payment.primeiro_vencimento, 7.2))
-  setCell(5, 2, 3, labeled('Valor total:', payment.valor_total, 7.2))
-  setCell(5, 3, 0, labeled('Comprovante / NSU / ID da transação:', payment.comprovante_id, 7.1))
-  setCell(5, 3, 3, labeled('Responsável pelo pagamento:', payment.responsavel, 7.0))
+  setCell(6, 1, 0, labeled('Serviço:', via.servico, 7.5))
+  setCell(6, 1, 2, labeled('Valor:', via.valor, 7.5))
+  setCell(6, 1, 3, labeled('Data:', displayDate, 7.5))
+  setCell(6, 2, 0, labeled('Técnico responsável:', data.tecnico, 7.5))
 
   return editor.aplicar()
 }

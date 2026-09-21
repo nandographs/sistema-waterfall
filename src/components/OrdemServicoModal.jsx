@@ -8,13 +8,7 @@ import { gerarOrdemServicoPdf } from '../os/gerarPdf.js'
 import { Modal, Button, Field, inputCls } from './ui.jsx'
 import { IconFileText, IconPlus } from './icons.jsx'
 
-// Mapeia os tipos do sistema para os valores reconhecidos pelo modelo da OS
-const TIPO_OS = {
-  instalacao: 'instalacao',
-  troca_refil: 'troca de filtro',
-  manutencao: 'manutencao',
-  visita: 'visita tecnica',
-}
+// Mapeia as formas de pagamento do sistema para as opções do modelo da OS
 const FORMA_OS = { pix: 'pix', cartao: 'credito', boleto: 'boleto', dinheiro: 'dinheiro' }
 
 const ITEM_VAZIO = {
@@ -61,14 +55,12 @@ function montarInicial(agendamento) {
   // O próprio agendamento é a fonte do financeiro do serviço; os lançamentos
   // no caixa são derivados dele.
   const valor = Number(agendamento.valor ?? 0)
-  const parcelas = Number(agendamento.parcelas ?? 1)
 
   return {
     os_numero: agendamento.osNumero || proximoNumeroOS(),
     data: agendamento.data || '',
     hora: '',
     status: agendamento.status === 'concluido' ? 'concluida' : 'aberta',
-    tipo_atendimento: TIPO_OS[agendamento.tipo] ?? '',
     cliente: cliente.nome || '',
     autorizado_por: cliente.nome || '',
     cpf_cnpj: cliente.cpfCnpj || '',
@@ -86,8 +78,6 @@ function montarInicial(agendamento) {
     previsao_conclusao: '',
     equipamento_modelo: produto?.nome || '',
     numero_serie: '',
-    defeito_relatado: '',
-    diagnostico_tecnico: '',
     servico_executado: agendamento.observacoes || '',
     itens: produto
       ? [{
@@ -101,12 +91,7 @@ function montarInicial(agendamento) {
     aplicarPagamento: valor > 0,
     pagamento: {
       forma: FORMA_OS[agendamento.formaPagamento] ?? '',
-      condicao: parcelas > 1 ? 'parcelado' : 'a vista',
-      parcelas: parcelas > 1 ? String(parcelas) : '',
-      primeiro_vencimento: '',
-      valor_total: brl(valor),
-      comprovante_id: '',
-      responsavel: cliente.nome || '',
+      valor: brl(valor),
     },
   }
 }
@@ -171,7 +156,6 @@ export default function OrdemServicoModal({ agendamento, onClose, onGerada }) {
         data: ouNulo(form.data),
         hora: ouNulo(form.hora),
         status: ouNulo(form.status),
-        tipo_atendimento: ouNulo(form.tipo_atendimento),
         cliente: ouNulo(form.cliente),
         autorizado_por: ouNulo(form.autorizado_por),
         cpf_cnpj: ouNulo(form.cpf_cnpj),
@@ -189,13 +173,11 @@ export default function OrdemServicoModal({ agendamento, onClose, onGerada }) {
         previsao_conclusao: ouNulo(form.previsao_conclusao),
         equipamento_modelo: ouNulo(form.equipamento_modelo),
         numero_serie: ouNulo(form.numero_serie),
-        defeito_relatado: ouNulo(form.defeito_relatado),
-        diagnostico_tecnico: ouNulo(form.diagnostico_tecnico),
         servico_executado: ouNulo(form.servico_executado),
         itens: itensPreenchidos.length ? itensPreenchidos : null,
         total_ordem: totalOrdem > 0 ? formatBRL(totalOrdem) : null,
         pagamento: form.aplicarPagamento
-          ? Object.fromEntries(Object.entries(form.pagamento).map(([k, v]) => [k, ouNulo(v)]))
+          ? { forma: ouNulo(form.pagamento.forma), valor: moeda(form.pagamento.valor) }
           : null,
       }
 
@@ -261,15 +243,6 @@ export default function OrdemServicoModal({ agendamento, onClose, onGerada }) {
             </Field>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-            <Field label="Tipo de atendimento">
-              <select className={inputCls} value={form.tipo_atendimento} onChange={set('tipo_atendimento')}>
-                <option value="">Não se aplica</option>
-                <option value="instalacao">Instalação</option>
-                <option value="manutencao">Manutenção</option>
-                <option value="troca de filtro">Troca de filtro</option>
-                <option value="visita tecnica">Visita técnica</option>
-              </select>
-            </Field>
             <Field label="Previsão de conclusão">
               <input className={inputCls} maxLength={80} placeholder="ex.: 25/07/2026 16:00" value={form.previsao_conclusao} onChange={set('previsao_conclusao')} />
             </Field>
@@ -351,14 +324,6 @@ export default function OrdemServicoModal({ agendamento, onClose, onGerada }) {
               <input className={inputCls} maxLength={80} value={form.numero_serie} onChange={set('numero_serie')} />
             </Field>
           </div>
-          <div className="grid grid-cols-1 gap-3 mt-3">
-            <Field label="Defeito relatado pelo cliente">
-              <textarea className={inputCls} rows="2" maxLength={180} value={form.defeito_relatado} onChange={set('defeito_relatado')} />
-            </Field>
-            <Field label="Diagnóstico técnico">
-              <textarea className={inputCls} rows="2" maxLength={180} value={form.diagnostico_tecnico} onChange={set('diagnostico_tecnico')} />
-            </Field>
-          </div>
         </section>
 
         {/* Itens */}
@@ -437,29 +402,8 @@ export default function OrdemServicoModal({ agendamento, onClose, onGerada }) {
                   <option value="transferencia">Transferência</option>
                 </select>
               </Field>
-              <Field label="Condição">
-                <select className={inputCls} value={form.pagamento.condicao} onChange={setPag('condicao')}>
-                  <option value="">Não se aplica</option>
-                  <option value="a vista">À vista</option>
-                  <option value="parcelado">Parcelado</option>
-                </select>
-              </Field>
-              <Field label="Parcelas">
-                <input className={inputCls} maxLength={80} value={form.pagamento.parcelas} onChange={setPag('parcelas')} />
-              </Field>
-              <Field label="1º vencimento">
-                <input className={inputCls} maxLength={80} value={form.pagamento.primeiro_vencimento} onChange={setPag('primeiro_vencimento')} />
-              </Field>
-              <Field label="Valor total">
-                <input className={inputCls} maxLength={80} value={form.pagamento.valor_total} onChange={setPag('valor_total')} />
-              </Field>
-              <div className="sm:col-span-2">
-                <Field label="Comprovante / NSU / ID da transação">
-                  <input className={inputCls} maxLength={80} value={form.pagamento.comprovante_id} onChange={setPag('comprovante_id')} />
-                </Field>
-              </div>
-              <Field label="Responsável">
-                <input className={inputCls} maxLength={80} value={form.pagamento.responsavel} onChange={setPag('responsavel')} />
+              <Field label="Valor pago">
+                <input className={inputCls} maxLength={80} value={form.pagamento.valor} onChange={setPag('valor')} />
               </Field>
             </div>
           )}
