@@ -8,6 +8,7 @@ import {
   planoDePagamentos, resumoDosPagamentos,
   contaSalario, folhaDoMes, competenciaDe, daFolha, taxaDe, totalDasTaxas,
   saldoEm, serieDoSaldo, movimentosDoPeriodo, painelDoPeriodo, fluxoDosMeses,
+  folhaPrevista, vencimentoDoSalario,
 } from '../src/data/financeiro.js'
 
 let falhas = 0
@@ -550,6 +551,38 @@ console.log('\n--- ajuste de saldo ---')
   const r = resumoDoMes(L, '2026-09')
   eq([r.saidas.realizado, r.resultado], [300, 700], 'nem no relatório')
   check(!r.categorias.saidas.some((c) => c.categoria === 'ajuste'), 'nem na lista por categoria')
+}
+
+console.log('\n--- folha prevista ---')
+{
+  const hoje = '2026-09-21'
+  const F = [
+    { id: 'a', nome: 'Ana', salario: 2000, diaPagamento: 20 },
+    { id: 'b', nome: 'Bia', salario: 500, diaPagamento: 31 },
+    { id: 'c', nome: 'Caio', salario: 1000, diaPagamento: 5, ativo: false },
+  ]
+  const L = [
+    { tipo: 'saida', status: 'realizado', categoria: 'vale', funcionarioId: 'a', competencia: '2026-09', valor: 300, vencimento: '2026-09-10', dataPagamento: '2026-09-10' },
+    // Salário de outubro da Bia já lançado (em aberto): a previsão não repete.
+    { tipo: 'saida', status: 'previsto', categoria: 'salario', funcionarioId: 'b', competencia: '2026-10', valor: 500, vencimento: '2026-11-30' },
+  ]
+  eq(vencimentoDoSalario(F[0], '2026-09'), '2026-10-20', 'setembro se paga em outubro, no dia combinado')
+  eq(vencimentoDoSalario(F[1], '2026-10'), '2026-11-30', 'dia 31 em novembro cai no dia 30')
+
+  const prev = folhaPrevista(F, L, { hoje, ate: '2026-11-30' })
+  eq(prev.map((l) => [l.funcionarioId, l.competencia, l.valor, l.vencimento]), [
+    ['a', '2026-09', 1700, '2026-10-20'],
+    ['b', '2026-09', 500, '2026-10-31'],
+    ['a', '2026-10', 2000, '2026-11-20'],
+  ], 'o que falta de cada um: vale abatido, salário já lançado não repete, desligado fica fora')
+  check(prev.every((l) => l.previsaoDaFolha && l.status === 'previsto' && l.tipo === 'saida'), 'sai como saída em aberto marcada')
+  check(!prev.some((l) => l.competencia < '2026-09'), 'não inventa folha de antes do sistema')
+
+  const f = fluxoDosMeses([...L, ...prev], hoje, 3)
+  eq(f.map((m) => [m.sai, m.folha]), [[0, 0], [0, 2200], [500, 2000]], 'no fluxo a folha prevista vem separada')
+  eq(f[2].acumulado, -300 - 2200 - 2500, 'e desconta do saldo acumulado')
+  const p = painelDoPeriodo([...L, ...prev], { de: '2026-10-01', ate: '2026-10-31' }, hoje)
+  eq([p.aPagar, p.folhaPrevista], [2200, 2200], 'o painel diz quanto do a pagar é folha')
 }
 
 console.log(falhas ? `\n${falhas} verificação(ões) falharam.` : '\nTudo certo.')

@@ -14,7 +14,7 @@ import {
   normalizarPagamentos, pagamentosDaCondicao, planoDePagamentos,
   resumoDosPagamentos, diferencaDosPagamentos, taxaDe, formatBRL, resolverPagamentos,
   competenciaDe, daFolha, folhaDoMes, somarMesesNoMes,
-  CATEGORIA_VALE, CATEGORIA_SALARIO, ehAjuste,
+  CATEGORIA_VALE, CATEGORIA_SALARIO, ehAjuste, vencimentoDoSalario,
 } from './financeiro.js'
 
 // Reexportados: as telas importam tudo do repositório.
@@ -1622,11 +1622,7 @@ export function lancamentoDaFolha(funcionario, competencia, { tipo = 'vale', val
   // Salário vence no dia combinado do mês seguinte à competência (é assim que
   // se paga: setembro cai em outubro); vale vence hoje, porque é dinheiro que
   // sai na hora em que se pede.
-  const dia = Number(funcionario?.diaPagamento || 5)
-  const vencimento = vale
-    ? hojeISO()
-    : somarMeses(`${competencia}-01`, 1).slice(0, 8) +
-      String(Math.min(31, Math.max(1, dia))).padStart(2, '0')
+  const vencimento = vale ? hojeISO() : vencimentoDoSalario(funcionario, competencia)
 
   return {
     tipo: 'saida',

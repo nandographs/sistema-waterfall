@@ -258,6 +258,9 @@ export function painelDoPeriodo(lista, periodo, hoje = hojeISO()) {
     aPagar: soma('saida', 'previsto'),
     saldoFinal: saldoEm(lista, periodo.ate, hoje),
     finalPrevisto: periodo.ate > hoje,
+    // Quanto do "a pagar" é salário ainda não lançado (ver folhaPrevista).
+    folhaPrevista: movs.filter((l) => l.previsaoDaFolha)
+      .reduce((s, l) => s + centavosDoLancamento(l), 0) / 100,
     ajustes: movs.filter((l) => ehAjuste(l) && l.status === 'realizado')
       .reduce((s, l) => s + sinal(l) * centavosDoLancamento(l), 0) / 100,
     atrasados: atrasados.length,
@@ -277,14 +280,23 @@ export function fluxoDosMeses(lista, hoje = hojeISO(), quantos = 6) {
     const mes = somarMesesNoMes(primeiro, i)
     let entra = 0
     let sai = 0
+    let folha = 0 // salário ainda não lançado (folhaPrevista), à parte das saídas
     for (const l of abertos) {
       const venc = String(l.vencimento || '').slice(0, 7)
       if (i === 0 ? venc > mes : venc !== mes) continue
-      if (l.tipo === 'saida') sai += centavosDoLancamento(l)
+      if (l.previsaoDaFolha) folha += centavosDoLancamento(l)
+      else if (l.tipo === 'saida') sai += centavosDoLancamento(l)
       else entra += centavosDoLancamento(l)
     }
-    acumulado += entra - sai
-    return { mes, entra: entra / 100, sai: sai / 100, resultado: (entra - sai) / 100, acumulado: acumulado / 100 }
+    acumulado += entra - sai - folha
+    return {
+      mes,
+      entra: entra / 100,
+      sai: sai / 100,
+      folha: folha / 100,
+      resultado: (entra - sai - folha) / 100,
+      acumulado: acumulado / 100,
+    }
   })
 }
 
@@ -705,4 +717,62 @@ export function folhaDoMes(listaFuncionarios, lista, competencia) {
       aPagar: somar('aPagar'),
     },
   }
+}
+
+// O dia em que o salário de uma competência vence: o dia combinado com o
+// funcionário, no mês SEGUINTE (setembro se paga em outubro). Dia 31 num mês
+// de 30 cai no último dia — "2026-11-31" não é data.
+export function vencimentoDoSalario(funcionario, competencia) {
+  const mes = somarMesesNoMes(competencia, 1)
+  const [y, m] = mes.split('-').map(Number)
+  const ultimo = new Date(y, m, 0).getDate()
+  const dia = Math.min(ultimo, Math.max(1, Number(funcionario?.diaPagamento || 5)))
+  return `${mes}-${String(dia).padStart(2, '0')}`
+}
+
+// ------------------------------------------------------------- folha prevista
+//
+// O salário que AINDA NÃO FOI LANÇADO também é dinheiro que vai sair. Sem ele
+// a projeção do caixa sai otimista em uma folha inteira por mês.
+//
+// Não vira lançamento no banco: é calculado na hora, a partir do cadastro, e
+// devolvido no MESMO formato de um lançamento em aberto (marcado com
+// `previsaoDaFolha`) — assim o fluxo, o gráfico e o saldo previsto o somam
+// sem nenhuma regra especial. O valor é o que falta de cada um (salário −
+// vales − salário já lançado, ver contaSalario): lançou o salário de verdade,
+// a previsão some na mesma medida, e nada conta duas vezes.
+//
+// Começa na competência de `hoje`. As anteriores ficam de fora de propósito:
+// o sistema não sabe o que foi pago antes de existir, e prever esses meses
+// inventaria uma dívida.
+export function folhaPrevista(listaFuncionarios, lista, { hoje = hojeISO(), ate } = {}) {
+  const ativos = (listaFuncionarios || []).filter((f) => f.ativo !== false && Number(f.salario) > 0)
+  const limite = String(ate || hoje).slice(0, 10)
+  const linhas = []
+  for (let comp = hoje.slice(0, 7); ; comp = somarMesesNoMes(comp, 1)) {
+    let algumNoPrazo = false
+    for (const f of ativos) {
+      const vencimento = vencimentoDoSalario(f, comp)
+      if (vencimento > limite) continue
+      algumNoPrazo = true
+      const falta = Math.round(contaSalario(f, lista, comp).saldo * 100)
+      if (falta <= 0) continue
+      linhas.push({
+        id: `folha-${f.id}-${comp}`,
+        tipo: 'saida',
+        status: 'previsto',
+        categoria: CATEGORIA_SALARIO,
+        descricao: `Salário ${comp} — ${f.nome} (previsto)`,
+        valor: falta / 100,
+        vencimento,
+        dataPagamento: '',
+        funcionarioId: f.id,
+        competencia: comp,
+        previsaoDaFolha: true,
+      })
+    }
+    // Para quando nenhuma folha desta competência vence mais dentro do prazo.
+    if (!algumNoPrazo) break
+  }
+  return linhas
 }

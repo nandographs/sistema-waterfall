@@ -11,7 +11,7 @@ import {
   resumoDoPeriodo, variacao, mesDe,
   FORMAS_PAGAMENTO, CATEGORIAS_SAIDA,
 } from '../data/repository.js'
-import { painelDoPeriodo, serieDoSaldo, movimentosDoPeriodo, fluxoDosMeses } from '../data/financeiro.js'
+import { painelDoPeriodo, serieDoSaldo, movimentosDoPeriodo, fluxoDosMeses, folhaPrevista } from '../data/financeiro.js'
 import {
   ESCALAS_RELATORIO, intervaloDoRelatorio, andarNoRelatorio,
   rotuloDoRelatorio, periodoEmCurso, somarDias,
@@ -188,9 +188,19 @@ export default function Financeiro() {
   // A folha é sempre de um MÊS: no semanal e no anual vale o mês da âncora.
   const competencia = mesDe(ancora)
 
-  const painel = useMemo(() => painelDoPeriodo(todos, periodo, hoje), [todos, periodo.de, periodo.ate, hoje])
-  const serie = useMemo(() => serieDoSaldo(todos, periodo, hoje), [todos, periodo.de, periodo.ate, hoje])
-  const fluxo = useMemo(() => fluxoDosMeses(todos, hoje, 6), [todos, hoje])
+  // O salário ainda não lançado também vai sair (ver folhaPrevista). Entra em
+  // tudo que PROJETA — números do topo, gráfico e fluxo —, mas não no extrato:
+  // lá só aparece o que existe de verdade no banco.
+  const fimDoFluxo = somarMeses(`${hoje.slice(0, 7)}-01`, 6)
+  const ateFolha = periodo.ate > fimDoFluxo ? periodo.ate : fimDoFluxo
+  const comFolha = useMemo(
+    () => [...todos, ...folhaPrevista(funcionarios.list(), todos, { hoje, ate: ateFolha })],
+    [todos, funcionarios.list(), hoje, ateFolha],
+  )
+
+  const painel = useMemo(() => painelDoPeriodo(comFolha, periodo, hoje), [comFolha, periodo.de, periodo.ate, hoje])
+  const serie = useMemo(() => serieDoSaldo(comFolha, periodo, hoje), [comFolha, periodo.de, periodo.ate, hoje])
+  const fluxo = useMemo(() => fluxoDosMeses(comFolha, hoje, 6), [comFolha, hoje])
   const relatorio = useMemo(() => resumoDoPeriodo(todos, periodo), [todos, periodo.de, periodo.ate])
   const relatorioAnterior = useMemo(
     () => resumoDoPeriodo(todos, periodoAnterior),
@@ -647,7 +657,9 @@ export default function Financeiro() {
             icone={<IconSaida size={18} />}
             rotulo="Saiu"
             valor={formatBRL(painel.saiu)}
-            detalhe={painel.aPagar > 0 ? `+ ${formatBRL(painel.aPagar)} a pagar` : 'Nada a pagar'}
+            detalhe={painel.aPagar > 0
+              ? `+ ${formatBRL(painel.aPagar)} a pagar${painel.folhaPrevista > 0 ? `, com ${formatBRL(painel.folhaPrevista)} de salários` : ''}`
+              : 'Nada a pagar'}
           />
           <CartaoNumero
             tom="azul"
@@ -755,12 +767,14 @@ export default function Financeiro() {
               <>
                 <p className="text-sm text-slate-500 mb-4">
                   Começa com os <span className="font-semibold text-slate-900 tnum">{formatBRL(painel.emCaixa)}</span> em
-                  caixa hoje e soma o que está em aberto em cada mês. O que já venceu e não foi pago entra no mês atual.
+                  caixa hoje e soma o que está em aberto em cada mês, mais os salários que ainda não foram lançados
+                  (pelo cadastro dos funcionários, no dia de pagamento de cada um). O que já venceu e não foi pago entra no mês atual.
                 </p>
                 <GraficoFluxo meses={fluxo} formatar={formatBRL} rotuloMes={mesCurto} />
                 <div className="flex flex-wrap gap-4 text-[11px] text-slate-500 mt-2 mb-4">
                   <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" /> Entra</span>
                   <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-red-500" /> Sai</span>
+                  <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-amber-500" /> Salários previstos</span>
                   <span className="flex items-center gap-1.5"><span className="h-0.5 w-4 rounded bg-[var(--accent-blue)]" /> Saldo no fim do mês</span>
                 </div>
                 <div className="overflow-x-auto">
@@ -770,6 +784,7 @@ export default function Financeiro() {
                         <th className="text-left font-semibold py-2">Mês</th>
                         <th className="text-right font-semibold py-2">Entra</th>
                         <th className="text-right font-semibold py-2">Sai</th>
+                        <th className="text-right font-semibold py-2">Salários</th>
                         <th className="text-right font-semibold py-2">Saldo no fim</th>
                       </tr>
                     </thead>
@@ -779,6 +794,7 @@ export default function Financeiro() {
                           <td className="py-2.5 font-medium text-slate-900 first-letter:uppercase">{rotuloDoMes(f.mes)}</td>
                           <td className="py-2.5 text-right tnum text-emerald-700">{formatBRL(f.entra)}</td>
                           <td className="py-2.5 text-right tnum text-slate-700">{formatBRL(f.sai)}</td>
+                          <td className="py-2.5 text-right tnum text-amber-700">{f.folha > 0 ? formatBRL(f.folha) : '—'}</td>
                           <td className={`py-2.5 text-right tnum font-bold ${f.acumulado < 0 ? 'text-red-600' : 'text-slate-900'}`}>
                             {formatBRL(f.acumulado)}
                           </td>

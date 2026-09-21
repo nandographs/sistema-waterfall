@@ -167,7 +167,9 @@ export function GraficoFluxo({ meses, formatar, rotuloMes, altura = 230 }) {
 
   const topo = 12
   const base = altura - 26
-  const todos = meses.flatMap((m) => [m.entra, m.sai, m.acumulado])
+  // A barra de saída empilha o que está lançado e o salário previsto.
+  const saiTotal = (m) => m.sai + (m.folha || 0)
+  const todos = meses.flatMap((m) => [m.entra, saiTotal(m), m.acumulado])
   const minV = Math.min(0, ...todos)
   const maxV = Math.max(0, ...todos)
   const folga = (maxV - minV) * 0.06 || 1
@@ -208,10 +210,18 @@ export function GraficoFluxo({ meses, formatar, rotuloMes, altura = 230 }) {
               />
               <rect
                 x={centro(i) + 2}
+                y={y(saiTotal(m))}
+                width={barra}
+                height={Math.max(0, zero - y(saiTotal(m)))}
+                rx={4}
+                className="fill-amber-500"
+              />
+              <rect
+                x={centro(i) + 2}
                 y={y(m.sai)}
                 width={barra}
                 height={Math.max(0, zero - y(m.sai))}
-                rx={4}
+                rx={m.folha > 0 ? 0 : 4}
                 className="fill-red-500"
               />
               <text x={centro(i)} y={altura - 6} textAnchor="middle" className="fill-slate-500 text-[11px] font-medium first-letter:uppercase">
@@ -237,11 +247,12 @@ export function GraficoFluxo({ meses, formatar, rotuloMes, altura = 230 }) {
           {ativo !== null && (
             <Balao
               x={centro(ativo)}
-              y={Math.min(y(meses[ativo].acumulado), y(meses[ativo].entra), y(meses[ativo].sai))}
+              y={Math.min(y(meses[ativo].acumulado), y(meses[ativo].entra), y(saiTotal(meses[ativo])))}
               largura={largura}
               linhas={[
                 [`Entra ${formatar(meses[ativo].entra)}`],
                 [`Sai ${formatar(meses[ativo].sai)}`],
+                ...(meses[ativo].folha > 0 ? [[`Salários ${formatar(meses[ativo].folha)}`]] : []),
                 [`Saldo ${formatar(meses[ativo].acumulado)}`, 'fill-slate-400'],
               ]}
             />
