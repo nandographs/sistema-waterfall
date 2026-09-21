@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { inputCls } from './ui.jsx'
 import { IconSearch, IconX } from './icons.jsx'
 import { formatBRL, unidadeDo } from '../data/repository.js'
+import { casaPalavras } from '../lib/texto.js'
 
 // Remove acentos e caixa para busca tolerante ("Purificador" casa com "purificador").
 const normalizar = (s) =>
@@ -42,8 +43,13 @@ export default function ProdutoBusca({
 
   // Mantém o texto do campo em sincronia com o produto selecionado (ex.: ao
   // editar uma venda já salva). No modo de adição não há seleção fixa.
+  //
+  // Menos quando a seleção sumiu porque a pessoa começou a DIGITAR: zerar ali
+  // apagava a primeira letra da busca nova.
+  const digitandoRef = useRef(false)
   useEffect(() => {
     if (limparAoSelecionar) return
+    if (!selecionado && digitandoRef.current) return
     setQuery(selecionado ? selecionado.nome : '')
   }, [selecionado, limparAoSelecionar])
 
@@ -61,19 +67,10 @@ export default function ProdutoBusca({
     const disponiveis = produtos.filter((p) => !ocultarIds.includes(p.id))
     if (!q) return disponiveis
 
-    const casam = disponiveis.filter((p) => {
-      const nome = normalizar(p.nome)
-      const codigo = normalizar(p.codigo)
-      const cor = normalizar(p.cor)
-      return (
-        nome.includes(q) ||
-        nome.split(/\s+/).some((parte) => parte.startsWith(q)) ||
-        (codigo && codigo.includes(q)) ||
-        // Cor entra na busca porque, com o mesmo item em várias cores, é ela
-        // que distingue um do outro ("torneira branca").
-        (cor && cor.includes(q))
-      )
-    })
+    // Cada palavra pode estar no nome, no código ou na cor, em qualquer ordem.
+    // A cor entra porque, com o mesmo item em várias cores, é ela que distingue
+    // um do outro ("torneira branca").
+    const casam = disponiveis.filter((p) => casaPalavras(q, p.nome, p.codigo, p.cor))
 
     // Prioridade: código exato > código começa com > nome começa com > resto.
     const peso = (p) => {
@@ -88,6 +85,7 @@ export default function ProdutoBusca({
   }, [produtos, q, ocultarIds])
 
   function selecionar(p) {
+    digitandoRef.current = false
     onChange(p.id)
     if (limparAoSelecionar) {
       setQuery('')
@@ -99,6 +97,7 @@ export default function ProdutoBusca({
   }
 
   function limpar() {
+    digitandoRef.current = false
     onChange('')
     setQuery('')
     setAberto(true)
@@ -108,6 +107,7 @@ export default function ProdutoBusca({
     setQuery(e.target.value)
     setAberto(true)
     setDestaque(0)
+    digitandoRef.current = true
     // Digitou de novo → desfaz a seleção anterior (só no modo de seleção única).
     if (value && !limparAoSelecionar) onChange('')
   }

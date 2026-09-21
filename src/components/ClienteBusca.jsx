@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { inputCls } from './ui.jsx'
 import { IconSearch, IconX } from './icons.jsx'
-import { semAcento, combina } from '../lib/texto.js'
+import { semAcento, casaPalavras } from '../lib/texto.js'
 import { telefonesDoCliente } from '../lib/telefone.js'
 
 // Busca tolerante a acento e caixa ("João" casa com "joao"). A implementação
@@ -20,8 +20,14 @@ export default function ClienteBusca({ clientes, value, onChange, required, plac
   const wrapRef = useRef(null)
   const listaId = useId()
 
-  // Mantém o texto do campo em sincronia com o cliente selecionado (ex.: ao editar).
+  // Mantém o texto do campo em sincronia com o cliente selecionado (ex.: ao
+  // editar, ou quando o formulário é zerado por fora).
+  //
+  // Menos quando a seleção sumiu porque a pessoa começou a DIGITAR: aí o texto
+  // é o que ela está escrevendo, e zerá-lo apagava a primeira letra da busca.
+  const digitandoRef = useRef(false)
   useEffect(() => {
+    if (!selecionado && digitandoRef.current) return
     setQuery(selecionado ? selecionado.nome : '')
   }, [selecionado])
 
@@ -35,30 +41,37 @@ export default function ClienteBusca({ clientes, value, onChange, required, plac
   }, [])
 
   const q = normalizar(query)
+  const digitos = /^[\d\s()+-]+$/.test(query) ? query.replace(/\D/g, '') : ''
   const opcoes = useMemo(() => {
     if (!q) return clientes
-    const casam = clientes.filter((c) => {
-      const nome = normalizar(c.nome)
-      if (nome.includes(q) || nome.split(/\s+/).some((p) => p.startsWith(q))) return true
-      // Também pelo cônjuge e por qualquer um dos telefones: quem monta a venda
-      // às vezes só tem o número que ligou, ou o nome de quem atendeu.
-      return combina(q, c.conjugeNome, ...telefonesDoCliente(c).map((t) => t.numero))
-    })
+    // Cada palavra pode estar em qualquer lugar do nome ("maria silva" acha
+    // "Maria da Silva"). Também pelo cônjuge e pelos telefones: quem monta a
+    // venda às vezes só tem o número que ligou, ou o nome de quem atendeu.
+    const casam = clientes.filter((c) =>
+      casaPalavras(q, c.nome) ||
+      casaPalavras(q, c.conjugeNome) ||
+      telefonesDoCliente(c).some((t) =>
+        casaPalavras(q, t.numero) ||
+        // Telefone digitado sem máscara ("49999") acha o gravado com máscara.
+        (digitos.length >= 3 && String(t.numero || '').replace(/\D/g, '').includes(digitos))),
+    )
     // Quem começa com o texto vem primeiro.
     return casam.sort((a, b) => {
       const na = normalizar(a.nome).startsWith(q) ? 0 : 1
       const nb = normalizar(b.nome).startsWith(q) ? 0 : 1
       return na - nb || a.nome.localeCompare(b.nome)
     })
-  }, [clientes, q])
+  }, [clientes, q, digitos])
 
   function selecionar(c) {
+    digitandoRef.current = false
     onChange(c.id)
     setQuery(c.nome)
     setAberto(false)
   }
 
   function limpar() {
+    digitandoRef.current = false
     onChange('')
     setQuery('')
     setAberto(true)
@@ -68,6 +81,7 @@ export default function ClienteBusca({ clientes, value, onChange, required, plac
     setQuery(e.target.value)
     setAberto(true)
     setDestaque(0)
+    digitandoRef.current = true
     if (value) onChange('') // digitou de novo → desfaz a seleção anterior
   }
 

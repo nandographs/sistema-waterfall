@@ -25,3 +25,15 @@ export function combina(termo, ...campos) {
   if (!alvo) return true
   return campos.some((campo) => semAcento(campo).includes(alvo))
 }
+
+// Cada PALAVRA digitada aparece em algum dos campos, em qualquer ordem.
+//
+// É o que faz "maria silva" achar "Maria da Silva" e "torneira branca" achar a
+// torneira de cor branca: comparar o texto inteiro exigiria digitar o nome
+// exatamente como foi cadastrado, com o "da" no meio.
+export function casaPalavras(termo, ...campos) {
+  const palavras = semAcento(termo).split(/\s+/).filter(Boolean)
+  if (!palavras.length) return true
+  const alvo = campos.map(semAcento).filter(Boolean).join(' ')
+  return palavras.every((p) => alvo.includes(p))
+}
