@@ -150,6 +150,9 @@ export function montarHtmlOS(data, logo) {
 }
 
 export const CSS = cssDocumento('.os') + `
+  .os td { padding: 5px 9px; }
+  .os .ident td, .os .grade4 td, .os .itens td { height: 30px; }
+  .os .banda { padding: 5px 9px; }
   .os .grade2 td { height: 46px; vertical-align: top; }
   .os .aceite { border: 1px solid #000; padding: 8px 10px; }
   .os .aceite p { margin: 0 0 14px; text-align: justify; line-height: 1.45; }
