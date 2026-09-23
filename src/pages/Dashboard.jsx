@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   agendamentos, clientes, equipamentos, lancamentos, produtos,
-  eventosDoDia, eventosPorDia, pendenciasAtrasadas,
+  eventosDoDia, eventosPorDia, pendenciasAtrasadas, assinarDados,
   concluirAtividade, mudarStatusAgendamento,
   proximaTroca, formatBRL, formatData, FORMAS_PAGAMENTO, TIPOS_AGENDAMENTO,
   resumoDoFunil, oportunidadesParadas, ETAPAS_ABERTAS, ETAPAS_FUNIL,
@@ -78,6 +78,9 @@ export default function Dashboard({ wallpaper }) {
   // para elas verem o que acabou de ser gravado (mesmo padrão de ClienteDetalhe).
   const [, forcarRender] = useState(0)
   const recarregar = () => forcarRender((n) => n + 1)
+
+  // Concluir um serviço em outra tela tem que apagar o alerta daqui também.
+  useEffect(() => assinarDados(recarregar), [])
 
   const hoje = hojeISO()
   const mesCorrente = mesDe(hoje)

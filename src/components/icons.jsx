@@ -116,6 +116,12 @@ export const IconChevronRight = (p) => (
   </Icon>
 )
 
+export const IconChevronDown = (p) => (
+  <Icon {...p}>
+    <polyline points="6 9 12 15 18 9" />
+  </Icon>
+)
+
 export const IconLogOut = (p) => (
   <Icon {...p}>
     <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />

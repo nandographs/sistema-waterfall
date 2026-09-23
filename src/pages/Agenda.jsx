@@ -1,140 +1,57 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   eventosPorDia, eventosDoDia, pendenciasAtrasadas, resumoDoDia,
   concluirAtividade, remarcarAtividade, cancelarAtividade,
   mudarStatusAgendamento, remarcarAgendamento,
+  agendamentos, assinarDados, recarregarTabelas,
   formatBRL, TIPOS_ATIVIDADE, RESULTADOS_ATIVIDADE, FONTES_AGENDA, FONTES_PADRAO,
 } from '../data/repository.js'
 import {
-  hojeISO, mesAtual, mesDe, mudarMes, gradeDoMes, semanaDe, rotuloMes, diaDaSemana,
-  diaExtenso, diaCurto, formatHora, somarDias, ehHoje, ehPassado, rotuloRelativo, DIAS_CURTOS,
+  hojeISO, mesAtual, mesDe, mudarMes, gradeDoMes, semanaDe, rotuloMes,
+  diaExtenso, diaCurto, somarDias, ehHoje, ehPassado, rotuloRelativo,
 } from '../lib/datas.js'
 import { usuarioAtual } from '../lib/auth.js'
-import { Card, Page, PageTitle, Button, Empty, Modal, Badge, inputCls, notificar } from '../components/ui.jsx'
-import { IconChevronLeft, IconChevronRight, IconPlus, IconCheck, IconAlert, IconFilter, IconCalendar } from '../components/icons.jsx'
-import { LinhaEvento, IconeDoEvento, estiloDoEvento } from '../components/evento.jsx'
+import { Card, Page, PageTitle, Button, Empty, Modal, inputCls, notificar } from '../components/ui.jsx'
+import {
+  IconChevronLeft, IconChevronRight, IconChevronDown, IconPlus, IconCheck, IconAlert, IconFilter,
+} from '../components/icons.jsx'
+import { LinhaEvento, IconeDoEvento, estiloDoEvento, etiquetaDoEvento } from '../components/evento.jsx'
+import { GradeDoMes, FaixaDaSemana, LinhaDoTempo } from '../components/calendario.jsx'
 import AtividadeModal, { atividadeNova } from '../components/AtividadeModal.jsx'
 import AgendamentoDetalheModal from '../components/AgendamentoDetalheModal.jsx'
+
+// Quantos atrasados a lista mostra antes de oferecer o resto.
+const LIMITE_ATRASADOS = 5
 
 const pilula = (ativo) =>
   `rounded-full px-3.5 py-1.5 text-sm font-medium cursor-pointer ${
     ativo ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
   }`
 
-// Chip de um evento dentro da célula do calendário.
-function ChipEvento({ evento }) {
-  const estilo = estiloDoEvento(evento)
-  const hora = formatHora(evento.hora)
+// Botão redondo de ícone da barra do topo — o formato da referência, onde a
+// navegação é um conjunto de alvos iguais e discretos ao lado da data.
+function BotaoIcone({ rotulo, onClick, children, destaque = false, marcado = false }) {
   return (
-    <div className="flex items-center gap-1 min-w-0">
-      <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${estilo.ponto}`} />
-      <span className={`text-[11px] truncate ${estilo.texto}`}>
-        {hora && <span className="tnum text-slate-400 mr-1">{hora}</span>}
-        {evento.titulo}
-      </span>
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={rotulo}
+      title={rotulo}
+      className={`relative grid h-10 w-10 shrink-0 place-items-center rounded-full cursor-pointer transition-colors ${
+        destaque
+          ? 'bg-blue-500 text-[var(--btn-primary-fg)] hover:bg-blue-600'
+          : 'border border-slate-200 bg-white text-slate-500 hover:bg-slate-100 hover:text-slate-700'
+      }`}
+    >
+      {children}
+      {marcado && <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-blue-500" />}
+    </button>
   )
 }
 
-function GradeDoMes({ mes, selecionado, porDia, onSelecionar }) {
-  const dias = gradeDoMes(mes)
-
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
-      <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50">
-        {DIAS_CURTOS.map((dia) => (
-          <span key={dia} className="text-center text-[11px] font-semibold text-slate-500 py-2">
-            {dia}
-          </span>
-        ))}
-      </div>
-      <div className="grid grid-cols-7">
-        {dias.map((dia, i) => {
-          const doMes = mesDe(dia) === mes
-          const eventos = porDia.get(dia) ?? []
-          const ativo = dia === selecionado
-          const hoje = ehHoje(dia)
-
-          return (
-            <button
-              key={dia}
-              type="button"
-              onClick={() => onSelecionar(dia)}
-              className={`min-h-[64px] sm:min-h-[92px] text-left p-1 sm:p-1.5 border-slate-100 cursor-pointer ${
-                i % 7 !== 6 ? 'border-r' : ''
-              } ${i >= 7 ? 'border-t' : ''} ${
-                ativo ? 'bg-blue-50 ring-1 ring-inset ring-blue-500' : doMes ? 'bg-white hover:bg-slate-50' : 'bg-slate-50/60'
-              }`}
-            >
-              <span
-                className={`inline-flex items-center justify-center min-w-6 h-6 rounded-full text-xs tnum mb-1 ${
-                  hoje ? 'bg-blue-600 text-white font-semibold' : doMes ? 'text-slate-700' : 'text-slate-300'
-                }`}
-              >
-                {Number(dia.slice(8, 10))}
-              </span>
-              {/* No celular a célula tem ~46px de largura: o chip sobra ~24px
-                  para o título e vira letra cortada. Pontos dizem "tem coisa
-                  aqui" com honestidade; o detalhe está a um toque, no dia. */}
-              <div className="flex flex-wrap gap-0.5 sm:hidden">
-                {eventos.slice(0, 4).map((evento) => (
-                  <span
-                    key={evento.id}
-                    className={`h-1.5 w-1.5 rounded-full ${estiloDoEvento(evento).ponto}`}
-                  />
-                ))}
-              </div>
-              <div className="hidden sm:block space-y-0.5">
-                {eventos.slice(0, 3).map((evento) => (
-                  <ChipEvento key={evento.id} evento={evento} />
-                ))}
-                {eventos.length > 3 && (
-                  <span className="text-[11px] text-slate-400">+{eventos.length - 3} mais</span>
-                )}
-              </div>
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-function GradeDaSemana({ selecionado, porDia, onSelecionar }) {
-  const dias = semanaDe(selecionado)
-
-  return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
-      {dias.map((dia) => {
-        const eventos = porDia.get(dia) ?? []
-        const ativo = dia === selecionado
-        return (
-          <button
-            key={dia}
-            type="button"
-            onClick={() => onSelecionar(dia)}
-            className={`rounded-xl border p-2 text-left min-h-[140px] cursor-pointer ${
-              ativo ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white hover:bg-slate-50'
-            }`}
-          >
-            <p className="text-[11px] font-semibold text-slate-500">{DIAS_CURTOS[diaDaSemana(dia)]}</p>
-            <p className={`text-lg font-bold tnum ${ehHoje(dia) ? 'text-blue-600' : 'text-slate-900'}`}>
-              {Number(dia.slice(8, 10))}
-            </p>
-            <div className="space-y-1 mt-1.5">
-              {eventos.slice(0, 5).map((evento) => (
-                <ChipEvento key={evento.id} evento={evento} />
-              ))}
-              {eventos.length > 5 && (
-                <span className="text-[11px] text-slate-400">+{eventos.length - 5} mais</span>
-              )}
-            </div>
-          </button>
-        )
-      })}
-    </div>
-  )
-}
+// Só o nome do dia da semana, sem a data e sem o "-feira": ao lado da data em
+// números, "quarta" diz tudo o que "quarta-feira" diria e cabe no celular.
+const nomeDoDia = (dia) => diaExtenso(dia).split(',')[0].replace('-feira', '')
 
 // O relatório do dia. Não é digitado: sai do que já foi registrado ao longo do
 // dia, o que só funciona porque registrar é barato (ver CapturaRapida).
@@ -146,7 +63,7 @@ function ResumoDoDia({ dia }) {
   }
 
   const Bloco = ({ rotulo, valor, detalhe }) => (
-    <div className="rounded-lg border border-slate-200 px-3 py-2.5">
+    <div className="rounded-xl border border-slate-200 px-3 py-2.5">
       <p className="text-[11px] font-medium text-slate-500">{rotulo}</p>
       <p className="text-lg font-bold text-slate-900 tnum">{valor}</p>
       {detalhe && <p className="text-[11px] text-slate-400 mt-0.5">{detalhe}</p>}
@@ -188,7 +105,7 @@ function ResumoDoDia({ dia }) {
         </div>
       )}
 
-      <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2.5">
+      <div className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2.5">
         <p className="text-[13px] text-slate-600">
           {r.retornosMarcados.length > 0 ? (
             <>
@@ -242,7 +159,7 @@ function FecharDiaModal({ dia, pendentes, onFechar, onMudou }) {
           campo de visão amanhã.
         </p>
 
-        <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+        <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
           <span className="text-[13px] font-medium text-slate-700">Remarcar para</span>
           <input
             className={`${inputCls} w-auto`}
@@ -255,17 +172,19 @@ function FecharDiaModal({ dia, pendentes, onFechar, onMudou }) {
         {pendentes.length === 0 ? (
           <Empty>Nada em aberto. Dia fechado.</Empty>
         ) : (
-          <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+          <ul className="divide-y divide-slate-200 rounded-xl border border-slate-200">
             {pendentes.map((evento) => (
               <li key={evento.id} className="px-3 py-2.5 flex flex-wrap items-center justify-between gap-2">
                 {/* flex-1 faltando fazia o bloco de texto exceder a linha e o
                     "· atrasado" — justamente o que muda a decisão — era cortado. */}
-                <div className="min-w-0 flex-1 flex items-center gap-2">
-                  <IconeDoEvento evento={evento} className={estiloDoEvento(evento).icone} />
+                <div className="min-w-0 flex-1 flex items-center gap-2.5">
+                  <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${estiloDoEvento(evento).bolha}`}>
+                    <IconeDoEvento evento={evento} size={15} />
+                  </span>
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-slate-900 truncate">{evento.titulo}</p>
+                    <p className="text-sm font-semibold text-slate-900 truncate">{evento.titulo}</p>
                     <p className="text-xs text-slate-500">
-                      {diaCurto(evento.data)}
+                      {etiquetaDoEvento(evento)} · {diaCurto(evento.data)}
                       {evento.detalhe ? ` · ${evento.detalhe}` : ''}
                       {ehPassado(evento.data) && <span className="text-red-600"> · atrasado</span>}
                     </p>
@@ -295,39 +214,20 @@ function FecharDiaModal({ dia, pendentes, onFechar, onMudou }) {
   )
 }
 
-// Folha inferior para escolher data no mobile: reúne o toggle de visão, a
-// navegação de mês e a grade completa num só lugar — em vez de duas linhas de
-// controles permanentes acima do dia, que era o que sobrava tela no celular.
-function SeletorDataModal({ mes, dia, visao, porDia, onMudarMes, onMudarVisao, onSelecionarDia, onHoje, onFechar }) {
+// Folha inferior para escolher data no mobile: o mês inteiro num toque, sem
+// ocupar a tela principal quando ninguém está navegando.
+function SeletorDataModal({ mes, dia, porDia, onMudarMes, onSelecionarDia, onHoje, onFechar }) {
   return (
     <Modal title="Escolher data" open onClose={onFechar}>
       <div className="space-y-4">
-        <div className="grid grid-cols-3 gap-1.5">
-          {[['mes', 'Mês'], ['semana', 'Semana'], ['dia', 'Dia']].map(([valor, rotulo]) => (
-            <button key={valor} type="button" onClick={() => onMudarVisao(valor)} className={pilula(visao === valor)}>
-              {rotulo}
-            </button>
-          ))}
-        </div>
-
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => onMudarMes(-1)}
-            className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-50 cursor-pointer"
-            aria-label="Mês anterior"
-          >
+          <BotaoIcone rotulo="Mês anterior" onClick={() => onMudarMes(-1)}>
             <IconChevronLeft size={16} />
-          </button>
+          </BotaoIcone>
           <span className="flex-1 text-center text-sm font-semibold text-slate-900">{rotuloMes(mes)}</span>
-          <button
-            type="button"
-            onClick={() => onMudarMes(1)}
-            className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-50 cursor-pointer"
-            aria-label="Próximo mês"
-          >
+          <BotaoIcone rotulo="Próximo mês" onClick={() => onMudarMes(1)}>
             <IconChevronRight size={16} />
-          </button>
+          </BotaoIcone>
         </div>
 
         <GradeDoMes
@@ -394,8 +294,9 @@ function FiltrosModal({ fontes, soMinhas, usuario, onAlternarFonte, onAlternarSo
 export default function Agenda() {
   const [dia, setDia] = useState(hojeISO())
   const [mes, setMes] = useState(mesAtual())
-  // No celular a grade do mês dá ~46px por dia — espaço para um ponto e nada
-  // mais. Quem abre a agenda no telefone quer o dia de hoje, não o panorama.
+  // Duas visões, como na referência: o MÊS (panorama + lista do dia escolhido) e
+  // o DIA (faixa da semana + linha do tempo por hora). No celular a grade do mês
+  // dá ~46px por dia; quem abre a agenda no telefone quer o dia de hoje.
   const [visao, setVisao] = useState(() =>
     typeof window !== 'undefined' && window.innerWidth < 640 ? 'dia' : 'mes'
   )
@@ -408,6 +309,7 @@ export default function Agenda() {
   const [agDetalhe, setAgDetalhe] = useState(null)
   const [fechandoDia, setFechandoDia] = useState(false)
   const [versao, setVersao] = useState(0)
+  const [todosAtrasados, setTodosAtrasados] = useState(false)
   const [seletorAberto, setSeletorAberto] = useState(false)
   const [filtrosAbertos, setFiltrosAbertos] = useState(false)
   const toqueRef = useRef(null)
@@ -415,15 +317,43 @@ export default function Agenda() {
   const recarregar = () => setVersao((n) => n + 1)
   const usuario = usuarioAtual()
 
+  // A agenda não é dona de nada: ela mostra atividades e serviços que outras
+  // telas (e o próprio sistema, ao agendar um refil) mudam o tempo todo. Sem
+  // ouvir essas mudanças, um serviço concluído em Serviços continuava aqui como
+  // atrasado até dar F5.
+  useEffect(() => assinarDados(recarregar), [])
+
+  // E o cache só é carregado no login: o que mudou em outro aparelho ou em
+  // outra aba não chegaria nunca. Buscamos de novo ao abrir a agenda e toda vez
+  // que a janela volta ao foco — o momento em que a pessoa olha para a tela.
+  useEffect(() => {
+    // Alternar de aba dispara `visibilitychange` o tempo todo; a janela de 30s
+    // segura a mão para não virar uma consulta por clique.
+    let ultima = 0
+    const sincronizar = () => {
+      if (document.visibilityState === 'hidden') return
+      if (Date.now() - ultima < 30_000) return
+      ultima = Date.now()
+      recarregarTabelas(['agendamentos', 'atividades', 'lancamentos']).catch(() => {})
+    }
+    sincronizar()
+    window.addEventListener('focus', sincronizar)
+    document.addEventListener('visibilitychange', sincronizar)
+    return () => {
+      window.removeEventListener('focus', sincronizar)
+      document.removeEventListener('visibilitychange', sincronizar)
+    }
+  }, [])
+
   // "Só as minhas" filtra atividades por responsável; serviços em campo não têm
   // dono no modelo atual, então continuam visíveis para todo mundo.
   const filtrar = (lista) =>
     soMinhas ? lista.filter((e) => e.fonte !== 'atividade' || e.responsavel === usuario) : lista
 
   // O intervalo carregado acompanha a visão: o mês inteiro (com as bordas das
-  // semanas vizinhas) ou só a semana selecionada.
+  // semanas vizinhas) ou a semana da faixa do dia.
   const porDia = useMemo(() => {
-    const dias = visao === 'semana' ? semanaDe(dia) : gradeDoMes(mes)
+    const dias = visao === 'dia' ? semanaDe(dia) : gradeDoMes(mes)
     if (dias.length === 0) return new Map()
     const mapa = eventosPorDia(dias[0], dias[dias.length - 1], fontes)
     if (!soMinhas) return mapa
@@ -450,13 +380,11 @@ export default function Agenda() {
     setMes(mesAtual())
   }
 
-  // Um único ponto para "anterior/próximo" que respeita a visão ativa. Antes,
-  // as setas sempre mudavam o MÊS mesmo com a visão em "Dia" — no celular,
-  // onde "Dia" é o padrão, isso fazia o rótulo mudar sem o dia visível mudar
-  // junto, o que é a própria definição de confuso.
+  // Um único ponto para "anterior/próximo" que respeita a visão ativa: no dia
+  // anda um dia, no mês anda um mês. Antes as setas sempre mudavam o MÊS, e no
+  // celular o rótulo mudava sem o dia visível mudar junto.
   function navegar(direcao) {
     if (visao === 'dia') return selecionarDia(somarDias(dia, direcao))
-    if (visao === 'semana') return selecionarDia(somarDias(dia, direcao * 7))
     setMes(mudarMes(mes, direcao))
   }
 
@@ -477,7 +405,7 @@ export default function Agenda() {
     const dx = t.clientX - inicio.x
     const dy = t.clientY - inicio.y
     if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-      navegar(dx > 0 ? -1 : 1)
+      selecionarDia(somarDias(dia, dx > 0 ? -1 : 1))
     }
   }
 
@@ -514,238 +442,195 @@ export default function Agenda() {
     )
   }
 
-  // Rótulo compacto do período: no mobile substitui o mês fixo — que continuava
-  // aparecendo mesmo na visão "Dia" — por algo que reflete o que está na tela.
-  const rotuloToolbar = useMemo(() => {
-    if (visao === 'dia') {
-      const relativo = rotuloRelativo(dia)
-      return `${DIAS_CURTOS[diaDaSemana(dia)]}, ${relativo || diaCurto(dia)}`
-    }
-    if (visao === 'semana') {
-      const dias = semanaDe(dia)
-      return `${diaCurto(dias[0])} – ${diaCurto(dias[6])}`
-    }
-    return rotuloMes(mes)
-  }, [visao, dia, mes])
-
   const filtroAtivo = fontes.length < Object.keys(FONTES_AGENDA).length || soMinhas
+  const contexto = visao === 'mes' ? rotuloMes(mes) : (rotuloRelativo(dia) || `Semana de ${diaCurto(semanaDe(dia)[0])}`)
 
-  return (
-    <Page>
-      <PageTitle
-        subtitle="Seu dia: contatos, tarefas e serviços no mesmo lugar"
-        action={
-          <Button className="hidden sm:inline-flex" onClick={() => setForm(atividadeNova({ data: dia }))}>
-            <IconPlus size={16} /> Nova atividade
-          </Button>
-        }
-      >
-        Agenda
-      </PageTitle>
-
-      {/* Mobile: uma linha só. Setas navegam pela visão ativa (dia/semana/mês);
-          o centro abre a folha com o mês inteiro, o toggle de visão e "Hoje";
-          o funil abre os filtros. As duas linhas de controles permanentes que
-          existiam antes empurravam o dia de hoje para fora da tela. */}
-      <div className="flex sm:hidden items-center gap-2 mb-4">
-        <button
-          type="button"
-          onClick={() => navegar(-1)}
-          className="shrink-0 rounded-lg border border-slate-200 bg-white p-2.5 text-slate-500 hover:bg-slate-50 cursor-pointer"
-          aria-label="Anterior"
-        >
-          <IconChevronLeft size={16} />
-        </button>
-        <button
-          type="button"
-          onClick={() => setSeletorAberto(true)}
-          className="flex-1 min-w-0 flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 cursor-pointer"
-        >
-          <IconCalendar size={15} className="text-slate-400 shrink-0" />
-          <span className="truncate first-letter:uppercase">{rotuloToolbar}</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => navegar(1)}
-          className="shrink-0 rounded-lg border border-slate-200 bg-white p-2.5 text-slate-500 hover:bg-slate-50 cursor-pointer"
-          aria-label="Próximo"
-        >
-          <IconChevronRight size={16} />
-        </button>
-        <button
-          type="button"
-          onClick={() => setFiltrosAbertos(true)}
-          className="relative shrink-0 rounded-lg border border-slate-200 bg-white p-2.5 text-slate-500 hover:bg-slate-50 cursor-pointer"
-          aria-label="Filtros"
-        >
-          <IconFilter size={16} />
-          {filtroAtivo && <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-blue-600" />}
-        </button>
-      </div>
-
-      <div className="hidden sm:flex flex-wrap items-center gap-2 mb-4">
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => navegar(-1)}
-            className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-50 cursor-pointer"
-            aria-label="Anterior"
-          >
-            <IconChevronLeft size={16} />
-          </button>
-          <button
-            type="button"
-            onClick={() => navegar(1)}
-            className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-50 cursor-pointer"
-            aria-label="Próximo"
-          >
-            <IconChevronRight size={16} />
-          </button>
-        </div>
-
-        <span className="text-base font-semibold text-slate-900 flex-1 sm:flex-none sm:min-w-[160px] first-letter:uppercase">
-          {rotuloToolbar}
+  const painelDoDia = (
+    <Card
+      onTouchStart={aoTocarInicio}
+      onTouchEnd={aoTocarFim}
+      className={visao === 'dia' ? 'max-w-4xl' : ''}
+      title={
+        <span className="first-letter:uppercase">
+          {ehHoje(dia) ? 'Hoje' : diaExtenso(dia)}
+          {doDia.length > 0 && (
+            <span className="ml-2 text-xs font-medium text-slate-400 tnum">
+              {doDia.length} {doDia.length === 1 ? 'item' : 'itens'}
+            </span>
+          )}
         </span>
-
-        <Button variant="secondary" onClick={irParaHoje}>Hoje</Button>
-
-        {/* No mobile as três visões ocupam a linha inteira em partes iguais —
-            antes o ml-auto jogava um botão sozinho na segunda linha. */}
-        <div className="grid grid-cols-3 gap-1.5 w-full sm:w-auto sm:flex sm:ml-auto">
-          {[['mes', 'Mês'], ['semana', 'Semana'], ['dia', 'Dia']].map(([valor, rotulo]) => (
-            <button key={valor} type="button" onClick={() => setVisao(valor)} className={pilula(visao === valor)}>
+      }
+      action={
+        <div className="flex gap-1">
+          {[['agenda', 'Agenda'], ['resumo', 'Resumo']].map(([valor, rotulo]) => (
+            <button
+              key={valor}
+              type="button"
+              onClick={() => setAba(valor)}
+              className={`rounded-full px-2.5 py-1 text-xs font-medium cursor-pointer ${
+                aba === valor ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-100'
+              }`}
+            >
               {rotulo}
             </button>
           ))}
         </div>
-      </div>
-
-      <div className="hidden sm:flex flex-wrap items-center gap-2 mb-4">
-        {Object.entries(FONTES_AGENDA).map(([fonte, rotulo]) => (
-          <button
-            key={fonte}
-            type="button"
-            onClick={() => alternarFonte(fonte)}
-            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[13px] font-medium cursor-pointer ${
-              fontes.includes(fonte)
-                ? 'border-slate-300 bg-white text-slate-700'
-                : 'border-slate-200 bg-slate-50 text-slate-400'
-            }`}
-          >
-            <span
-              className={`h-2 w-2 rounded-full ${
-                !fontes.includes(fonte)
-                  ? 'bg-slate-300'
-                  : fonte === 'agendamento' ? 'bg-blue-500' : fonte === 'vencimento' ? 'bg-violet-500' : 'bg-emerald-500'
-              }`}
-            />
-            {rotulo}
-          </button>
-        ))}
-        {usuario && (
-          <button type="button" onClick={() => setSoMinhas((v) => !v)} className={pilula(soMinhas) + ' sm:ml-auto'}>
-            {soMinhas ? 'Só as minhas' : 'Todas'}
-          </button>
-        )}
-      </div>
-
-      <div className={visao === 'dia' ? '' : 'grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_380px] gap-6'}>
-        {visao !== 'dia' && (
-          <div>
-            {visao === 'mes' ? (
-              <GradeDoMes mes={mes} selecionado={dia} porDia={porDia} onSelecionar={selecionarDia} />
-            ) : (
-              <GradeDaSemana selecionado={dia} porDia={porDia} onSelecionar={selecionarDia} />
-            )}
-          </div>
-        )}
-
-        <Card
-          onTouchStart={aoTocarInicio}
-          onTouchEnd={aoTocarFim}
-          className={visao === 'dia' ? 'max-w-3xl' : ''}
-          title={
-            <span className="first-letter:uppercase">
-              {diaExtenso(dia)}
-              {ehHoje(dia) && <Badge color="sky">Hoje</Badge>}
-            </span>
-          }
-          action={
-            <div className="flex gap-1">
-              {[['agenda', 'Agenda'], ['resumo', 'Resumo']].map(([valor, rotulo]) => (
-                <button
-                  key={valor}
-                  type="button"
-                  onClick={() => setAba(valor)}
-                  className={`rounded-md px-2 py-1 text-xs font-medium cursor-pointer ${
-                    aba === valor ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-50'
-                  }`}
-                >
-                  {rotulo}
-                </button>
-              ))}
-            </div>
-          }
-        >
-          {aba === 'resumo' ? (
-            <ResumoDoDia key={versao} dia={dia} />
-          ) : (
-            <div className="space-y-4">
-              {atrasados.length > 0 && (
-                <div>
-                  <p className="flex items-center gap-1.5 text-[11px] font-semibold text-red-600 uppercase tracking-wide mb-1">
-                    <IconAlert size={13} /> Atrasados
-                  </p>
-                  <ul className="divide-y divide-slate-100">
-                    {atrasados.map((evento) => (
-                      <LinhaEvento
-                        key={evento.id}
-                        evento={evento}
-                        onAbrir={abrirEvento}
-                        onConcluir={concluirEvento}
-                      />
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {doDia.length === 0 ? (
-                <Empty>Nada marcado para este dia.</Empty>
-              ) : (
-                <ul className="divide-y divide-slate-100">
-                  {doDia.map((evento) => (
-                    <LinhaEvento
-                      key={evento.id}
-                      evento={evento}
-                      onAbrir={abrirEvento}
-                      onConcluir={concluirEvento}
-                    />
-                  ))}
-                </ul>
-              )}
-
-              <div className="flex flex-wrap gap-2 pt-1 border-t border-slate-100">
-                <Button variant="ghost" onClick={() => setForm(atividadeNova({ data: dia }))}>
-                  <IconPlus size={15} /> Adicionar neste dia
-                </Button>
-                {pendentesDoDia.length > 0 && (
-                  <Button variant="secondary" onClick={() => setFechandoDia(true)}>
-                    Fechar o dia ({pendentesDoDia.length})
-                  </Button>
-                )}
-              </div>
+      }
+    >
+      {aba === 'resumo' ? (
+        <ResumoDoDia key={versao} dia={dia} />
+      ) : (
+        <div className="space-y-5">
+          {/* A faixa da semana é a navegação do celular: sete dias na largura do
+              polegar, com os pontos dizendo onde há coisa marcada. */}
+          {visao === 'dia' && (
+            <div className="-mt-1 border-b border-slate-200 pb-3">
+              <FaixaDaSemana selecionado={dia} porDia={porDia} onSelecionar={selecionarDia} />
             </div>
           )}
-        </Card>
+
+          {/* Atrasado é aviso, não lista de trabalho: quem tem trinta pendências
+              velhas não precisa rolar trinta linhas para chegar ao dia de hoje.
+              Mostramos as mais antigas e o resto fica a um toque. */}
+          {atrasados.length > 0 && (
+            <div>
+              <p className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-red-600">
+                <IconAlert size={13} /> Atrasados ({atrasados.length})
+              </p>
+              <ul className="divide-y divide-slate-200/70">
+                {(todosAtrasados ? atrasados : atrasados.slice(0, LIMITE_ATRASADOS)).map((evento) => (
+                  <LinhaEvento
+                    key={evento.id}
+                    evento={evento}
+                    onAbrir={abrirEvento}
+                    onConcluir={concluirEvento}
+                  />
+                ))}
+              </ul>
+              {atrasados.length > LIMITE_ATRASADOS && (
+                <button
+                  type="button"
+                  onClick={() => setTodosAtrasados((v) => !v)}
+                  className="mt-1 text-[13px] font-semibold text-blue-700 hover:underline cursor-pointer"
+                >
+                  {todosAtrasados ? 'Mostrar menos' : `Ver os outros ${atrasados.length - LIMITE_ATRASADOS}`}
+                </button>
+              )}
+            </div>
+          )}
+
+          {doDia.length === 0 ? (
+            <Empty>Nada marcado para este dia.</Empty>
+          ) : visao === 'dia' ? (
+            <LinhaDoTempo
+              eventos={doDia}
+              mostrarAgora={ehHoje(dia)}
+              onAbrir={abrirEvento}
+              onConcluir={concluirEvento}
+            />
+          ) : (
+            <ul className="divide-y divide-slate-200/70">
+              {doDia.map((evento) => (
+                <LinhaEvento
+                  key={evento.id}
+                  evento={evento}
+                  onAbrir={abrirEvento}
+                  onConcluir={concluirEvento}
+                />
+              ))}
+            </ul>
+          )}
+
+          <div className="flex flex-wrap gap-2 border-t border-slate-200 pt-3">
+            <Button variant="ghost" onClick={() => setForm(atividadeNova({ data: dia }))}>
+              <IconPlus size={15} /> Adicionar neste dia
+            </Button>
+            {pendentesDoDia.length > 0 && (
+              <Button variant="secondary" onClick={() => setFechandoDia(true)}>
+                Fechar o dia ({pendentesDoDia.length})
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+    </Card>
+  )
+
+  return (
+    <Page>
+      <PageTitle subtitle="Seu dia: contatos, tarefas e serviços no mesmo lugar">Agenda</PageTitle>
+
+      {/* A data em tamanho de manchete, com a navegação ao lado — o cabeçalho da
+          referência. No celular ela é também o botão que abre o mês inteiro. */}
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={() => setSeletorAberto(true)}
+          className="min-w-0 text-left cursor-pointer"
+        >
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 first-letter:uppercase">
+            {contexto}
+          </p>
+          <p className="flex items-center gap-2 text-lg sm:text-xl lg:text-2xl font-semibold tracking-[-0.02em] text-slate-900">
+            <span className="tnum">{diaCurto(dia)}</span>
+            <span className="truncate font-medium text-slate-500 first-letter:uppercase">{nomeDoDia(dia)}</span>
+            <IconChevronDown size={16} className="shrink-0 text-slate-400" />
+          </p>
+        </button>
+
+        <div className="flex shrink-0 items-center gap-1.5">
+          <BotaoIcone rotulo="Anterior" onClick={() => navegar(-1)}>
+            <IconChevronLeft size={16} />
+          </BotaoIcone>
+          <BotaoIcone rotulo="Próximo" onClick={() => navegar(1)}>
+            <IconChevronRight size={16} />
+          </BotaoIcone>
+          <BotaoIcone rotulo="Filtros" onClick={() => setFiltrosAbertos(true)} marcado={filtroAtivo}>
+            <IconFilter size={16} />
+          </BotaoIcone>
+          <BotaoIcone rotulo="Nova atividade" destaque onClick={() => setForm(atividadeNova({ data: dia }))}>
+            <IconPlus size={18} />
+          </BotaoIcone>
+        </div>
       </div>
 
-      {/* FAB: substitui o botão "Nova atividade" do topo no mobile — fica na
-          zona do polegar, acima da barra de navegação inferior, em vez de um
-          alvo pequeno no canto superior direito. */}
+      <div className="mb-4 flex items-center justify-between gap-2">
+        <div className="inline-flex rounded-full border border-slate-200 bg-white p-1">
+          {[['mes', 'Mês'], ['dia', 'Dia']].map(([valor, rotulo]) => (
+            <button
+              key={valor}
+              type="button"
+              onClick={() => setVisao(valor)}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium cursor-pointer transition-colors ${
+                visao === valor ? 'bg-slate-900 text-slate-50' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              {rotulo}
+            </button>
+          ))}
+        </div>
+        {!ehHoje(dia) && (
+          <Button variant="secondary" onClick={irParaHoje}>Hoje</Button>
+        )}
+      </div>
+
+      {visao === 'mes' ? (
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(380px,420px)]">
+          <Card className="h-fit">
+            <GradeDoMes mes={mes} selecionado={dia} porDia={porDia} onSelecionar={selecionarDia} />
+          </Card>
+          {painelDoDia}
+        </div>
+      ) : (
+        painelDoDia
+      )}
+
+      {/* FAB: o alvo de "adicionar" na zona do polegar, acima da barra de
+          navegação inferior. */}
       <button
         type="button"
         onClick={() => setForm(atividadeNova({ data: dia }))}
-        className="sm:hidden fixed right-4 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-30 flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg hover:bg-blue-700 cursor-pointer"
+        className="sm:hidden fixed right-4 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-30 flex h-14 w-14 items-center justify-center rounded-full bg-blue-500 text-[var(--btn-primary-fg)] shadow-lg hover:bg-blue-600 cursor-pointer"
         aria-label="Nova atividade"
       >
         <IconPlus size={22} />
@@ -755,10 +640,8 @@ export default function Agenda() {
         <SeletorDataModal
           mes={mes}
           dia={dia}
-          visao={visao}
           porDia={porDia}
           onMudarMes={(n) => setMes(mudarMes(mes, n))}
-          onMudarVisao={setVisao}
           onSelecionarDia={selecionarDia}
           onHoje={irParaHoje}
           onFechar={() => setSeletorAberto(false)}
@@ -797,7 +680,9 @@ export default function Agenda() {
 
       {agDetalhe && (
         <AgendamentoDetalheModal
-          agendamento={agDetalhe}
+          // Sempre a versão do cache: se o status mudou enquanto o pop-up
+          // estava aberto, o que ele mostra acompanha.
+          agendamento={agendamentos.get(agDetalhe.id) ?? agDetalhe}
           onClose={() => setAgDetalhe(null)}
           onCriarTarefa={(ag) => {
             setAgDetalhe(null)

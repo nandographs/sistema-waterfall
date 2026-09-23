@@ -89,11 +89,23 @@ Painel do dia, com wallpaper de fundo escolhível (`WallpaperPicker`). Contém:
   de pagamento**.
 
 ### Agenda (`/agenda`)
-A tela mais complexa do sistema (824 linhas). É o **diário de trabalho +
-calendário unificado** — mistura `atividades` (contatos/tarefas) e
-`agendamentos` (serviços em campo) na mesma visão.
+A tela mais complexa do sistema. É o **diário de trabalho + calendário
+unificado** — mistura `atividades` (contatos/tarefas) e `agendamentos`
+(serviços em campo) na mesma visão.
 - Visão por **mês** (grade) ou por **dia**, alternável; no mobile o padrão é
   "Dia" (a grade de mês mal cabe ~46px por dia no celular).
+- Desenho **sem grade de linhas** (`components/calendario.jsx`): o mês é só
+  número + pontos coloridos por fonte, o dia escolhido vira pílula sólida. A
+  moldura só aparece onde carrega informação — no cartão do evento, tingido
+  pela cor do tipo.
+- A visão "Dia" tem **faixa da semana** (sete dias na largura do polegar) e
+  **linha do tempo** com calha de horas; o que não tem hora marcada fica numa
+  tira acima, e as horas desenhadas vão só do primeiro ao último compromisso.
+- **Atrasados** aparecem no topo do dia de hoje, limitados a 5 com "ver os
+  outros N" — aviso, não lista de trabalho.
+- A tela **assina o repositório** (`assinarDados`) e rebusca as tabelas ao
+  abrir e ao voltar do segundo plano (`recarregarTabelas`): concluir um serviço
+  em outra tela (ou em outro aparelho) tem que sumir daqui sem F5.
 - Navegação por seta ou **swipe horizontal** no card do dia (arrastar troca de
   dia, como um app de agenda de verdade).
 - Filtros: por fonte (atividade/agendamento) e "só as minhas" (aplica-se só a

@@ -195,6 +195,41 @@ async function assinarAvataresDasConversas() {
   cache.conversas = cache.conversas.map((c) => ({ ...c, avatarUrl: urls[c.avatarPath] || '' }))
 }
 
+// ---- Avisos de mudança ----
+//
+// O cache é um só para o app inteiro, mas cada tela guarda o seu próprio estado
+// derivado dele. Sem um aviso, concluir um serviço numa tela deixava a outra
+// mostrando o mundo de antes — na agenda, um serviço já feito continuava em
+// "Atrasados". Quem precisa acompanhar assina aqui e se redesenha.
+const ouvintesDeDados = new Set()
+
+export function assinarDados(aoMudar) {
+  ouvintesDeDados.add(aoMudar)
+  return () => ouvintesDeDados.delete(aoMudar)
+}
+
+function avisarMudanca() {
+  for (const ouvinte of ouvintesDeDados) ouvinte()
+}
+
+// Rebusca tabelas inteiras no banco. É o que traz o que mudou em OUTRO lugar —
+// outro aparelho, outra aba, uma automação — já que carregarDados() só roda no
+// login. A mesclagem com o item anterior preserva campos calculados no
+// carregamento (fotoPerfilUrl, fotoUrl) que não vêm do banco.
+export async function recarregarTabelas(nomes = ['agendamentos', 'atividades']) {
+  for (const tabela of nomes) {
+    if (!TABELAS.includes(tabela)) continue
+    const { data, error } = await buscarTudo(tabela)
+    if (error) throw error
+    const anteriores = new Map(cache[tabela].map((i) => [i.id, i]))
+    cache[tabela] = data.map((linha) => {
+      const item = paraApp(linha)
+      return { ...anteriores.get(item.id), ...item }
+    })
+  }
+  avisarMudanca()
+}
+
 // Descarta do cache em memória o que o banco já apagou por cascata (ex.: os
 // itens e lançamentos de uma venda excluída), para as telas não exibirem
 // registros órfãos até o próximo carregamento.
@@ -211,6 +246,7 @@ function makeStore(tabela) {
       if (error) throw error
       const item = paraApp(data)
       cache[tabela] = [...cache[tabela], item]
+      avisarMudanca()
       return item
     },
     update: async (id, dados) => {
@@ -220,12 +256,14 @@ function makeStore(tabela) {
       // do banco (ex.: fotoPerfilUrl / fotoUrl, gerados no carregamento).
       const item = { ...cache[tabela].find((i) => i.id === id), ...paraApp(data) }
       cache[tabela] = cache[tabela].map((i) => (i.id === id ? item : i))
+      avisarMudanca()
       return item
     },
     remove: async (id) => {
       const { error } = await supabase.from(tabela).delete().eq('id', id)
       if (error) throw error
       cache[tabela] = cache[tabela].filter((i) => i.id !== id)
+      avisarMudanca()
     },
   }
 }

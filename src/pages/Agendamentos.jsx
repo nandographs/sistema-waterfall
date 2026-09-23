@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  agendamentos, clientes, produtos, salvarAgendamento, mudarStatusAgendamento, excluirAgendamento,
+  agendamentos, clientes, produtos, salvarAgendamento, mudarStatusAgendamento, excluirAgendamento, assinarDados,
   textoAutorDoAgendamento, formatData, formatBRL, TIPOS_AGENDAMENTO, FORMAS_PAGAMENTO,
 } from '../data/repository.js'
 import { formatHora } from '../lib/datas.js'
@@ -133,6 +133,10 @@ export default function Agendamentos() {
   }, [painelAberto])
 
   const refresh = () => setLista(agendamentos.list())
+
+  // A lista também muda fora daqui (concluir pela agenda, refil agendado
+  // automaticamente): ouvir o repositório evita a tela mostrar o mundo antigo.
+  useEffect(() => assinarDados(refresh), [])
   const listaClientes = clientes.list()
   const listaProdutos = produtos.list()
 
