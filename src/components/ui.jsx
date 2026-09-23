@@ -246,6 +246,33 @@ export function Badge({ children, color = 'slate' }) {
   )
 }
 
+// ---- O número de um painel ----
+//
+// "27" e "R$ 1.249.072,63" moram no mesmo quadro. Qualquer corpo de tipo FIXO
+// serve um e estoura o outro — era o que acontecia com "Vendido no mês", que
+// pedia 251px numa caixa de 232px e vazava para fora do card.
+//
+// Então o corpo não é escolhido, é derivado. `100cqi` é a largura ÚTIL do
+// próprio card — ele é declarado `.painel-numero` em index.css, o que o torna
+// um contêiner de consulta, e `cqi` já mede a caixa de conteúdo, com o padding
+// descontado. Dividida pelo espaço que aquele texto ocupa, dá o maior corpo que
+// ainda cabe. O `min()` com o teto do desenho impede o caminho contrário: "27"
+// crescendo até virar outra coisa.
+//
+// (O `respiro` é só uma folga fina contra arredondamento; descontar o padding
+// aqui seria descontá-lo duas vezes, e no celular isso derrubava o número para
+// 11px dentro de um card de 164px.)
+//
+// 0.56 é a largura de um caractere em fração do corpo, medida na SF Pro/Inter
+// semibold com algarismos tabulares. Dinheiro em BRL fica entre 0.52 e 0.545;
+// a folga cobre a fonte substituta, que é um pouco mais larga.
+const LARGURA_DO_CARACTERE = 0.56
+
+export function corpoDoNumero(valor, teto = '2rem', respiro = '0.25rem') {
+  const largura = (String(valor ?? '').length * LARGURA_DO_CARACTERE).toFixed(2)
+  return { fontSize: `min(${teto}, calc((100cqi - ${respiro}) / ${largura}))` }
+}
+
 export function Empty({ children }) {
   return <p className="text-[15px] text-slate-500 py-10 text-center tracking-[-0.022em]">{children}</p>
 }

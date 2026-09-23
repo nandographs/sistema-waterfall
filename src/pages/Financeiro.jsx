@@ -17,7 +17,7 @@ import {
   rotuloDoRelatorio, periodoEmCurso, somarDias,
 } from '../lib/datas.js'
 import { gerarRelatorioPdf } from '../relatorio/gerarPdf.js'
-import { Page, PageTitle, Button, Field, inputCls, InputNumero, Empty, Modal, Badge, Aviso, Segmentos, notificar, usePaginacao, Paginacao } from '../components/ui.jsx'
+import { Page, PageTitle, Button, Field, inputCls, InputNumero, Empty, Modal, Badge, Aviso, Segmentos, corpoDoNumero, notificar, usePaginacao, Paginacao } from '../components/ui.jsx'
 import { GraficoSaldo, GraficoFluxo } from '../components/GraficosFinanceiro.jsx'
 import {
   IconPlus, IconWallet, IconAlert, IconCheck,
@@ -112,13 +112,15 @@ const TONS = {
 }
 function CartaoNumero({ tom, icone, rotulo, valor, detalhe }) {
   return (
-    <article className="ui-card bg-white border border-slate-200 rounded-2xl p-5 flex flex-col justify-between gap-3 sm:min-h-36 min-w-0">
+    <article className="painel-numero ui-card bg-white border border-slate-200 rounded-2xl p-5 flex flex-col justify-between gap-3 sm:min-h-36 min-w-0">
       <div className="flex items-start justify-between gap-2">
         <p className="text-[13px] text-slate-500 leading-tight">{rotulo}</p>
         <span className={`shrink-0 ${TONS[tom]}`}>{icone}</span>
       </div>
       <div className="min-w-0">
-        <p className="texto-heroi text-[1.5rem] tnum text-slate-900 whitespace-nowrap">{valor}</p>
+        {/* O corpo sai da largura do card e do tamanho do número — dinheiro
+            em BRL não tem comprimento fixo. Ver corpoDoNumero(). */}
+        <p style={corpoDoNumero(valor, '1.5rem')} className="texto-heroi tnum text-slate-900 whitespace-nowrap">{valor}</p>
         <p className={`text-[11px] leading-snug mt-1.5 ${TONS[tom]}`}>{detalhe}</p>
       </div>
     </article>

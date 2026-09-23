@@ -286,6 +286,14 @@ h1, h2, h3, .font-display {
   line-height: 1.05;
 }
 
+/* O card que expõe um número grande vira um contêiner de consulta, para o
+   número poder se medir contra a LARGURA DO PRÓPRIO CARD (a unidade `cqi`) em
+   vez de contra a janela. Ver corpoDoNumero() em components/ui.jsx — é lá que
+   está a conta e o porquê dela. */
+.painel-numero {
+  container-type: inline-size;
+}
+
 ::selection {
   color: var(--selection-fg);
   background: var(--accent-blue);

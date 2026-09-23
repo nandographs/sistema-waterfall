@@ -8,7 +8,7 @@ import {
   resumoDoFunil, oportunidadesParadas, ETAPAS_ABERTAS, ETAPAS_FUNIL,
 } from '../data/repository.js'
 import { hojeISO, mesAtual, mesDe, gradeDoMes, diaExtenso } from '../lib/datas.js'
-import { Card, Badge, Empty, Button, Aviso, notificar } from '../components/ui.jsx'
+import { Card, Badge, Empty, Button, Aviso, corpoDoNumero, notificar } from '../components/ui.jsx'
 import { IconWallet, IconClock, IconCalendar, IconPlus, IconAlert } from '../components/icons.jsx'
 import { LinhaEvento } from '../components/evento.jsx'
 import CapturaRapida from '../components/CapturaRapida.jsx'
@@ -42,11 +42,17 @@ function saudacaoAleatoria() {
 // usar o Pricing Blue como fundo grande — ele é reservado à pílula compacta de
 // ação. O destaque agora é tipográfico, e a cor sobrou para uma coisa só: o
 // alerta. Se um número está em vermelho, tem conta vencida.
-function Kpi({ icon, label, value, hint, tone = 'neutro', alerta = false }) {
-  const destaque = tone === 'destaque'
-
+// `medida` é o valor MAIS LONGO da fileira, e é ele que dita o corpo do tipo de
+// todos os quatro cards.
+//
+// Dimensionar cada card pelo seu próprio número parecia certo e não era: como o
+// corpo encolhe conforme o texto cresce, "27" batia no teto e ficava MAIOR que
+// "R$ 49.072,63", que é o número mais importante da tela. Medindo todos pelo
+// mais comprido, a fileira volta a ler como um sistema só e a hierarquia deixa
+// de depender de quantos dígitos o mês por acaso teve.
+function Kpi({ icon, label, value, hint, medida, alerta = false }) {
   return (
-    <article className="ui-card bg-white border border-slate-200 rounded-2xl p-5 lg:p-6 min-h-40 flex flex-col justify-between">
+    <article className="painel-numero ui-card bg-white border border-slate-200 rounded-2xl p-5 lg:p-6 min-h-40 flex flex-col justify-between">
       <div className="flex items-start justify-between gap-3">
         <p className="text-[13px] text-slate-500">{label}</p>
         {/* Glifo monocromático e pequeno, como os ícones da navegação da
@@ -55,9 +61,8 @@ function Kpi({ icon, label, value, hint, tone = 'neutro', alerta = false }) {
       </div>
       <div>
         <p
-          className={`texto-heroi tnum mt-5 ${destaque ? 'text-[2rem] xl:text-[2.5rem]' : 'text-[1.75rem] xl:text-[2rem]'} ${
-            alerta ? 'text-red-600' : 'text-slate-900'
-          }`}
+          style={corpoDoNumero(medida ?? value)}
+          className={`texto-heroi tnum mt-5 whitespace-nowrap ${alerta ? 'text-red-600' : 'text-slate-900'}`}
         >
           {value}
         </p>
@@ -169,6 +174,15 @@ export default function Dashboard() {
     else setAgDetalhe(evento.registro)
   }
 
+  // O valor mais comprido da fileira de KPIs. É ele que dita o corpo do tipo
+  // dos quatro cards, para eles lerem como um sistema só — ver Kpi().
+  const medidaDosKpis = [
+    formatBRL(totalVendidoMes),
+    formatBRL(totalAReceber),
+    formatBRL(totalAPagar),
+    String(visitasDoMes.length),
+  ].reduce((maior, v) => (v.length > maior.length ? v : maior), '')
+
   // ---- Hero ----
   const dataExtenso = diaExtenso(hoje)
 
@@ -225,21 +239,21 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(390px,0.88fr)] gap-5 lg:gap-6 mb-6">
         <div className="grid grid-cols-2 gap-3 sm:gap-4">
           <Kpi
-            tone="destaque"
+            medida={medidaDosKpis}
             icon={<IconWallet size={18} />}
             label="Vendido no mês"
             value={formatBRL(totalVendidoMes)}
             hint={`${entradasDoMes.length} lançamento${entradasDoMes.length === 1 ? '' : 's'}`}
           />
           <Kpi
-            tone="azul"
+            medida={medidaDosKpis}
             icon={<IconClock size={18} />}
             label="A receber"
             value={formatBRL(totalAReceber)}
             hint={`${pendentes.length} pagamento${pendentes.length === 1 ? '' : 's'} pendente${pendentes.length === 1 ? '' : 's'}`}
           />
           <Kpi
-            tone={vencidasAPagar.length ? 'coral' : 'neutro'}
+            medida={medidaDosKpis}
             alerta={vencidasAPagar.length > 0}
             icon={<IconWallet size={18} />}
             label="A pagar"
@@ -251,7 +265,7 @@ export default function Dashboard() {
             }
           />
           <Kpi
-            tone="verde"
+            medida={medidaDosKpis}
             icon={<IconCalendar size={18} />}
             label="Visitas no mês"
             value={visitasDoMes.length}
