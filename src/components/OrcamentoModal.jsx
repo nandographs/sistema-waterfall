@@ -223,7 +223,7 @@ export default function OrcamentoModal({ venda, open, onClose, onSalvo }) {
         </div>
 
         {erro && (
-          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{erro}</p>
+          <p className="text-sm text-red-600 bg-slate-100 border border-slate-200 rounded-lg px-3 py-2">{erro}</p>
         )}
 
         <div className="flex flex-wrap justify-end gap-2 pt-1">

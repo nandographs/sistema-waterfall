@@ -100,7 +100,7 @@ export default function FotosCliente({ clienteId, agendamentos = [] }) {
   return (
     <Card title="Fotos do cliente" action={acaoAdicionar}>
       {erro && (
-        <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-3">{erro}</p>
+        <p className="text-sm text-red-600 bg-slate-100 border border-slate-200 rounded-lg px-3 py-2 mb-3">{erro}</p>
       )}
 
       {carregando ? (
@@ -172,7 +172,7 @@ export default function FotosCliente({ clienteId, agendamentos = [] }) {
       <Modal title="Foto do cliente" open={!!ampliada} onClose={() => setAmpliada(null)} size="wide">
         {ampliada && (
           <div className="space-y-4">
-            <div className="rounded-lg overflow-hidden border border-slate-200 bg-slate-900/5 flex items-center justify-center">
+            <div className="rounded-lg overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center">
               <img src={ampliada.url} alt={ampliada.legenda || 'Foto do cliente'} className="max-h-[65vh] w-auto object-contain" />
             </div>
             <Field label="Legenda">

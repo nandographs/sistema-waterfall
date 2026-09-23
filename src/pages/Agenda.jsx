@@ -11,7 +11,7 @@ import {
   diaExtenso, diaCurto, somarDias, ehHoje, ehPassado, rotuloRelativo,
 } from '../lib/datas.js'
 import { usuarioAtual } from '../lib/auth.js'
-import { Card, Page, PageTitle, Button, Empty, Modal, inputCls, notificar } from '../components/ui.jsx'
+import { Card, Page, PageTitle, Button, Empty, Modal, Segmentos, inputCls, notificar } from '../components/ui.jsx'
 import {
   IconChevronLeft, IconChevronRight, IconChevronDown, IconPlus, IconCheck, IconAlert, IconFilter,
 } from '../components/icons.jsx'
@@ -24,8 +24,10 @@ import AgendamentoDetalheModal from '../components/AgendamentoDetalheModal.jsx'
 const LIMITE_ATRASADOS = 5
 
 const pilula = (ativo) =>
-  `rounded-full px-3.5 py-1.5 text-sm font-medium cursor-pointer ${
-    ativo ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+  `rounded-full px-3.5 py-1.5 text-sm font-medium cursor-pointer border ${
+    ativo
+      ? 'ui-card bg-white text-slate-900 border-slate-300'
+      : 'bg-transparent text-slate-500 border-transparent hover-superficie'
   }`
 
 // Botão redondo de ícone da barra do topo — o formato da referência, onde a
@@ -65,7 +67,7 @@ function ResumoDoDia({ dia }) {
   const Bloco = ({ rotulo, valor, detalhe }) => (
     <div className="rounded-xl border border-slate-200 px-3 py-2.5">
       <p className="text-[11px] font-medium text-slate-500">{rotulo}</p>
-      <p className="text-lg font-bold text-slate-900 tnum">{valor}</p>
+      <p className="text-lg font-semibold text-slate-900 tnum">{valor}</p>
       {detalhe && <p className="text-[11px] text-slate-400 mt-0.5">{detalhe}</p>}
     </div>
   )
@@ -105,7 +107,7 @@ function ResumoDoDia({ dia }) {
         </div>
       )}
 
-      <div className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2.5">
+      <div className="rounded-xl bg-slate-100 border border-slate-200 px-3 py-2.5">
         <p className="text-[13px] text-slate-600">
           {r.retornosMarcados.length > 0 ? (
             <>
@@ -117,7 +119,7 @@ function ResumoDoDia({ dia }) {
           )}
         </p>
         {r.emAberto > 0 && (
-          <p className="text-[13px] text-amber-700 mt-1">
+          <p className="text-[13px] text-amber-600 mt-1">
             {r.emAberto} item(ns) ainda em aberto neste dia.
           </p>
         )}
@@ -461,20 +463,7 @@ export default function Agenda() {
         </span>
       }
       action={
-        <div className="flex gap-1">
-          {[['agenda', 'Agenda'], ['resumo', 'Resumo']].map(([valor, rotulo]) => (
-            <button
-              key={valor}
-              type="button"
-              onClick={() => setAba(valor)}
-              className={`rounded-full px-2.5 py-1 text-xs font-medium cursor-pointer ${
-                aba === valor ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-100'
-              }`}
-            >
-              {rotulo}
-            </button>
-          ))}
-        </div>
+        <Segmentos rotulo="Seção do dia" valor={aba} onChange={setAba} opcoes={[['agenda', 'Agenda'], ['resumo', 'Resumo']]} />
       }
     >
       {aba === 'resumo' ? (
@@ -511,7 +500,7 @@ export default function Agenda() {
                 <button
                   type="button"
                   onClick={() => setTodosAtrasados((v) => !v)}
-                  className="mt-1 text-[13px] font-semibold text-blue-700 hover:underline cursor-pointer"
+                  className="mt-1 text-[13px] font-semibold text-blue-600 hover:underline cursor-pointer"
                 >
                   {todosAtrasados ? 'Mostrar menos' : `Ver os outros ${atrasados.length - LIMITE_ATRASADOS}`}
                 </button>
@@ -595,20 +584,7 @@ export default function Agenda() {
       </div>
 
       <div className="mb-4 flex items-center justify-between gap-2">
-        <div className="inline-flex rounded-full border border-slate-200 bg-white p-1">
-          {[['mes', 'Mês'], ['dia', 'Dia']].map(([valor, rotulo]) => (
-            <button
-              key={valor}
-              type="button"
-              onClick={() => setVisao(valor)}
-              className={`rounded-full px-4 py-1.5 text-sm font-medium cursor-pointer transition-colors ${
-                visao === valor ? 'bg-slate-900 text-slate-50' : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              {rotulo}
-            </button>
-          ))}
-        </div>
+        <Segmentos rotulo="Visão do calendário" valor={visao} onChange={setVisao} opcoes={[['mes', 'Mês'], ['dia', 'Dia']]} />
         {!ehHoje(dia) && (
           <Button variant="secondary" onClick={irParaHoje}>Hoje</Button>
         )}
@@ -630,7 +606,7 @@ export default function Agenda() {
       <button
         type="button"
         onClick={() => setForm(atividadeNova({ data: dia }))}
-        className="sm:hidden fixed right-4 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-30 flex h-14 w-14 items-center justify-center rounded-full bg-blue-500 text-[var(--btn-primary-fg)] shadow-lg hover:bg-blue-600 cursor-pointer"
+        className="sm:hidden fixed right-4 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-30 flex h-14 w-14 items-center justify-center rounded-full bg-blue-500 text-[var(--btn-primary-fg)] hover:bg-blue-600 cursor-pointer"
         aria-label="Nova atividade"
       >
         <IconPlus size={22} />

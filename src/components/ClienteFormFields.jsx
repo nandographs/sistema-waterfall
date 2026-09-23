@@ -105,7 +105,7 @@ export default function ClienteFormFields({ form, set, onEnderecoEncontrado }) {
                 <button
                   type="button"
                   onClick={() => trocarTelefones(telefones.filter((_, idx) => idx !== i))}
-                  className="text-red-500 hover:text-red-700 text-lg leading-none cursor-pointer px-1 shrink-0"
+                  className="text-red-500 hover:text-red-600 text-lg leading-none cursor-pointer px-1 shrink-0"
                   title="Remover este telefone"
                 >
                   ×
@@ -120,7 +120,7 @@ export default function ClienteFormFields({ form, set, onEnderecoEncontrado }) {
         <button
           type="button"
           onClick={() => trocarTelefones([...telefones, { numero: '', rotulo: '' }])}
-          className="mt-2 text-sm font-semibold text-blue-700 hover:underline cursor-pointer"
+          className="mt-2 text-sm font-semibold text-blue-600 hover:underline cursor-pointer"
         >
           + Adicionar telefone
         </button>

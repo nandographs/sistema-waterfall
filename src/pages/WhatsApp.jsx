@@ -293,8 +293,8 @@ export default function WhatsApp() {
       {conexao && !conexao.conectado && (
         <p className={`mb-4 flex items-start gap-2 text-sm rounded-xl px-3.5 py-3 border ${
           conexao.indisponivel
-            ? 'text-amber-700 bg-amber-50 border-amber-200'
-            : 'text-red-700 bg-red-50 border-red-200'
+            ? 'text-amber-600 bg-slate-100 border-slate-200'
+            : 'text-red-600 bg-slate-100 border-slate-200'
         }`}>
           <IconAlert size={16} className="shrink-0 mt-0.5" />
           <span>
@@ -312,13 +312,13 @@ export default function WhatsApp() {
           No desktop o painel preenche o que sobra da janela em vez de ter uma
           altura arbitrária: `70svh` deixava uma faixa morta embaixo, porque 70%
           da tela não tem relação nenhuma com onde a página realmente termina.
-          Os 11.25rem descontados são o que existe em volta — 5rem da barra de
+          Os 10.25rem descontados são o que existe em volta — 4rem da barra de
           cima, 1.75rem do respiro do topo, mais a linha da etiqueta de conexão e
           o respiro de baixo. O `min-h` segura o caso da janela baixa, em que
           preencher significaria espremer a lista a nada.
           No celular continua `70svh`: lá embaixo há a barra de navegação fixa, e
           a conta seria outra. */}
-      <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden grid grid-cols-1 lg:grid-cols-[20rem_1fr] h-[70svh] min-h-[30rem] lg:h-[calc(100svh-11.25rem)]">
+      <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden grid grid-cols-1 lg:grid-cols-[20rem_1fr] h-[70svh] min-h-[30rem] lg:h-[calc(100svh-10.25rem)]">
         <div className={`min-h-0 flex-col border-r border-slate-200 ${aberta ? 'hidden lg:flex' : 'flex'}`}>
           <header className="shrink-0 flex items-center gap-2 px-4 py-3 border-b border-slate-200">
             <IconMessage size={16} className="text-slate-400" />
@@ -345,7 +345,7 @@ export default function WhatsApp() {
                      simplesmente não existe, e o silêncio já é a informação. */}
             {totalNaoLidas > 0 && (
               <span className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-blue-500/15 pl-1.5 pr-2.5 py-0.5 text-[11px] font-semibold text-blue-600">
-                <span className="inline-flex min-w-[1.15rem] h-[1.15rem] items-center justify-center rounded-full bg-blue-500 px-1 text-[10px] font-bold text-[var(--btn-primary-fg)] tnum">
+                <span className="inline-flex min-w-[1.15rem] h-[1.15rem] items-center justify-center rounded-full bg-blue-500 px-1 text-[10px] font-semibold text-[var(--btn-primary-fg)] tnum">
                   {totalNaoLidas > 99 ? '99+' : totalNaoLidas}
                 </span>
                 {totalNaoLidas === 1 ? 'não lida' : 'não lidas'}
@@ -372,7 +372,7 @@ export default function WhatsApp() {
                     type="button"
                     onClick={() => setAbertaId(conversa.id)}
                     className={`w-full text-left px-4 py-3 cursor-pointer flex items-start gap-3 ${
-                      ativa ? 'bg-[var(--nav-active-bg)]' : 'hover:bg-slate-50'
+                      ativa ? 'bg-[var(--nav-active-bg)]' : 'hover-superficie'
                     }`}
                   >
                     <AvatarConversa conversa={{ ...conversa, clienteNome: cliente?.nome }} size={38} />
@@ -394,7 +394,7 @@ export default function WhatsApp() {
                           {conversa.ultimaPrevia}
                         </span>
                         {Number(conversa.naoLidas || 0) > 0 && (
-                          <span className="shrink-0 inline-flex min-w-5 h-5 items-center justify-center rounded-full bg-blue-500 px-1.5 text-[11px] font-bold text-[var(--btn-primary-fg)] tnum">
+                          <span className="shrink-0 inline-flex min-w-5 h-5 items-center justify-center rounded-full bg-blue-500 px-1.5 text-[11px] font-semibold text-[var(--btn-primary-fg)] tnum">
                             {conversa.naoLidas}
                           </span>
                         )}
@@ -409,7 +409,7 @@ export default function WhatsApp() {
                           </Badge>
                         )}
                         {!cliente && (
-                          <span className="inline-block rounded-md bg-amber-50 border border-amber-200 px-1.5 py-0.5 text-[10px] font-bold text-amber-800">
+                          <span className="inline-block rounded-md bg-slate-100 border border-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600">
                             sem cadastro
                           </span>
                         )}

@@ -49,7 +49,7 @@ export default function OportunidadeCard({
           // O anel é `inset` e o realce é vertical de propósito: a coluna rola
           // por dentro, então qualquer coisa que cresça na horizontal seria
           // recortada ou acenderia uma barra de rolagem no meio do arrasto.
-          ? 'border-blue-500 ring-2 ring-inset ring-blue-500 shadow-xl shadow-black/40 -translate-y-0.5'
+          ? 'border-blue-500 ring-2 ring-inset ring-blue-500 -translate-y-0.5'
           : 'border-slate-200 hover:border-slate-300'
       } ${arrastavel ? 'lg:cursor-grab lg:active:cursor-grabbing' : ''}`}
     >
@@ -96,8 +96,8 @@ export default function OportunidadeCard({
                 no toque, e emular com o polegar num quadro de 6 colunas seria
                 pior que escolher da lista. Este menu é o caminho principal lá,
                 e um atalho no desktop. */}
-            <div className="absolute right-0 z-20 mt-1 w-56 rounded-xl border border-slate-300 bg-slate-100 p-1.5 shadow-xl shadow-black/30">
-              <p className="px-3 pt-1 pb-2 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+            <div className="absolute right-0 z-20 mt-1 w-56 rounded-2xl superficie-flutuante p-1.5">
+              <p className="px-3 pt-1 pb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                 Mover para
               </p>
               {[...ETAPAS_ABERTAS, ...ETAPAS_FECHADAS]
@@ -160,7 +160,7 @@ export default function OportunidadeCard({
         {naoLidas > 0 && (
           <span
             aria-label={`${naoLidas} não lidas`}
-            className="shrink-0 inline-flex min-w-[1.15rem] h-[1.15rem] items-center justify-center rounded-full bg-blue-500 px-1 text-[10px] font-bold text-[var(--btn-primary-fg)] tnum"
+            className="shrink-0 inline-flex min-w-[1.15rem] h-[1.15rem] items-center justify-center rounded-full bg-blue-500 px-1 text-[10px] font-semibold text-[var(--btn-primary-fg)] tnum"
           >
             {naoLidas > 9 ? '9+' : naoLidas}
           </span>
@@ -181,7 +181,7 @@ export default function OportunidadeCard({
 
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
         {valor > 0 && (
-          <span className="text-sm font-bold text-slate-900 tnum">{formatBRL(valor)}</span>
+          <span className="text-sm font-semibold text-slate-900 tnum">{formatBRL(valor)}</span>
         )}
         {oportunidade.canal && (
           <span className="text-[11px] font-semibold text-slate-500">
@@ -204,7 +204,7 @@ export default function OportunidadeCard({
           </Badge>
         )}
         {semProximoPasso && (
-          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700">
+          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-600">
             <IconAlert size={13} /> Sem próximo passo
           </span>
         )}

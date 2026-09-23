@@ -67,8 +67,8 @@ export default function EtapaOportunidade({ clienteId, oportunidade: fixa, onMud
               {ETAPAS_FUNIL[oportunidade.etapa] ?? oportunidade.etapa} ▾
             </Badge>
           </summary>
-          <div className="absolute right-0 z-30 mt-1.5 w-56 rounded-xl border border-slate-300 bg-slate-100 p-1.5 shadow-xl shadow-black/30">
-            <p className="px-3 pt-1 pb-2 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+          <div className="absolute right-0 z-30 mt-1.5 w-56 rounded-2xl superficie-flutuante p-1.5">
+            <p className="px-3 pt-1 pb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
               Mover no CRM
             </p>
             {[...ETAPAS_ABERTAS, ...ETAPAS_FECHADAS].map((etapa) => (

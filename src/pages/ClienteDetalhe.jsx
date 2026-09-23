@@ -357,7 +357,7 @@ export default function ClienteDetalhe() {
             {temTelefone && (
               <Link
                 to={`/whatsapp?cliente=${id}`}
-                className="mb-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                className="mb-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-700 hover:border-slate-300 hover-superficie"
               >
                 <IconMessage size={16} className="text-emerald-500" />
                 {conversaDoCliente(id) ? 'Abrir conversa no WhatsApp' : 'Chamar no WhatsApp'}
@@ -448,7 +448,7 @@ export default function ClienteDetalhe() {
               </div>
             ) : (
               <div>
-                <p className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
+                <p className="flex items-center gap-2 text-sm text-amber-600 bg-slate-100 border border-slate-200 rounded-lg px-3 py-2.5">
                   <IconAlert size={16} className="shrink-0" />
                   Sem próximo passo definido.
                 </p>
@@ -808,7 +808,7 @@ export default function ClienteDetalhe() {
                 Os itens e as contas a receber dela saem junto. Essa ação não pode ser desfeita.
               </p>
               {equipamento && (
-                <label className="flex items-start gap-2 text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5">
+                <label className="flex items-start gap-2 text-sm text-slate-700 bg-slate-100 border border-slate-200 rounded-lg px-3 py-2.5">
                   <input
                     type="checkbox"
                     className="mt-0.5"

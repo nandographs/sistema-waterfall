@@ -17,7 +17,7 @@ import {
   rotuloDoRelatorio, periodoEmCurso, somarDias,
 } from '../lib/datas.js'
 import { gerarRelatorioPdf } from '../relatorio/gerarPdf.js'
-import { Page, PageTitle, Button, Field, inputCls, InputNumero, Empty, Modal, Badge, notificar, usePaginacao, Paginacao } from '../components/ui.jsx'
+import { Page, PageTitle, Button, Field, inputCls, InputNumero, Empty, Modal, Badge, Aviso, Segmentos, notificar, usePaginacao, Paginacao } from '../components/ui.jsx'
 import { GraficoSaldo, GraficoFluxo } from '../components/GraficosFinanceiro.jsx'
 import {
   IconPlus, IconWallet, IconAlert, IconCheck,
@@ -99,22 +99,27 @@ const FORM_VAZIO = {
   funcionarioId: '', competencia: '',
 }
 
-// Um dos três números coloridos ao lado do saldo.
+// Um dos três números ao lado do saldo.
+//
+// Eram três cards tingidos de ponta a ponta — verde, vermelho e azul lado a
+// lado. Na galeria branca a superfície é sempre Gallery White e a cor sobra
+// para o traço: o glifo e o detalhe. O número em si fica em tinta Ink, porque é
+// ele o objeto exposto e ele não precisa de cor para ser lido.
 const TONS = {
-  verde: 'bg-emerald-50 border-emerald-200 text-emerald-700',
-  vermelho: 'bg-red-50 border-red-200 text-red-700',
-  azul: 'bg-blue-50 border-blue-200 text-blue-700',
+  verde: 'text-emerald-600',
+  vermelho: 'text-red-600',
+  azul: 'text-blue-600',
 }
 function CartaoNumero({ tom, icone, rotulo, valor, detalhe }) {
   return (
-    <article className={`rounded-2xl border p-4 flex flex-col justify-between gap-3 sm:min-h-36 min-w-0 ${TONS[tom]}`}>
+    <article className="ui-card bg-white border border-slate-200 rounded-2xl p-5 flex flex-col justify-between gap-3 sm:min-h-36 min-w-0">
       <div className="flex items-start justify-between gap-2">
-        <p className="text-[13px] font-semibold opacity-90 leading-tight">{rotulo}</p>
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-slate-500/15">{icone}</span>
+        <p className="text-[13px] text-slate-500 leading-tight">{rotulo}</p>
+        <span className={`shrink-0 ${TONS[tom]}`}>{icone}</span>
       </div>
       <div className="min-w-0">
-        <p className="text-xl font-extrabold tracking-[-0.03em] tnum text-slate-900 whitespace-nowrap">{valor}</p>
-        <p className="text-[11px] font-medium opacity-80 leading-snug mt-1">{detalhe}</p>
+        <p className="texto-heroi text-[1.5rem] tnum text-slate-900 whitespace-nowrap">{valor}</p>
+        <p className={`text-[11px] leading-snug mt-1.5 ${TONS[tom]}`}>{detalhe}</p>
       </div>
     </article>
   )
@@ -539,33 +544,12 @@ export default function Financeiro() {
         <p className={`hidden sm:block text-xs font-medium ${atrasado ? 'text-red-600' : 'text-slate-500'}`}>{quando(l)}</p>
         <p className="hidden sm:block text-xs text-slate-500">{FORMAS_PAGAMENTO[l.formaPagamento] ?? l.formaPagamento ?? ''}</p>
         <div className="text-right">
-          <p className={`text-sm font-bold tnum ${entrada ? 'text-emerald-700' : 'text-slate-900'} ${l.status === 'realizado' ? '' : 'opacity-70'}`}>
+          <p className={`text-sm font-semibold tnum ${entrada ? 'text-emerald-600' : 'text-slate-900'} ${l.status === 'realizado' ? '' : 'opacity-70'}`}>
             {entrada ? '+' : '−'} {formatBRL(l.valor)}
           </p>
           <p className={`sm:hidden text-[11px] font-medium ${atrasado ? 'text-red-600' : 'text-slate-500'}`}>{quando(l)}</p>
         </div>
       </li>
-    )
-  }
-
-  // Um grupo de botões de filtro, do mesmo jeito em todo lugar da tela.
-  function Segmentos({ valor, opcoes, onChange, rotulo }) {
-    return (
-      <div role="group" aria-label={rotulo} className="inline-flex rounded-xl bg-slate-100 p-1">
-        {opcoes.map(([v, r]) => (
-          <button
-            key={v}
-            type="button"
-            onClick={() => onChange(v)}
-            aria-pressed={valor === v}
-            className={`rounded-lg px-3 py-1.5 text-xs font-semibold cursor-pointer transition-colors min-h-9 sm:min-h-0 ${
-              valor === v ? 'ui-card bg-white text-slate-900 shadow-sm ring-1 ring-slate-300' : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            {r}
-          </button>
-        ))}
-      </div>
     )
   }
 
@@ -609,7 +593,7 @@ export default function Financeiro() {
             >
               <IconChevronLeft size={16} />
             </button>
-            <span className="text-base font-bold text-slate-900 min-w-[9rem] text-center first-letter:uppercase">
+            <span className="text-base font-semibold text-slate-900 min-w-[9rem] text-center first-letter:uppercase">
               {rotuloPeriodo}
             </span>
             <button
@@ -636,7 +620,7 @@ export default function Financeiro() {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-[13px] font-semibold text-slate-500">Em caixa hoje</p>
-              <p className={`text-3xl font-extrabold tracking-[-0.04em] tnum mt-1 ${painel.emCaixa < 0 ? 'text-red-600' : 'text-slate-900'}`}>
+              <p className={`text-3xl font-semibold tracking-[-0.04em] tnum mt-1 ${painel.emCaixa < 0 ? 'text-red-600' : 'text-slate-900'}`}>
                 {formatBRL(painel.emCaixa)}
               </p>
               <p className="text-xs text-slate-500 mt-1">Tudo o que já entrou menos tudo o que já saiu</p>
@@ -690,22 +674,7 @@ export default function Financeiro() {
         {/* Abas */}
         <section className="ui-card bg-white rounded-2xl border border-slate-200 lg:col-span-2 order-2 lg:order-1 min-w-0">
           <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-5">
-            <div role="tablist" aria-label="Seções do financeiro" className="flex flex-wrap gap-1">
-              {ABAS.map(([v, r]) => (
-                <button
-                  key={v}
-                  type="button"
-                  role="tab"
-                  aria-selected={aba === v}
-                  onClick={() => setAba(v)}
-                  className={`rounded-xl px-3.5 py-2 text-sm font-semibold cursor-pointer transition-colors ${
-                    aba === v ? 'bg-slate-900 text-slate-50' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
-                  }`}
-                >
-                  {r}
-                </button>
-              ))}
-            </div>
+            <Segmentos rotulo="Seções do financeiro" valor={aba} onChange={setAba} opcoes={ABAS} />
             {aba === 'salarios' && (
               <Button variant="secondary" onClick={() => abrirCadastroFuncionario()}>
                 <IconPlus size={16} /> Funcionário
@@ -748,7 +717,7 @@ export default function Financeiro() {
                   onClick={() => setFiltroSituacao('aberto')}
                   className={`w-full text-left rounded-xl border px-4 py-3 mb-4 cursor-pointer transition-colors ${
                     filtroSituacao === 'aberto'
-                      ? 'border-blue-200 bg-blue-50'
+                      ? 'border-blue-500 bg-slate-100'
                       : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
                   }`}
                   title="Ver só o que está em aberto"
@@ -761,17 +730,17 @@ export default function Financeiro() {
                     <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 text-sm tnum">
                       {filtroTipo !== 'saida' && (
                         <span className="text-slate-500">
-                          A receber <span className="font-bold text-emerald-700">{formatBRL(emAberto.receber)}</span>
+                          A receber <span className="font-semibold text-emerald-600">{formatBRL(emAberto.receber)}</span>
                         </span>
                       )}
                       {filtroTipo !== 'entrada' && (
                         <span className="text-slate-500">
-                          A pagar <span className="font-bold text-slate-900">{formatBRL(emAberto.pagar)}</span>
+                          A pagar <span className="font-semibold text-slate-900">{formatBRL(emAberto.pagar)}</span>
                         </span>
                       )}
                       {filtroTipo === 'todos' && (
                         <span className="text-slate-500">
-                          Saldo <span className={`font-bold ${emAberto.saldo < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{formatBRL(emAberto.saldo)}</span>
+                          Saldo <span className={`font-semibold ${emAberto.saldo < 0 ? 'text-red-600' : 'text-emerald-600'}`}>{formatBRL(emAberto.saldo)}</span>
                         </span>
                       )}
                     </div>
@@ -856,10 +825,10 @@ export default function Financeiro() {
                       {fluxo.map((f) => (
                         <tr key={f.mes}>
                           <td className="py-2.5 font-medium text-slate-900 first-letter:uppercase">{rotuloDoMes(f.mes)}</td>
-                          <td className="py-2.5 text-right tnum text-emerald-700">{formatBRL(f.entra)}</td>
+                          <td className="py-2.5 text-right tnum text-emerald-600">{formatBRL(f.entra)}</td>
                           <td className="py-2.5 text-right tnum text-slate-700">{formatBRL(f.sai)}</td>
-                          <td className="py-2.5 text-right tnum text-amber-700">{f.folha > 0 ? formatBRL(f.folha) : '—'}</td>
-                          <td className={`py-2.5 text-right tnum font-bold ${f.acumulado < 0 ? 'text-red-600' : 'text-slate-900'}`}>
+                          <td className="py-2.5 text-right tnum text-amber-600">{f.folha > 0 ? formatBRL(f.folha) : '—'}</td>
+                          <td className={`py-2.5 text-right tnum font-semibold ${f.acumulado < 0 ? 'text-red-600' : 'text-slate-900'}`}>
                             {formatBRL(f.acumulado)}
                           </td>
                         </tr>
@@ -880,7 +849,7 @@ export default function Financeiro() {
                   ].map(([rotulo, valor, anterior, invertido]) => (
                     <div key={rotulo} className="rounded-xl border border-slate-200 p-3">
                       <p className="text-[12px] font-semibold text-slate-500">{rotulo}</p>
-                      <p className={`text-lg font-extrabold tnum mt-0.5 ${rotulo === 'Resultado' && valor < 0 ? 'text-red-600' : 'text-slate-900'}`}>
+                      <p className={`text-lg font-semibold tnum mt-0.5 ${rotulo === 'Resultado' && valor < 0 ? 'text-red-600' : 'text-slate-900'}`}>
                         {formatBRL(valor)}
                       </p>
                       <p className="text-[11px] text-slate-400 mt-0.5">
@@ -982,7 +951,7 @@ export default function Financeiro() {
                               <p className="text-xs text-slate-500 leading-relaxed">
                                 {f.cargo || 'Sem função'} · salário {formatBRL(conta.salario)}
                                 {conta.vales > 0 && (
-                                  <span className="text-amber-700">
+                                  <span className="text-amber-600">
                                     {' · '}{conta.quantidadeVales} vale{conta.quantidadeVales === 1 ? '' : 's'} de {formatBRL(conta.vales)}
                                   </span>
                                 )}
@@ -990,7 +959,7 @@ export default function Financeiro() {
                             </button>
                             <span className="hidden sm:block text-right text-sm tnum text-slate-700">{formatBRL(conta.pago)}</span>
                             <span
-                              className={`text-right text-sm tnum font-bold ${negativo ? 'text-red-600' : fechada ? 'text-emerald-700' : 'text-slate-900'}`}
+                              className={`text-right text-sm tnum font-semibold ${negativo ? 'text-red-600' : fechada ? 'text-emerald-600' : 'text-slate-900'}`}
                               title={negativo ? `Já foi lançado ${formatBRL(Math.abs(conta.saldo))} a mais do que o salário` : ''}
                             >
                               {fechada ? 'Pago' : formatBRL(conta.saldo)}
@@ -1039,7 +1008,7 @@ export default function Financeiro() {
               <IconAlert size={18} />
             </span>
             <div>
-              <h3 className="text-base font-bold text-slate-900">Precisa de atenção</h3>
+              <h3 className="text-base font-semibold text-slate-900">Precisa de atenção</h3>
               <p className="text-xs text-slate-500 mt-0.5">
                 {atencao.length === 0
                   ? 'Nada vencido nem vencendo nos próximos 7 dias.'
@@ -1064,7 +1033,7 @@ export default function Financeiro() {
                       <p className="text-sm font-semibold text-slate-900 truncate">{l.descricao || '(sem descrição)'}</p>
                       <p className={`text-[11px] font-medium ${atrasado ? 'text-red-600' : 'text-slate-500'}`}>{quando(l)}</p>
                     </button>
-                    <span className={`text-sm font-bold tnum shrink-0 ${l.tipo === 'entrada' ? 'text-emerald-700' : 'text-slate-900'}`}>
+                    <span className={`text-sm font-semibold tnum shrink-0 ${l.tipo === 'entrada' ? 'text-emerald-600' : 'text-slate-900'}`}>
                       {l.tipo === 'entrada' ? '+' : '−'} {formatBRL(l.valor)}
                     </span>
                   </li>
@@ -1111,7 +1080,7 @@ export default function Financeiro() {
                   verdade e recalcula valor, vencimento e parcelas na próxima vez
                   que for salva. Melhor o usuário saber disso antes de digitar. */}
               {vinculado && (
-                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed">
+                <p className="text-xs text-amber-600 bg-slate-100 border border-slate-200 rounded-lg px-3 py-2 leading-relaxed">
                   Veio d{form.agendamentoId ? 'e um agendamento' : 'e uma venda'}. Se {form.agendamentoId ? 'o agendamento' : 'a venda'} for
                   salvo de novo, valor e datas voltam a ser calculados de lá.
                 </p>
@@ -1158,7 +1127,7 @@ export default function Financeiro() {
               </div>
 
               {form.categoria === 'ajuste' && (
-                <p className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 leading-relaxed">
+                <p className="text-xs text-blue-600 bg-slate-100 border border-slate-200 rounded-lg px-3 py-2 leading-relaxed">
                   Ajuste de saldo acerta o caixa com o extrato do banco. Ele muda o &ldquo;Em caixa&rdquo;, mas não
                   conta como {form.tipo === 'entrada' ? 'faturamento' : 'despesa'} nos relatórios.
                 </p>
@@ -1200,7 +1169,7 @@ export default function Financeiro() {
                         {passou && ' Passa do salário do mês — dá para salvar, mas confira.'}{' '}
                         <button
                           type="button"
-                          className="text-blue-700 font-semibold cursor-pointer hover:underline"
+                          className="text-blue-600 font-semibold cursor-pointer hover:underline"
                           onClick={() => abrirCadastroFuncionario(funcionarios.get(form.funcionarioId), true)}
                         >
                           Alterar salário
@@ -1210,7 +1179,7 @@ export default function Financeiro() {
                   })() : (
                     <button
                       type="button"
-                      className="text-xs text-blue-700 font-semibold cursor-pointer hover:underline"
+                      className="text-xs text-blue-600 font-semibold cursor-pointer hover:underline"
                       onClick={() => abrirCadastroFuncionario(null, true)}
                     >
                       + Cadastrar funcionário
@@ -1251,7 +1220,7 @@ export default function Financeiro() {
               </div>
 
               <details className="group" open={!!form.observacoes || repeticao.ativo || undefined}>
-                <summary className="text-sm font-semibold text-blue-700 cursor-pointer select-none list-none flex items-center gap-1">
+                <summary className="text-sm font-semibold text-blue-600 cursor-pointer select-none list-none flex items-center gap-1">
                   <IconChevronRight size={14} className="transition-transform group-open:rotate-90" />
                   Mais opções
                   <span className="font-normal text-slate-400">{form.id ? '(observações)' : '(repetir todo mês, observações)'}</span>
@@ -1347,7 +1316,7 @@ export default function Financeiro() {
               </details>
 
               {repetido && (
-                <p className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed" role="status">
+                <p className="flex items-start gap-2 text-xs text-amber-600 bg-slate-100 border border-slate-200 rounded-lg px-3 py-2 leading-relaxed" role="status">
                   <IconAlert size={15} className="shrink-0 mt-px" />
                   <span>
                     Já existe um lançamento igual: <span className="font-semibold">{repetido.descricao.trim()}</span>,{' '}
@@ -1410,7 +1379,7 @@ export default function Financeiro() {
                     {pagos.length > 0 && (
                       <li className="px-3 py-2 flex justify-between gap-3">
                         <span>{pagos.length} já recebida{pagos.length === 1 ? '' : 's'}</span>
-                        <span className="font-medium text-emerald-700">continua{pagos.length === 1 ? '' : 'm'} no caixa</span>
+                        <span className="font-medium text-emerald-600">continua{pagos.length === 1 ? '' : 'm'} no caixa</span>
                       </li>
                     )}
                   </ul>

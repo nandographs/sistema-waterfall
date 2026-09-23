@@ -137,7 +137,7 @@ export default function Produtos() {
                   <tr key={p.id}>
                     <td className="py-3 pr-4 font-medium">
                       <div className="flex items-center gap-2.5">
-                        <span className="w-9 h-9 shrink-0 rounded-lg overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center text-slate-300">
+                        <span className="w-9 h-9 shrink-0 rounded-lg overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center text-slate-400">
                           {p.fotoUrl ? (
                             <img src={p.fotoUrl} alt="" className="w-full h-full object-cover" />
                           ) : (
@@ -150,7 +150,7 @@ export default function Produtos() {
                     <td className="py-3 pr-4">
                       {p.codigo
                         ? <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-600 tnum">{p.codigo}</span>
-                        : <span className="text-slate-300">—</span>}
+                        : <span className="text-slate-500">—</span>}
                     </td>
                     <td className="py-3 pr-4">
                       <Badge color={COR_DO_TIPO[p.tipo] ?? 'slate'}>
@@ -158,7 +158,7 @@ export default function Produtos() {
                       </Badge>
                     </td>
                     <td className="py-3 pr-4">
-                      {p.cor ? p.cor : <span className="text-slate-300">—</span>}
+                      {p.cor ? p.cor : <span className="text-slate-500">—</span>}
                     </td>
                     <td className="py-3 pr-4 whitespace-nowrap">
                       {formatBRL(p.valor)}
@@ -175,13 +175,13 @@ export default function Produtos() {
                         const meses = p.tipo === 'refil'
                           ? p.intervaloTrocaMeses
                           : refilDoAparelho(p.id)?.intervaloTrocaMeses
-                        return meses ? `${meses} meses` : <span className="text-slate-300">—</span>
+                        return meses ? `${meses} meses` : <span className="text-slate-500">—</span>
                       })()}
                     </td>
                     <td className="py-3 pr-4">
                       {p.tipo === 'refil'
-                        ? (produtos.get(p.aparelhoCompativelId)?.nome ?? <span className="text-slate-300">—</span>)
-                        : (refilDoAparelho(p.id)?.nome ?? <span className="text-slate-300">—</span>)}
+                        ? (produtos.get(p.aparelhoCompativelId)?.nome ?? <span className="text-slate-500">—</span>)
+                        : (refilDoAparelho(p.id)?.nome ?? <span className="text-slate-500">—</span>)}
                     </td>
                     <td className="py-3 text-right whitespace-nowrap">
                       <Button variant="ghost" onClick={() => abrirEdicao(p)}>Editar</Button>
@@ -211,7 +211,7 @@ export default function Produtos() {
                 />
               </div>
             ) : (
-              <p className="text-xs text-slate-400 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+              <p className="text-xs text-slate-400 bg-slate-100 border border-slate-200 rounded-lg px-3 py-2">
                 A foto do produto pode ser adicionada após salvar, editando o produto.
               </p>
             )}
@@ -315,7 +315,7 @@ export default function Produtos() {
               </div>
             )}
             {erro && (
-              <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{erro}</p>
+              <p className="text-sm text-red-600 bg-slate-100 border border-slate-200 rounded-lg px-3 py-2">{erro}</p>
             )}
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="secondary" onClick={() => setForm(null)}>Cancelar</Button>

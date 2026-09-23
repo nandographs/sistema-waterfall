@@ -37,8 +37,8 @@ function EscolhaTipo({ valor, onChange }) {
           onClick={() => onChange(tipo)}
           className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[13px] font-medium cursor-pointer ${
             valor === tipo
-              ? 'border-blue-600 bg-blue-50 text-blue-700'
-              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+              ? 'border-blue-600 bg-blue-50 text-blue-600'
+              : 'border-slate-200 bg-white text-slate-600 hover-superficie'
           }`}
         >
           <IconeDoEvento evento={{ fonte: 'atividade', tipo }} size={14} />
@@ -73,8 +73,8 @@ function Desfecho({ form, setForm, retorno, setRetorno }) {
               onClick={() => escolherResultado(valor)}
               className={`rounded-lg border px-2.5 py-1.5 text-[13px] font-medium cursor-pointer ${
                 form.resultado === valor
-                  ? 'border-blue-600 bg-blue-50 text-blue-700'
-                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                  ? 'border-blue-600 bg-blue-50 text-blue-600'
+                  : 'border-slate-200 bg-white text-slate-600 hover-superficie'
               }`}
             >
               {rotulo}
@@ -105,7 +105,7 @@ function Desfecho({ form, setForm, retorno, setRetorno }) {
               />
             </Field>
           </div>
-          <p className="text-xs text-amber-800">
+          <p className="text-xs text-amber-600">
             Uma tarefa de retorno será criada nesse dia, ligada a esta conversa — ao abri-la
             você já vê o que foi falado aqui.
           </p>
@@ -237,8 +237,8 @@ export default function AtividadeModal({ atividade, modo = 'edicao', onFechar, o
                   onClick={() => setForm({ ...form, status: valor, resultado: valor === 'concluida' ? (form.resultado || 'sucesso') : '' })}
                   className={`rounded-lg border px-3 py-1.5 text-[13px] font-medium cursor-pointer ${
                     form.status === valor
-                      ? 'border-blue-600 bg-blue-50 text-blue-700'
-                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                      ? 'border-blue-600 bg-blue-50 text-blue-600'
+                      : 'border-slate-200 bg-white text-slate-600 hover-superficie'
                   }`}
                 >
                   {rotulo}
@@ -255,7 +255,7 @@ export default function AtividadeModal({ atividade, modo = 'edicao', onFechar, o
         {form.id && <Desdobramentos atividadeId={form.id} />}
 
         {erro && (
-          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{erro}</p>
+          <p className="text-sm text-red-600 bg-slate-100 border border-slate-200 rounded-lg px-3 py-2">{erro}</p>
         )}
 
         <div className="flex justify-end gap-2 pt-1">

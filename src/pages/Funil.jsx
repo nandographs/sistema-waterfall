@@ -33,7 +33,7 @@ function CabecalhoColuna({ etapa, quantidade, valor, onNova }) {
   return (
     <div className="shrink-0 flex items-center justify-between gap-2 px-1 pb-2.5">
       <div className="min-w-0">
-        <p className="text-sm font-bold text-slate-900 truncate">
+        <p className="text-sm font-semibold text-slate-900 truncate">
           {ETAPAS_FUNIL[etapa]}
           <span className="ml-1.5 text-xs font-semibold text-slate-400 tnum">{quantidade}</span>
         </p>
@@ -223,7 +223,7 @@ export default function Funil() {
     // Altura da janela menos a topbar (h-16 no mobile, h-20 no desktop): o
     // quadro ocupa a tela inteira e cada coluna rola por dentro — kanban preso
     // a um pedaço da página obriga a rolar duas vezes para ver seis colunas.
-    <div className="flex flex-col h-[calc(100svh-4rem)] lg:h-[calc(100svh-5rem)] w-full max-w-[1480px] mx-auto px-4 sm:px-6 lg:px-8 py-5 lg:py-7 pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-8">
+    <div className="flex flex-col h-[calc(100svh-4rem)] w-full max-w-[1480px] mx-auto px-4 sm:px-6 lg:px-8 py-5 lg:py-7 pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-8">
       <div className="shrink-0">
         <PageTitle
           subtitle={

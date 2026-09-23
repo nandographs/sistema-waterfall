@@ -8,7 +8,7 @@ import {
   resumoDoFunil, oportunidadesParadas, ETAPAS_ABERTAS, ETAPAS_FUNIL,
 } from '../data/repository.js'
 import { hojeISO, mesAtual, mesDe, gradeDoMes, diaExtenso } from '../lib/datas.js'
-import { Card, Badge, Empty, Button, notificar } from '../components/ui.jsx'
+import { Card, Badge, Empty, Button, Aviso, notificar } from '../components/ui.jsx'
 import { IconWallet, IconClock, IconCalendar, IconPlus, IconAlert } from '../components/icons.jsx'
 import { LinhaEvento } from '../components/evento.jsx'
 import CapturaRapida from '../components/CapturaRapida.jsx'
@@ -34,38 +34,40 @@ function saudacaoAleatoria() {
   return SAUDACOES[Math.floor(Math.random() * SAUDACOES.length)](nome)
 }
 
-function Kpi({ icon, label, value, hint, tone = 'dark' }) {
-  // `light` é o KPI de destaque: azul da marca cheio, contraste garantido nos
-  // dois temas. Os demais tons usam as escalas semânticas (acompanham o tema).
-  const destaque = tone === 'light'
-  const tons = {
-    light: 'bg-[var(--accent-blue)] text-[var(--btn-primary-fg)] border-transparent',
-    blue: 'bg-blue-50 text-blue-700 border-blue-200',
-    green: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-    coral: 'bg-red-50 text-red-700 border-red-200',
-    dark: 'ui-card bg-white text-slate-900 border-slate-200',
-  }
-  const secundario = destaque ? 'text-[var(--btn-primary-fg)] opacity-70' : 'text-slate-500'
+// Um KPI é uma "Feature Media Card": Gallery White, 28px, sem sombra e sem
+// borda colorida. O número é o objeto exposto na galeria, então quem carrega a
+// hierarquia é o TAMANHO do tipo, não um fundo tingido.
+//
+// Foi daqui que saiu o card azul preenchido: a referência é explícita em não
+// usar o Pricing Blue como fundo grande — ele é reservado à pílula compacta de
+// ação. O destaque agora é tipográfico, e a cor sobrou para uma coisa só: o
+// alerta. Se um número está em vermelho, tem conta vencida.
+function Kpi({ icon, label, value, hint, tone = 'neutro', alerta = false }) {
+  const destaque = tone === 'destaque'
 
   return (
-    <article className={`min-h-40 rounded-2xl border p-5 flex flex-col justify-between ${tons[tone]}`}>
+    <article className="ui-card bg-white border border-slate-200 rounded-2xl p-5 lg:p-6 min-h-40 flex flex-col justify-between">
       <div className="flex items-start justify-between gap-3">
-        <p className={`text-[13px] font-semibold ${secundario}`}>{label}</p>
-        <span className={`flex h-9 w-9 items-center justify-center rounded-full ${
-          destaque ? 'bg-black/10 text-[var(--btn-primary-fg)]' : 'bg-slate-500/15 text-slate-500'
-        }`}>
-          {icon}
-        </span>
+        <p className="text-[13px] text-slate-500">{label}</p>
+        {/* Glifo monocromático e pequeno, como os ícones da navegação da
+            referência — não uma pastilha saturada. */}
+        <span className="text-slate-400 shrink-0">{icon}</span>
       </div>
       <div>
-        <p className="text-2xl xl:text-[2rem] font-extrabold tracking-[-0.04em] tnum mt-5">{value}</p>
-        <p className={`text-xs mt-1 ${secundario}`}>{hint}</p>
+        <p
+          className={`texto-heroi tnum mt-5 ${destaque ? 'text-[2rem] xl:text-[2.5rem]' : 'text-[1.75rem] xl:text-[2rem]'} ${
+            alerta ? 'text-red-600' : 'text-slate-900'
+          }`}
+        >
+          {value}
+        </p>
+        <p className={`text-xs mt-1.5 ${alerta ? 'text-red-600' : 'text-slate-500'}`}>{hint}</p>
       </div>
     </article>
   )
 }
 
-export default function Dashboard({ wallpaper }) {
+export default function Dashboard() {
   // Sorteada uma vez por montagem (a cada login/abertura do dashboard).
   const [saudacao] = useState(saudacaoAleatoria)
   const navigate = useNavigate()
@@ -193,51 +195,52 @@ export default function Dashboard({ wallpaper }) {
 
   return (
     <div className="px-4 sm:px-6 py-5 lg:px-8 lg:py-7 pb-28 lg:pb-10 max-w-[1480px] mx-auto w-full">
-      <header className="relative overflow-hidden rounded-2xl border border-slate-200 mb-5 lg:mb-6 min-h-48 flex items-end">
-        <img
-          src={wallpaper.src}
-          alt=""
-          aria-hidden="true"
-          className="absolute inset-0 h-full w-full object-cover opacity-45 saturate-50"
-        />
-        <div className="absolute inset-0 bg-[#0b0a10]/80" />
-        <div className="relative w-full p-5 sm:p-7 lg:p-8 flex flex-col lg:flex-row lg:items-end lg:justify-between gap-5">
-          <div className="max-w-2xl">
-            <p className="text-sm font-semibold text-blue-200 first-letter:uppercase">{dataExtenso}</p>
-            <h2 className="text-3xl lg:text-[2.5rem] font-extrabold text-white tracking-[-0.04em] mt-2">
-              {saudacao}
-            </h2>
-            <p className="text-sm text-white/70 mt-2 leading-relaxed max-w-xl">{resumoDoMes}</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Link to="/agendamentos">
-              <Button><IconPlus size={16} /> Novo agendamento</Button>
-            </Link>
-            <Link to="/clientes">
-              <Button variant="hero"><IconPlus size={16} /> Novo cliente</Button>
-            </Link>
-          </div>
+      {/* O "Hero Product Stage" da referência: palco branco, sem caixa, sem véu
+          e sem imagem por baixo do texto. Antes isto era um wallpaper com véu
+          #0b0d11/80 e título branco — o oposto exato da galeria, onde o espaço
+          em volta é que dá peso ao que está exposto.
+
+          A data é o kicker, a saudação é a declaração em tipo de display, e o
+          resumo vem no corpo de 17px da referência. */}
+      <header className="mb-8 lg:mb-10 pt-2 lg:pt-6 flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
+        <div className="max-w-2xl">
+          <p className="text-[13px] font-medium text-slate-500 first-letter:uppercase">{dataExtenso}</p>
+          <h2 className="texto-heroi text-[2rem] lg:text-[3.25rem] text-slate-900 mt-2">
+            {saudacao}
+          </h2>
+          <p className="text-[15px] lg:text-[17px] text-slate-500 mt-3 leading-relaxed tracking-[-0.022em] max-w-xl">
+            {resumoDoMes}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2 shrink-0">
+          <Link to="/agendamentos">
+            <Button><IconPlus size={16} /> Novo agendamento</Button>
+          </Link>
+          <Link to="/clientes">
+            <Button variant="secondary"><IconPlus size={16} /> Novo cliente</Button>
+          </Link>
         </div>
       </header>
 
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(390px,0.88fr)] gap-5 lg:gap-6 mb-6">
         <div className="grid grid-cols-2 gap-3 sm:gap-4">
           <Kpi
-            tone="light"
+            tone="destaque"
             icon={<IconWallet size={18} />}
             label="Vendido no mês"
             value={formatBRL(totalVendidoMes)}
             hint={`${entradasDoMes.length} lançamento${entradasDoMes.length === 1 ? '' : 's'}`}
           />
           <Kpi
-            tone="blue"
+            tone="azul"
             icon={<IconClock size={18} />}
             label="A receber"
             value={formatBRL(totalAReceber)}
             hint={`${pendentes.length} pagamento${pendentes.length === 1 ? '' : 's'} pendente${pendentes.length === 1 ? '' : 's'}`}
           />
           <Kpi
-            tone={vencidasAPagar.length ? 'coral' : 'dark'}
+            tone={vencidasAPagar.length ? 'coral' : 'neutro'}
+            alerta={vencidasAPagar.length > 0}
             icon={<IconWallet size={18} />}
             label="A pagar"
             value={formatBRL(totalAPagar)}
@@ -248,7 +251,7 @@ export default function Dashboard({ wallpaper }) {
             }
           />
           <Kpi
-            tone="green"
+            tone="verde"
             icon={<IconCalendar size={18} />}
             label="Visitas no mês"
             value={visitasDoMes.length}
@@ -261,20 +264,25 @@ export default function Dashboard({ wallpaper }) {
         <section className="ui-card order-first xl:order-none rounded-2xl border border-slate-200 p-5 sm:p-6">
           <div className="flex items-start justify-between gap-3 mb-2">
             <div>
-              <p className="text-xs font-semibold text-slate-500">Prioridades</p>
-              <h3 className="text-xl font-bold tracking-[-0.03em] text-slate-900 mt-1">Hoje</h3>
+              <p className="text-[13px] text-slate-500">Prioridades</p>
+              <h3 className="text-[22px] font-semibold text-slate-900 mt-1">Hoje</h3>
             </div>
-            <Link to="/agenda" className="rounded-xl bg-[var(--nav-active-bg)] px-3.5 py-2 text-xs font-bold text-[var(--nav-active-fg)] hover:opacity-90">
+            <Link to="/agenda" className="text-[13px] text-blue-600 hover:underline shrink-0">
               Abrir agenda
             </Link>
           </div>
 
           {atrasados.length > 0 && (
-            <div className="mb-2 rounded-xl bg-red-50 border border-red-200 px-3">
-              <p className="flex items-center gap-1.5 text-[11px] font-bold text-red-700 pt-3">
-                <IconAlert size={12} /> {atrasados.length} atrasada{atrasados.length === 1 ? '' : 's'}
-              </p>
-              <ul className="divide-y divide-red-200/60">
+            <div className="mb-2 rounded-xl border border-slate-200 bg-slate-100 px-3">
+              {/* A urgência é uma pastilha sólida, não um véu vermelho atrás da
+                  lista: o bloco inteiro tingido fazia o alerta competir com o
+                  próprio conteúdo que ele deveria estar destacando. */}
+              <div className="pt-3">
+                <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-red-600">
+                  <IconAlert size={12} /> {atrasados.length} atrasada{atrasados.length === 1 ? '' : 's'}
+                </span>
+              </div>
+              <ul className="divide-y divide-slate-200">
                 {atrasados.slice(0, 2).map((evento) => (
                   <LinhaEvento key={evento.id} evento={evento} onAbrir={abrirEvento} onConcluir={concluirEvento} />
                 ))}
@@ -283,7 +291,7 @@ export default function Dashboard({ wallpaper }) {
           )}
 
           {eventosHoje.length === 0 ? (
-            <p className="text-sm text-slate-500 py-7 text-center">Nada marcado para hoje.</p>
+            <p className="text-[15px] text-slate-500 py-8 text-center">Nada marcado para hoje.</p>
           ) : (
             <ul className="divide-y divide-slate-200">
               {eventosHoje.slice(0, 5).map((evento) => (
@@ -296,7 +304,7 @@ export default function Dashboard({ wallpaper }) {
             <button
               type="button"
               onClick={() => setForm(atividadeNova({ data: hoje }))}
-              className="inline-flex min-h-11 items-center gap-1.5 rounded-xl px-3 text-sm font-semibold text-blue-700 hover:bg-blue-50 cursor-pointer"
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-xl px-3 text-sm font-medium text-blue-600 hover:bg-slate-100 cursor-pointer"
             >
               <IconPlus size={15} /> Adicionar ao dia
             </button>
@@ -352,7 +360,7 @@ export default function Dashboard({ wallpaper }) {
         <div className="space-y-6">
           <Card
             title="CRM"
-            action={<Link to="/crm" className="text-xs font-medium text-blue-600 hover:underline">Abrir CRM</Link>}
+            action={<Link to="/crm" className="text-[13px] text-blue-600 hover:underline">Abrir CRM</Link>}
           >
             {funilAbertas === 0 ? (
               <Empty>Nenhuma negociação aberta.</Empty>
@@ -366,12 +374,11 @@ export default function Dashboard({ wallpaper }) {
 
                 {funilParadas.length > 0 && (
                   <>
-                    <p className="mt-3 flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
-                      <IconAlert size={16} className="shrink-0" />
+                    <Aviso tipo="alerta" className="mt-3">
                       {funilParadas.length === 1
                         ? '1 negociação parada há mais de 7 dias.'
                         : `${funilParadas.length} negociações paradas há mais de 7 dias.`}
-                    </p>
+                    </Aviso>
                     <ul className="divide-y divide-slate-100 mt-1">
                       {funilParadas.slice(0, 5).map((o) => (
                         <li key={o.id} className="py-3 flex items-center justify-between gap-3">
@@ -424,7 +431,7 @@ export default function Dashboard({ wallpaper }) {
                   </div>
                   <div className="h-1.5 rounded-full bg-slate-100" role="presentation">
                     <div
-                      className="h-1.5 rounded-full bg-amber-400"
+                      className="h-1.5 rounded-full bg-slate-400"
                       style={{ width: `${Math.round((total / maiorForma) * 100)}%` }}
                     />
                   </div>

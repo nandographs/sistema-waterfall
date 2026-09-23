@@ -33,37 +33,46 @@ export function IconeDoEvento({ evento, size = 15, className = '' }) {
 // As paletas são escritas por extenso, e não montadas com template string, para
 // o Tailwind conseguir enxergá-las ao varrer o código — classe gerada em tempo
 // de execução simplesmente não existe no CSS final.
+//
+// Na galeria branca a cor saiu do FUNDO e foi para o traço. Antes cada tipo de
+// evento tingia a bolha do ícone e o cartão inteiro (`bg-emerald-50`,
+// `bg-blue-50`, `bg-red-50`): numa agenda cheia isso vira uma coluna de
+// retângulos coloridos onde nada tem prioridade sobre nada. Agora a superfície
+// é sempre neutra e a cor aparece só no ponto, no glifo e na etiqueta — que é
+// exatamente a regra da referência para o rótulo de status.
 const PALETAS = {
   emerald: {
     ponto: 'bg-emerald-500',
     icone: 'text-emerald-600',
     texto: 'text-slate-900',
-    bolha: 'bg-emerald-50 text-emerald-600',
-    cartao: 'bg-emerald-50 border-emerald-200',
-    etiqueta: 'text-emerald-700',
+    bolha: 'bg-slate-100 text-emerald-600',
+    cartao: 'bg-[var(--surface-card)] border-slate-200',
+    etiqueta: 'text-emerald-600',
   },
   blue: {
     ponto: 'bg-blue-500',
     icone: 'text-blue-600',
     texto: 'text-slate-900',
-    bolha: 'bg-blue-50 text-blue-600',
-    cartao: 'bg-blue-50 border-blue-200',
-    etiqueta: 'text-blue-700',
+    bolha: 'bg-slate-100 text-blue-600',
+    cartao: 'bg-[var(--surface-card)] border-slate-200',
+    etiqueta: 'text-blue-600',
   },
   violet: {
     ponto: 'bg-violet-500',
-    icone: 'text-violet-600',
+    icone: 'text-violet-500',
     texto: 'text-slate-900',
-    bolha: 'bg-violet-50 text-violet-600',
-    cartao: 'bg-violet-50 border-slate-200',
-    etiqueta: 'text-violet-600',
+    bolha: 'bg-slate-100 text-violet-500',
+    cartao: 'bg-[var(--surface-card)] border-slate-200',
+    etiqueta: 'text-violet-500',
   },
   red: {
     ponto: 'bg-red-500',
-    icone: 'text-red-500',
+    icone: 'text-red-600',
     texto: 'text-slate-900',
-    bolha: 'bg-red-50 text-red-600',
-    cartao: 'bg-red-50 border-red-200',
+    // O atrasado é o único que ainda se distingue pela SUPERFÍCIE, e mesmo
+    // assim só pela borda: é a informação que muda o que se faz agora.
+    bolha: 'bg-slate-100 text-red-600',
+    cartao: 'bg-[var(--surface-card)] border-red-200',
     etiqueta: 'text-red-600',
   },
   cinza: {
@@ -127,15 +136,15 @@ export function LinhaEvento({ evento, onAbrir, onConcluir, acoes }) {
       </span>
 
       <div className="min-w-0 flex-1">
-        <p className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500">
+        <p className="flex items-center gap-1.5 text-[12px] text-slate-500">
           <span className="truncate">{etiquetaDoEvento(evento)}</span>
-          {atrasado && <span className="font-semibold text-red-600">· atrasado</span>}
+          {atrasado && <span className="font-medium text-red-600">· atrasado</span>}
           {evento.concluido && <span className="text-emerald-600">· concluído</span>}
         </p>
         <button
           type="button"
           onClick={() => onAbrir?.(evento)}
-          className={`block max-w-full truncate text-left text-[15px] font-semibold leading-snug hover:text-blue-600 cursor-pointer ${estilo.texto}`}
+          className={`block max-w-full truncate text-left text-[15px] font-medium leading-snug hover:text-blue-600 cursor-pointer ${estilo.texto}`}
         >
           {evento.titulo}
         </button>
@@ -161,9 +170,9 @@ export function LinhaEvento({ evento, onAbrir, onConcluir, acoes }) {
   )
 }
 
-// O cartão da linha do tempo: o mesmo evento, agora ancorado numa hora. O fundo
-// tingido pela cor do tipo é o que deixa a coluna legível de relance — é o que
-// a referência faz, e funciona porque a cor já significa alguma coisa aqui.
+// O cartão da linha do tempo: o mesmo evento, agora ancorado numa hora. A
+// superfície é Gallery White como qualquer outro card; quem diz de que tipo ele
+// é são o glifo e a etiqueta, não um retângulo tingido.
 export function CartaoEvento({ evento, onAbrir, onConcluir }) {
   const estilo = estiloDoEvento(evento)
   const hora = formatHora(evento.hora)

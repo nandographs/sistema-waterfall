@@ -164,7 +164,7 @@ export default function PagamentosVenda({ pagamentos, onChange, total, antecipac
   return (
     <div className="space-y-3">
       {/* 1. Entrada — opcional, e a primeira pergunta do balcão. */}
-      <label className="flex items-start gap-2.5 cursor-pointer rounded-lg bg-slate-50 border border-slate-200 p-3">
+      <label className="flex items-start gap-2.5 cursor-pointer rounded-lg bg-slate-100 border border-slate-200 p-3">
         <input
           type="checkbox"
           className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600 cursor-pointer"
@@ -272,7 +272,7 @@ export default function PagamentosVenda({ pagamentos, onChange, total, antecipac
                   <button
                     type="button"
                     onClick={() => removerForma(indice)}
-                    className="text-red-500 hover:text-red-700 text-lg leading-none cursor-pointer px-1 pb-2"
+                    className="text-red-500 hover:text-red-600 text-lg leading-none cursor-pointer px-1 pb-2"
                     title="Remover esta forma"
                   >
                     ×
@@ -325,12 +325,12 @@ export default function PagamentosVenda({ pagamentos, onChange, total, antecipac
         )}
         <div className="mt-2 pt-2 border-t border-slate-200">
           {diferencaCent === 0 ? (
-            <p className="flex items-center gap-1.5 text-[13px] font-semibold text-emerald-700">
+            <p className="flex items-center gap-1.5 text-[13px] font-semibold text-emerald-600">
               <IconCheck size={15} /> As formas de pagamento fecham com o total.
             </p>
           ) : (
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="flex items-center gap-1.5 text-[13px] font-semibold text-amber-700">
+              <p className="flex items-center gap-1.5 text-[13px] font-semibold text-amber-600">
                 <IconAlert size={15} />
                 {diferencaCent > 0
                   ? `Falta distribuir ${formatBRL(diferencaCent / 100)}.`

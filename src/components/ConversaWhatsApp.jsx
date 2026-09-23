@@ -44,7 +44,7 @@ function SeparadorDeDia({ dia }) {
 // Estado de entrega, só nas mensagens que saíram — igual ao WhatsApp, onde o
 // tique é a resposta para "ele viu?".
 function StatusEntrega({ status }) {
-  if (status === 'falhou') return <span className="text-[10px] font-bold text-red-200">falhou</span>
+  if (status === 'falhou') return <span className="text-[10px] font-semibold text-red-200">falhou</span>
   const lida = status === 'lida'
   const entregue = lida || status === 'entregue'
   return (
@@ -245,8 +245,8 @@ export default function ConversaWhatsApp({ conversa, onEnviar, aviso }) {
             >
               <IconFileText size={18} />
             </summary>
-            <div className="absolute bottom-full left-0 z-20 mb-2 w-[19rem] rounded-xl border border-slate-300 bg-slate-100 p-1.5 shadow-xl shadow-black/30">
-              <p className="px-3 pt-1 pb-2 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+            <div className="absolute bottom-full left-0 z-20 mb-2 w-[19rem] rounded-2xl superficie-flutuante p-1.5">
+              <p className="px-3 pt-1 pb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                 Modelos
               </p>
               {MODELOS_MENSAGEM.map((modelo) => (
@@ -332,7 +332,7 @@ export function CabecalhoConversa({
         <button
           type="button"
           onClick={onVincular}
-          className="shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-bold text-amber-800 cursor-pointer hover:bg-amber-100"
+          className="shrink-0 rounded-full border border-slate-300 bg-transparent px-2.5 py-1.5 text-[11px] font-medium text-amber-600 cursor-pointer hover:bg-slate-100"
           title="Este número não está no cadastro"
         >
           Vincular a um cliente
@@ -356,7 +356,7 @@ export function CabecalhoConversa({
           <IconMais size={18} />
         </summary>
 
-        <div className="absolute right-0 top-10 z-20 w-60 rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+        <div className="absolute right-0 top-10 z-20 w-60 rounded-2xl superficie-flutuante p-1">
           {/* O caminho de volta para a ficha. Atender pelo WhatsApp é metade da
               informação: o que ele comprou, quando foi a última visita e quando
               vence o refil estão na ficha, e ter que procurar o cliente pelo

@@ -79,11 +79,11 @@ export default function OportunidadeModal({ oportunidade, onFechar, onSalvo }) {
             cliente some para não empurrar você a criar cadastro só para poder
             salvar — é o contrário do que a gente quer. */}
         {form.contatoTelefone && !form.clienteId ? (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3">
-            <p className="text-sm font-semibold text-amber-900">
+          <div className="rounded-xl border border-slate-200 bg-slate-100 px-3.5 py-3">
+            <p className="text-sm font-semibold text-slate-900">
               {form.contatoNome || 'Contato sem nome'}
             </p>
-            <p className="text-xs text-amber-800 mt-0.5">
+            <p className="text-xs text-amber-600 mt-0.5">
               {form.contatoTelefone} · ainda sem cadastro. Use "Transformar em cliente" no
               cartão quando ele virar cliente de verdade.
             </p>
@@ -176,9 +176,9 @@ export default function OportunidadeModal({ oportunidade, onFechar, onSalvo }) {
             </p>
             <div className="space-y-1.5 max-h-40 overflow-y-auto">
               {notas.map((nota) => (
-                <div key={nota.id} className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2">
-                  <p className="text-sm text-amber-950 whitespace-pre-wrap break-words">{nota.descricao}</p>
-                  <p className="mt-0.5 text-[10px] font-semibold text-amber-800">
+                <div key={nota.id} className="rounded-lg border-l-2 border-amber-500 bg-slate-100 px-2.5 py-2">
+                  <p className="text-sm text-slate-900 whitespace-pre-wrap break-words">{nota.descricao}</p>
+                  <p className="mt-0.5 text-[11px] text-slate-500">
                     {nota.criadoPor || 'alguém'}
                     {nota.criadoEm ? ` · ${formatData(String(nota.criadoEm).slice(0, 10))}` : ''}
                   </p>
@@ -189,7 +189,7 @@ export default function OportunidadeModal({ oportunidade, onFechar, onSalvo }) {
         )}
 
         {erro && (
-          <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">{erro}</p>
+          <p className="text-sm text-red-600 bg-slate-100 border border-slate-200 rounded-lg px-3 py-2.5">{erro}</p>
         )}
 
         <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
@@ -207,7 +207,7 @@ export default function OportunidadeModal({ oportunidade, onFechar, onSalvo }) {
 
       {confirmarExclusao && (
         <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3">
-          <p className="text-sm text-red-800">
+          <p className="text-sm text-red-600">
             Excluir apaga a negociação e o rastro dela. Se o negócio simplesmente não
             aconteceu, prefira marcar como perdido — aí o motivo fica registrado.
           </p>
@@ -317,7 +317,7 @@ export function FecharOportunidadeModal({ oportunidade, etapa, onFechar, onSalvo
         )}
 
         {erro && (
-          <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">{erro}</p>
+          <p className="text-sm text-red-600 bg-slate-100 border border-slate-200 rounded-lg px-3 py-2.5">{erro}</p>
         )}
 
         <div className="flex justify-end gap-2 pt-1">

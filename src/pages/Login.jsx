@@ -37,12 +37,12 @@ export default function Login() {
           <img src={logo} alt="Waterfall" className="h-10 w-auto logo-mark" />
         </div>
 
-        <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Entrar</h1>
-        <p className="text-sm text-slate-500 mt-2">Acesse sua conta para continuar.</p>
+        <h1 className="texto-heroi text-[2.5rem] text-slate-900">Entrar</h1>
+        <p className="text-[17px] text-slate-500 mt-3 tracking-[-0.022em]">Acesse sua conta para continuar.</p>
 
         <form onSubmit={entrar} className="mt-8 space-y-5">
           <div>
-            <label htmlFor="login-usuario" className="block text-[13px] font-medium text-slate-700 mb-1.5">Usuário</label>
+            <label htmlFor="login-usuario" className="block text-[13px] font-medium text-slate-500 mb-1.5">Usuário</label>
             <input
               id="login-usuario"
               className={inputCls}
@@ -57,7 +57,7 @@ export default function Login() {
 
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label htmlFor="login-senha" className="block text-[13px] font-medium text-slate-700">Senha</label>
+              <label htmlFor="login-senha" className="block text-[13px] font-medium text-slate-500">Senha</label>
             </div>
             <div className="relative">
               <input
@@ -81,30 +81,38 @@ export default function Login() {
           </div>
 
           {erro && (
-            <p role="alert" aria-live="polite" className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{erro}</p>
+            <p role="alert" aria-live="polite" className="flex items-center gap-2.5 text-[13px] text-red-600">
+              <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500" />
+              {erro}
+            </p>
           )}
 
+          {/* A pílula de conversão da referência: Pricing Blue preenchido,
+              texto branco, raio total. É a única superfície azul da tela. */}
           <button
             type="submit"
             disabled={entrando}
-            className="w-full min-h-11 rounded-xl bg-blue-500 text-[var(--btn-primary-fg)] font-bold py-2.5 hover:bg-blue-600 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+            className="w-full min-h-11 rounded-full bg-blue-500 text-[var(--btn-primary-fg)] font-medium py-2.5 hover:opacity-85 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed transition-opacity"
           >
             {entrando ? 'Entrando…' : 'Entrar'}
           </button>
         </form>
 
-        <p className="text-xs text-slate-400 mt-10 leading-relaxed">
+        <p className="text-[12px] text-slate-400 mt-10 leading-relaxed">
           Ao entrar, você concorda com nossos Termos de Uso e Política de Privacidade.
         </p>
       </div>
 
-      {/* Coluna da imagem */}
-      <div className="hidden lg:block flex-1 relative overflow-hidden">
+      {/* Coluna da imagem — a foto é o "produto exposto" da galeria e fica sem
+          véu por cima. A legenda é a "Floating Pricing Callout": cápsula branca
+          de 28px flutuando sobre a imagem, em tinta escura. Antes isso era uma
+          caixa preta a 45% com texto branco, que escurecia a foto inteira para
+          conseguir contraste. */}
+      <div className="hidden lg:block flex-1 relative overflow-hidden p-6">
         <img src={loginBg} alt="" className="absolute inset-0 h-full w-full object-cover" />
-        <div className="absolute inset-0 bg-[#08070d]/45" />
-        <div className="absolute inset-x-10 bottom-10 rounded-2xl border border-white/15 bg-black/45 px-6 py-5 backdrop-blur-sm">
-          <p className="text-sm font-semibold text-white">Toda a operação, no mesmo fluxo.</p>
-          <p className="mt-1 text-sm text-white/70">Do primeiro contato à próxima troca de refil.</p>
+        <div className="absolute inset-x-10 bottom-10 rounded-2xl bg-white px-7 py-6">
+          <p className="text-[17px] font-semibold text-[#1d1d1f] tracking-[-0.022em]">Toda a operação, no mesmo fluxo.</p>
+          <p className="mt-1.5 text-[15px] text-[#707070] tracking-[-0.022em]">Do primeiro contato à próxima troca de refil.</p>
         </div>
       </div>
     </div>

@@ -5,56 +5,112 @@ Este documento cobre **o design da interface** e **o que tem em cada tela**.
 
 ---
 
-## 1. Linguagem visual
+## 1. Linguagem visual — a galeria branca
 
-- **Estilo flat**: bordas sutis (`border-slate-200`), sem sombras pesadas, sem
-  gradientes, sem animações. Cards brancos (`bg-white rounded-xl border`) sobre
-  fundo `slate-50`.
-- **Paleta**: a escala `slate` do Tailwind foi *redefinida* em `src/index.css`
-  com os valores de um template de referência ("library-dashboard") — não são
-  os slate padrão do Tailwind:
-  - `slate-900` (`#0a1b39`, navy frio) = texto principal
-  - `slate-500` (`#858585`) = texto de apoio
-  - `slate-200` (`#ededed`) = bordas
-  - `slate-50` (`#f8f8f8`) = fundo de página / campos de formulário
-  - **Azul da marca** `#009ace` substitui o azul padrão do template — é a cor
-    de ação (`blue-600`) em todo o sistema, porque a logo Waterfall é azul.
-  - **Coral** `#ff5150` substitui o vermelho — usado para vencido/atrasado/excluir.
-  - `accent-suave` (`#edf3fc`, azul bem claro) = destaque suave, item ativo da sidebar.
-- **Fonte**: Inter.
-- **Ícones**: SVG próprios em `components/icons.jsx` (sem biblioteca externa).
+A referência é a página de produto da Apple, e ela mora no repositório:
+`docs/referencia-apple/` (`DESIGN.md` com os tokens por extenso, mais
+`theme.css`, `variables.css` e `tokens.json`). Três regras explicam quase
+todas as decisões abaixo.
+
+**1. A galeria é branca.** O canvas é Studio Mist (`#f5f5f7`) e a superfície é
+Gallery White (`#ffffff`). Cor não preenche superfície grande: ela aparece em
+texto de link, em pílula compacta de ação e em ponto de status. O Pricing Blue
+nunca é fundo de bloco — a referência proíbe isso explicitamente.
+
+**2. Não existe sombra.** Separação vem de cor (branco sobre `#f5f5f7`) e de
+filete de 1px. A única marca de elevação admitida é `0 0 0 1px` — é o que a
+classe `.superficie-flutuante` faz, e é o que todo menu, popover e listbox do
+sistema usa. Há uma regra de rede em `index.css` que zera qualquer
+`shadow-*` que escape para dentro de `.app-shell`.
+
+**3. A tinta é fria e quase sem croma.** Ink (`#1d1d1f`) no título e no corpo,
+Slate (`#707070`) no apoio, Steel (`#86868b`) no contorno e na menor ênfase.
+
+### Tokens
+
+A escala `slate` do Tailwind é **redefinida** em `src/index.css` — não são os
+slate de fábrica. A convenção é: **50–300 são superfície e borda; 400–900 são
+texto**, do apoio ao principal.
+
+| Token | Claro | Papel na referência |
+|---|---|---|
+| `slate-50` | `#f5f5f7` | Studio Mist — canvas da página |
+| `slate-100` | `#fafafc` | Paper Frost — campo afundado, faixa de aviso |
+| `slate-200` | `#e6e6e8` | Control Gray — filete de 1px, divisores |
+| `slate-300` | `#d6d6d6` | Hairline Silver — borda de controle |
+| `slate-400` | `#86868b` | Steel — menor ênfase, contorno de campo |
+| `slate-500` | `#707070` | Slate — texto secundário |
+| `slate-900` | `#1d1d1f` | Ink — título e corpo principal |
+| `blue-500` | `#0071e3` | Pricing Blue — **só** preenchimento de pílula de ação |
+| `blue-600` | `#0066cc` | Apple Blue — link e texto azul |
+| `amber-500` | `#b64400` | Launch Orange |
+| `emerald-500` / `red-500` / `violet-500` | `#248a3d` / `#d70015` / `#5e5ce6` | paleta de sistema da Apple; a referência não tem estado, um CRM tem |
+
+**Raios.** Os tokens `--radius-*` são sobrescritos no `@theme`, o que reafina
+os ~153 usos de `rounded-*` de uma vez: `rounded-2xl` = **28px** (o card da
+referência), `rounded-xl` = **12px** (campo de formulário), `rounded-lg` =
+**10px** (controle pequeno). Botão é sempre `rounded-full`.
+
+> A referência pede 980px nos campos, mas aquilo é a busca da barra de navegação
+> da Apple — um campo isolado. Num formulário de 40 campos a cápsula come o
+> espaço útil, então aqui o campo fica em 12px. Mesma lógica para os 90px de
+> intervalo entre seções: o ritmo de espaçamento do sistema foi mantido.
+
+**Tipografia.** SF Pro Display/Text nativas onde existem (Mac, iPhone, iPad —
+é onde a referência foi medida), **Inter** como substituto, que é o que o
+próprio `DESIGN.md` indica. Tracking negativo global (`-0.016em` no corpo,
+`-0.022em` nos títulos, `-0.03em` no herói) — é a assinatura da Apple em texto
+pequeno. Pesos limitados a **400/500/600**; não há 700 nem 800 no sistema.
+
+**Temas.** O claro é o padrão. O escuro é opt-in pelo botão da TopNav e usa a
+variante escura da própria Apple: canvas `#000`, superfície `#1c1c1e`, azul
+`#2997ff`. Os nomes dos tokens são os mesmos nos dois, então **nenhuma classe
+de página muda entre temas** — quem alterna é `src/lib/tema.js` via
+`<html data-theme>`.
+
+**Ícones**: SVG próprios em `components/icons.jsx` (sem biblioteca externa).
 
 ## 2. Componentes de UI compartilhados (`components/ui.jsx`)
 
 | Componente | Papel |
 |---|---|
-| `Page` | espaçamento padrão de página, `max-w-1600px`, reserva espaço para a barra inferior mobile |
-| `PageTitle` | título + subtítulo + ação; **omite o `<h2>` quando repetiria o nome já mostrado na topbar** |
-| `Card` | container branco com título/ação opcional no cabeçalho |
-| `Button` | variantes `primary` (azul), `secondary` (contorno), `danger` (coral), `ghost`, `hero` (sobre fundo escuro); alvo de toque de 44px no mobile |
-| `Field` / `inputCls` | label + campo; campo **sem borda visível**, preenchido em `slate-50`, foca em branco com anel azul; fonte 16px no mobile (evita zoom automático do Safari) |
-| `Badge` | pílula colorida (`slate`, `green`, `amber`, `red`, `sky`) para status |
-| `Modal` | vira **bottom sheet** no mobile (nasce colado embaixo, cabeçalho sticky); no desktop é modal centrado; usa `dvh` para não ficar atrás do teclado no iOS; só fecha por X/Esc por padrão (evita perder formulários grandes por toque acidental) |
+| `Page` | espaçamento padrão de página, `max-w-1480px`, reserva espaço para a barra inferior mobile |
+| `PageTitle` | título em tipo de display + subtítulo + ação; **omite o `<h2>` quando repetiria o nome já mostrado na topbar** |
+| `Card` | a "Feature Media Card": Gallery White, 28px, filete de 1px, **sem sombra** |
+| `Button` | sempre pílula. `primary` = Pricing Blue preenchido (a ação de conversão, em geral uma por tela); `secondary` = "Outlined Explore Pill", transparente com filete Steel; `danger`; `ghost`. Alvo de toque de 44px no mobile |
+| `Field` / `inputCls` | label + campo; campo **branco com contorno de 1px Steel**, raio 12px, foco em Pricing Blue; fonte 16px no mobile (evita zoom automático do Safari) |
+| `Badge` | a "Launch Status Label": **texto colorido puro com um ponto de 6px**, sem preenchimento e sem borda. O ponto é adaptação nossa — numa lista de 2.600 linhas o status é uma coluna que se varre na vertical, e cor de texto sozinha não se acha nessa varredura |
+| `Aviso` | a faixa de alerta inline, antes copiada à mão em ~18 lugares com raios e tons divergentes |
+| `Segmentos` | o controle de aba/segmento. Antes havia **cinco** desenhos concorrentes; este é o único. Aceita `'mes'`, `['mes','Mês']` ou `{valor,rotulo}` |
+| `menuFlutuante` / `itemMenu` | a superfície e o item de qualquer coisa que flutua sobre o conteúdo. Antes eram duas receitas concorrentes para o mesmo trabalho |
+| `Modal` | vira **bottom sheet** no mobile (nasce colado embaixo, cabeçalho sticky); no desktop é painel branco de 28px centrado; usa `dvh` para não ficar atrás do teclado no iOS; só fecha por X/Esc por padrão (evita perder formulários grandes por toque acidental) |
 | `Empty` | mensagem central discreta para listas vazias |
+
+O outro subsistema de token do projeto é `components/evento.jsx` (`PALETAS`,
+seis papéis por matiz), que veste a agenda inteira. Nele a cor também saiu do
+fundo e foi para o traço: a superfície do evento é neutra, e o tipo aparece no
+ponto, no glifo e na etiqueta.
 
 ## 3. Navegação
 
 Definida uma vez em `components/navegacao.js` e consumida por `Sidebar` (desktop)
 e `TopNav`/`BottomNav` (mobile) — uma única fonte de verdade.
 
-- **Desktop (`≥lg`)**: sidebar fixa à esquerda, 290px expandida / 80px colapsada
-  (só ícones, estado persistido em `localStorage`), com item ativo em fundo
-  `accent-suave`. Rodapé da sidebar mostra o usuário logado, atalho "Mudar
-  wallpaper" (só no dashboard), "Sair" e o botão de colapsar.
-- **Mobile (`<lg`)**: `TopNav` (barra superior sticky só com o título da tela) +
-  `BottomNav` (barra inferior fixa, 5 destinos com ícone+rótulo, mais um botão
-  "Mais" que abre uma folha com os 2 destinos restantes e "Sair"). A escolha
-  dos 5 itens da barra segue a frequência de uso em campo (Dashboard, Agenda,
-  Clientes, Serviços, Financeiro) — Produtos e Vendas são tarefas de escritório
-  e ficam em "Mais".
-- 7 destinos ao todo: **Dashboard, Agenda, Clientes, Produtos, Serviços
-  (`/agendamentos`), Vendas, Financeiro**. "Serviços" é o nome de tela de
-  "Agendamentos" (rota e tabela mantêm o nome antigo) — separado
+- **Desktop (`≥lg`)**: sidebar branca fixa à esquerda, 248px expandida / 80px
+  colapsada (só ícones, estado persistido em `localStorage`). O item ativo é uma
+  **pílula neutra**, não uma tinta: a referência marca "onde eu estou" por
+  superfície e peso. Rodapé com "Sair" e o botão de colapsar.
+- **Topbar**: 64px nos dois tamanhos, no espírito da "Product Local Navigation" —
+  nome da tela em 19px/600, controles despojados, filete de 1px em vez de sombra.
+  Duas telas calculam altura a partir dela (`WhatsApp.jsx`, `Funil.jsx`); mexer
+  nesses 64px exige mexer lá também.
+- **Mobile (`<lg`)**: `BottomNav` fixa, 5 destinos com ícone+rótulo mais um
+  botão "Mais" que abre uma folha com os destinos restantes e "Sair". A escolha
+  dos 5 segue a frequência de uso em campo (Dashboard, Agenda, Clientes,
+  Serviços, Financeiro) — Produtos e Vendas são tarefas de escritório.
+- 8 destinos ao todo: **Dashboard, Agenda, Clientes, Produtos, Serviços
+  (`/agendamentos`), CRM, WhatsApp, Vendas, Financeiro**. "Serviços" é o nome de
+  tela de "Agendamentos" (rota e tabela mantêm o nome antigo) — separado
   deliberadamente de "Agenda", que é o diário de trabalho.
 
 ## 4. Padrões responsivos recorrentes
@@ -71,14 +127,18 @@ e `TopNav`/`BottomNav` (mobile) — uma única fonte de verdade.
 ## 5. As páginas
 
 ### Login (`/login` implícito, rota fora do layout)
-Tela cheia com imagem de fundo (`login-bg.jpg`) e logo. Formulário de usuário/senha
+Duas colunas: formulário em Gallery White à esquerda, foto (`login-bg.jpg`) à direita **sem véu escuro** — a legenda sobre ela é uma cápsula branca de 28px, no formato da "Floating Pricing Callout". Formulário de usuário/senha
 (usuário, não e-mail — ver `lib/auth.js`) com opção de mostrar/ocultar senha. Ao
 autenticar, o listener global em `App.jsx` percebe a sessão e libera a navegação.
 
 ### Dashboard (`/`)
-Painel do dia, com wallpaper de fundo escolhível (`WallpaperPicker`). Contém:
-- **Hero** de saudação (uma de várias frases sorteada por sessão, com o
-  primeiro nome de quem logou).
+Painel do dia. Contém:
+- **Herói** de saudação no formato "Hero Product Stage" da referência: palco
+  branco, sem caixa e sem imagem por baixo do texto — data como kicker, a
+  saudação em tipo de display (uma de várias frases sorteada por sessão, com o
+  primeiro nome de quem logou) e o resumo no corpo de 17px. O wallpaper com véu
+  escuro que existia aqui saiu com o redesign, e com ele o módulo de wallpapers,
+  os assets e o script `npm run wallpapers` que os gerava.
 - **Resumo financeiro do mês** — tudo derivado da tabela única de lançamentos
   ("Vendido no mês" conta pela data de **vencimento**, não pela criação do registro).
 - **O dia**: pendências atrasadas primeiro (é a pergunta que o dashboard precisa
@@ -172,7 +232,8 @@ O caixa do sistema.
 
 ## 6. Onde olhar para mexer no visual
 
-- Cores/tokens → `src/index.css` (bloco `@theme`)
+- A referência do desenho → `docs/referencia-apple/DESIGN.md`
+- Cores/tokens/raios/temas → `src/index.css` (bloco `@theme` + os dois blocos de tema)
 - Componentes reaproveitáveis → `src/components/ui.jsx`
 - Navegação/rótulos de tela → `src/components/navegacao.js`
 - Layout de shell (sidebar/topbar/bottom nav) → `App.jsx`, `Sidebar.jsx`, `TopNav.jsx`

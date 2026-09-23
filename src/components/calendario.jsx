@@ -13,8 +13,8 @@ import { CartaoEvento, estiloDoEvento } from './evento.jsx'
 // O número do dia. Selecionado vira pílula sólida (o contraste invertido do
 // tema); hoje, quando não é o selecionado, fica no azul da marca.
 function numeroDoDia(dia, { ativo, doMes }) {
-  if (ativo) return 'bg-slate-900 text-slate-50 font-bold'
-  if (ehHoje(dia)) return 'text-blue-600 font-bold'
+  if (ativo) return 'bg-slate-900 text-slate-50 font-semibold'
+  if (ehHoje(dia)) return 'text-blue-600 font-semibold'
   if (!doMes) return 'text-slate-400/70'
   return 'text-slate-700 font-medium'
 }

@@ -65,13 +65,13 @@ export default function ConverterLeadModal({ oportunidade, onFechar, onConvertid
         </Field>
 
         {oportunidade.observacoes && (
-          <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+          <p className="text-xs text-slate-500 bg-slate-100 border border-slate-200 rounded-lg px-3 py-2">
             {oportunidade.observacoes}
           </p>
         )}
 
         {erro && (
-          <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">{erro}</p>
+          <p className="text-sm text-red-600 bg-slate-100 border border-slate-200 rounded-lg px-3 py-2.5">{erro}</p>
         )}
 
         <div className="flex flex-wrap justify-end gap-2 pt-1">

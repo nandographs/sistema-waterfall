@@ -66,20 +66,20 @@ export default function MiniCalendario({
               aria-current={ativo ? 'date' : undefined}
               className={`flex min-h-10 flex-col items-center justify-center rounded-lg py-1 cursor-pointer ${compacto ? 'gap-0.5' : 'gap-1'} ${
                 ativo
-                  ? 'bg-blue-600 text-white'
+                  ? 'bg-slate-900 text-slate-50'
                   : doMes
                     ? 'text-slate-700 hover:bg-slate-100'
-                    : 'text-slate-300 hover:bg-slate-50'
+                    : 'text-slate-500 hover:bg-slate-100'
               }`}
             >
-              <span className={`text-xs tnum ${hoje && !ativo ? 'font-bold text-blue-600' : ''}`}>
+              <span className={`text-xs tnum ${hoje && !ativo ? 'font-semibold text-blue-600' : ''}`}>
                 {Number(dia.slice(8, 10))}
               </span>
               <span className="flex items-center gap-0.5 h-1">
                 {pontos.map((evento) => (
                   <span
                     key={evento.id}
-                    className={`h-1 w-1 rounded-full ${ativo ? 'bg-white/80' : estiloDoEvento(evento).ponto}`}
+                    className={`h-1 w-1 rounded-full ${ativo ? 'bg-slate-50' : estiloDoEvento(evento).ponto}`}
                   />
                 ))}
               </span>

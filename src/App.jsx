@@ -13,7 +13,6 @@ import Vendas from './pages/Vendas.jsx'
 import Financeiro from './pages/Financeiro.jsx'
 import TopNav, { BottomNav } from './components/TopNav.jsx'
 import Sidebar from './components/Sidebar.jsx'
-import { wallpaperDaSessao } from './data/wallpapers.js'
 import { supabase } from './lib/supabaseClient.js'
 import { carregarDados } from './data/repository.js'
 import { definirUsuarioAtual } from './lib/auth.js'
@@ -23,7 +22,7 @@ import { lerTema, salvarTema } from './lib/tema.js'
 function TelaCarregando() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
-      <p className="text-sm text-slate-400">Carregando…</p>
+      <p className="text-[15px] text-slate-400">Carregando…</p>
     </div>
   )
 }
@@ -32,11 +31,11 @@ function TelaErro({ mensagem, onSair }) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
       <div className="max-w-md text-center">
-        <p className="text-sm font-medium text-red-600 mb-1">Não foi possível carregar os dados.</p>
+        <p className="text-[15px] font-medium text-red-600 mb-1">Não foi possível carregar os dados.</p>
         <p className="text-xs text-slate-500 mb-4">{mensagem}</p>
         <button
           onClick={onSair}
-          className="text-xs font-medium text-blue-600 hover:underline cursor-pointer"
+          className="text-[13px] text-blue-600 hover:underline cursor-pointer"
         >
           Sair e tentar novamente
         </button>
@@ -46,10 +45,6 @@ function TelaErro({ mensagem, onSair }) {
 }
 
 function AppLayout({ onSair }) {
-  // O wallpaper do hero do dashboard avança sozinho a cada acesso e fica fixo
-  // pela sessão — ver wallpaperDaSessao().
-  const [wallpaper] = useState(wallpaperDaSessao)
-
   // Estrutura do template: sidebar fixa à esquerda no desktop, conteúdo rolando
   // ao lado. O estado de colapso persiste — é preferência de quem usa, não do
   // sistema, e reabrir sempre expandida seria irritante.
@@ -86,7 +81,7 @@ function AppLayout({ onSair }) {
 
         <main className="flex-1">
           <Routes>
-            <Route path="/" element={<Dashboard wallpaper={wallpaper} />} />
+            <Route path="/" element={<Dashboard />} />
             <Route path="/clientes" element={<Clientes />} />
             <Route path="/clientes/:id" element={<ClienteDetalhe />} />
             <Route path="/produtos" element={<Produtos />} />

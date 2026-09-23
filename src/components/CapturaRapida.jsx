@@ -94,8 +94,8 @@ export default function CapturaRapida({ onRegistrado }) {
             onClick={() => setForm({ ...form, tipo })}
             className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[13px] font-medium cursor-pointer ${
               form.tipo === tipo
-                ? 'border-blue-600 bg-blue-50 text-blue-700'
-                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                ? 'border-blue-600 bg-blue-50 text-blue-600'
+                : 'border-slate-200 bg-white text-slate-600 hover-superficie'
             }`}
           >
             <IconeDoEvento evento={{ fonte: 'atividade', tipo }} size={14} />
@@ -127,8 +127,8 @@ export default function CapturaRapida({ onRegistrado }) {
             onClick={() => escolherResultado(valor)}
             className={`rounded-lg border px-2.5 py-1 text-xs font-medium cursor-pointer ${
               form.resultado === valor
-                ? 'border-blue-600 bg-blue-50 text-blue-700'
-                : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
+                ? 'border-blue-600 bg-blue-50 text-blue-600'
+                : 'border-slate-200 bg-white text-slate-500 hover-superficie'
             }`}
           >
             {rotulo}
@@ -171,7 +171,7 @@ export default function CapturaRapida({ onRegistrado }) {
       )}
 
       {erro && (
-        <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{erro}</p>
+        <p className="text-sm text-red-600 bg-slate-100 border border-slate-200 rounded-lg px-3 py-2">{erro}</p>
       )}
 
       <Button type="submit" disabled={salvando} className="w-full justify-center">

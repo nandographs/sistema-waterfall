@@ -9,7 +9,7 @@ import {
 } from '../data/repository.js'
 import { PERIODOS, dentroDoPeriodo } from '../lib/datas.js'
 import { semAcento } from '../lib/texto.js'
-import { Card, Page, PageTitle, Button, Field, inputCls, InputNumero, Empty, Modal, Badge, notificar, usePaginacao, Paginacao } from '../components/ui.jsx'
+import { Card, Page, PageTitle, Button, Field, inputCls, InputNumero, Empty, Modal, Badge, notificar, usePaginacao, Paginacao, Segmentos } from '../components/ui.jsx'
 import { IconPlus, IconFileText, IconTrash, IconEye, IconMais, IconSearch } from '../components/icons.jsx'
 import ClienteBusca from '../components/ClienteBusca.jsx'
 import ProdutoBusca from '../components/ProdutoBusca.jsx'
@@ -58,7 +58,7 @@ function AcoesVenda({ venda, onVer, onPedido, onProposta, onEditar, onConfirmar,
         >
           <IconMais size={18} />
         </summary>
-        <div className="absolute right-0 z-20 mt-2 w-52 rounded-xl border border-slate-300 bg-slate-100 p-1.5 shadow-xl shadow-black/30">
+        <div className="absolute right-0 z-20 mt-2 w-52 rounded-2xl superficie-flutuante p-1.5">
           {venda.tipo === 'orcamento' && (
             <button type="button" className={acaoCls} onClick={(e) => { fechar(e); onProposta() }}>
               <IconFileText size={16} /> Baixar proposta (PDF)
@@ -76,7 +76,7 @@ function AcoesVenda({ venda, onVer, onPedido, onProposta, onEditar, onConfirmar,
           {venda.status === 'confirmada' && (
             <button type="button" className={acaoCls} onClick={(e) => { fechar(e); onCancelar() }}>Cancelar venda</button>
           )}
-          <button type="button" className={acaoCls + ' text-red-700 hover:bg-red-50'} onClick={(e) => { fechar(e); onExcluir() }}>
+          <button type="button" className={acaoCls + ' text-red-600 hover:bg-red-50'} onClick={(e) => { fechar(e); onExcluir() }}>
             <IconTrash size={15} /> Excluir
           </button>
         </div>
@@ -298,21 +298,13 @@ export default function Vendas() {
         </div>
       </div>
 
-      <div className="flex gap-2 mb-4 flex-wrap">
-        {[['todos', 'Todas'], ['proposta', 'Propostas'], ['confirmada', 'Confirmadas'], ['cancelada', 'Canceladas']].map(
-          ([valor, rotulo]) => (
-            <button
-              key={valor}
-              onClick={() => setFiltro(valor)}
-              className={`rounded-full px-4 py-1.5 text-sm font-medium cursor-pointer ${
-                filtro === valor ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-              }`}
-            >
-              {rotulo}
-            </button>
-          ),
-        )}
-      </div>
+      <Segmentos
+        className="mb-4"
+        rotulo="Situação da venda"
+        valor={filtro}
+        onChange={setFiltro}
+        opcoes={[['todos', 'Todas'], ['proposta', 'Propostas'], ['confirmada', 'Confirmadas'], ['cancelada', 'Canceladas']]}
+      />
 
       <Card>
         <p className="text-xs text-slate-400 mb-3">
@@ -592,7 +584,7 @@ export default function Vendas() {
                     <button
                       type="button"
                       onClick={() => setItens(itens.filter((_, idx) => idx !== i))}
-                      className="text-red-500 hover:text-red-700 text-lg leading-none cursor-pointer px-1"
+                      className="text-red-500 hover:text-red-600 text-lg leading-none cursor-pointer px-1"
                       title="Remover item"
                     >
                       ×
@@ -667,7 +659,7 @@ export default function Vendas() {
                 // remontaria o plano por cima das baixas dadas.
                 antecipacaoTravada={!!form?.id && lancamentosDaVenda(form.id).some((l) => l.status === 'realizado')}
               />
-              <label className="flex items-start gap-2.5 cursor-pointer rounded-lg bg-slate-50 border border-slate-200 p-3">
+              <label className="flex items-start gap-2.5 cursor-pointer rounded-lg bg-slate-100 border border-slate-200 p-3">
                 <input
                   type="checkbox"
                   className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600 cursor-pointer"
@@ -729,14 +721,14 @@ export default function Vendas() {
             </details>
 
             {form.status === 'confirmada' && (
-              <p className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2">
+              <p className="text-xs text-blue-600 bg-slate-100 border border-slate-200 rounded-xl px-3 py-2">
                 Confirmar gera as contas a receber e já deixa o serviço na agenda
                 (instalação, se houver aparelho; troca, se for só refil).
               </p>
             )}
 
             {erro && (
-              <p role="alert" aria-live="polite" className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{erro}</p>
+              <p role="alert" aria-live="polite" className="text-sm text-red-600 bg-slate-100 border border-slate-200 rounded-xl px-3 py-2">{erro}</p>
             )}
 
             <div className="sticky bottom-0 z-10 -mx-4 sm:-mx-6 flex flex-wrap items-center justify-between gap-3 border-t border-slate-300 bg-slate-100/95 px-4 sm:px-6 py-3 backdrop-blur-md">

@@ -118,7 +118,7 @@ export default function ConversaClienteModal({ oportunidade, onFechar, onMudouEt
               enviando
                 ? <p className="text-[11px] font-semibold text-slate-500">Enviando…</p>
                 : (!paraExibir.numero
-                    ? <p className="text-[11px] font-semibold text-amber-700">
+                    ? <p className="text-[11px] font-semibold text-amber-600">
                         Sem telefone para enviar — o envio vai falhar.
                       </p>
                     : null)

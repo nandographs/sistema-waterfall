@@ -36,7 +36,7 @@ Brasil**. Mantenha esse padrão ao escrever código novo.
 | Estilo | Tailwind CSS 4 (via `@tailwindcss/vite`), utilitários inline nas telas |
 | Backend | **Supabase** (Postgres + Auth + Storage) — não existe servidor próprio |
 | Documentos | JSZip (edita o `word/document.xml` de um `.docx` modelo), jsPDF + html2canvas |
-| Imagens | `browser-image-compression` no cliente; `sharp` só em script de build de wallpapers |
+| Imagens | `browser-image-compression` no cliente |
 | Deploy | Vercel (`vercel.json`) |
 
 Comandos:
@@ -63,14 +63,14 @@ src/
   data/
     repository.js         CAMADA DE DADOS (o coração do sistema, ~1250 linhas)
     financeiro.js         regras de dinheiro puras (testáveis em Node)
-    fotos.js, wallpapers.js
+    fotos.js
   lib/
     supabaseClient.js, auth.js, datas.js, mascaras.js, cep.js, imagem.js
   os/                     Ordem de Serviço: fill.js, gerar.js, gerarPdf.js, reference.docx
   pedido/                 Pedido de Venda: mesma estrutura
   documentos/docx.js      plumbing compartilhado dos dois documentos
 sql/                      migrações numeradas 001..008, rodadas à mão no SQL Editor
-scripts/                  testes em Node + otimizador de wallpapers
+scripts/                  testes em Node
 ```
 
 ### Padrão central: cache em memória + escrita assíncrona
@@ -290,8 +290,8 @@ nos registros.
 - O CRM (`/crm`) arrasta com o drag-and-drop nativo do HTML5 no desktop e, no
   celular, move pelo menu "Mover para…" do cartão — o DnD do HTML5 não existe no
   toque, e nenhuma biblioteca de arrasto foi adicionada.
-- Dashboard com wallpaper escolhível (`WallpaperPicker`, preferência local),
-  saudação aleatória, mini-calendário, captura rápida e pendências atrasadas.
+- Dashboard com herói em tipo de display (saudação aleatória), mini-calendário,
+  captura rápida e pendências atrasadas.
 - Componentes de UI genéricos em `components/ui.jsx` (`Card`, `Page`, `Button`,
   `Field`, `Modal`, `Badge`, `Empty`, `inputCls`); ícones SVG em `icons.jsx`.
 - Fotos (perfil de cliente e de produto) ficam em **bucket privado** do Storage;

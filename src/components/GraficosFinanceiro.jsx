@@ -99,18 +99,13 @@ export function GraficoSaldo({ serie, formatar, rotuloDia, altura = 150 }) {
           onPointerLeave={() => setAtivo(null)}
           className="touch-pan-y"
         >
-          <defs>
-            <linearGradient id="grad-saldo" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="var(--accent-blue)" stopOpacity="0.28" />
-              <stop offset="100%" stopColor="var(--accent-blue)" stopOpacity="0" />
-            </linearGradient>
-          </defs>
-
           {minV < 0 && maxV > 0 && (
             <line x1={0} x2={largura} y1={y(0)} y2={y(0)} className="stroke-slate-300" strokeDasharray="2 4" />
           )}
 
-          {area && <path d={area} fill="url(#grad-saldo)" />}
+          {/* Chapado, não degradê: a referência supre profundidade com espaço em
+              branco, nunca com gradiente. */}
+          {area && <path d={area} fill="var(--accent-blue)" fillOpacity={0.08} />}
           {real.length > 1 && (
             <path d={linha(real)} fill="none" stroke="var(--accent-blue)" strokeWidth={2.25} strokeLinejoin="round" strokeLinecap="round" />
           )}
@@ -120,7 +115,7 @@ export function GraficoSaldo({ serie, formatar, rotuloDia, altura = 150 }) {
 
           {/* Hoje: o último ponto real, sempre marcado. */}
           {ultimoReal >= 0 && ativo === null && (
-            <circle cx={pts[ultimoReal][0]} cy={pts[ultimoReal][1]} r={4.5} fill="var(--accent-blue)" className="stroke-slate-50" strokeWidth={2} />
+            <circle cx={pts[ultimoReal][0]} cy={pts[ultimoReal][1]} r={4.5} fill="var(--accent-blue)" stroke="var(--surface-card)" strokeWidth={2} />
           )}
 
           {marcas.map((i) => (
@@ -138,7 +133,7 @@ export function GraficoSaldo({ serie, formatar, rotuloDia, altura = 150 }) {
           {ativo !== null && (
             <>
               <line x1={pts[ativo][0]} x2={pts[ativo][0]} y1={topo} y2={base} className="stroke-slate-400" strokeDasharray="3 3" />
-              <circle cx={pts[ativo][0]} cy={pts[ativo][1]} r={4.5} fill="var(--accent-blue)" className="stroke-slate-50" strokeWidth={2} />
+              <circle cx={pts[ativo][0]} cy={pts[ativo][1]} r={4.5} fill="var(--accent-blue)" stroke="var(--surface-card)" strokeWidth={2} />
               <Balao
                 x={pts[ativo][0]}
                 y={pts[ativo][1]}
@@ -238,7 +233,7 @@ export function GraficoFluxo({ meses, formatar, rotuloMes, altura = 230 }) {
               cy={y(m.acumulado)}
               r={ativo === i ? 5 : 3.5}
               fill="var(--accent-blue)"
-              className="stroke-slate-50"
+              stroke="var(--surface-card)"
               strokeWidth={2}
               pointerEvents="none"
             />

@@ -1,220 +1,262 @@
 @import "tailwindcss";
 
 /* ============================================================================
-   Paleta — linguagem visual do template "library-dashboard"
+   Waterfall — sistema "white gallery"
    ============================================================================
-   O sistema inteiro já usa a escala `slate` de forma consistente (slate-900
-   para texto, slate-500 para apoio, slate-200 para borda, slate-50 para fundo).
-   Em vez de reescrever centenas de classes em 17 arquivos, a escala é
-   REDEFINIDA aqui com os valores do template. Uma mudança, todas as telas.
+   A referência é a página de produto da Apple (docs/referencia-apple/DESIGN.md).
+   Três regras governam tudo o que vem abaixo:
 
-   Do template vieram: o navy do texto (#0a1b39 — bem mais frio e profundo que
-   o slate original), os cinzas neutros (#858585, #ededed, #f8f8f8) e o coral
-   (#ff5150) no lugar do vermelho.
+   1. A GALERIA É BRANCA. O canvas é Studio Mist (#f5f5f7) e as superfícies são
+      Gallery White (#ffffff). A cor não preenche superfície grande: ela aparece
+      em texto de link, em pílula compacta de ação e em ponto de status.
 
-   O que NÃO veio: a cor primária. A logo da Waterfall é azul; o coral do
-   template brigaria com ela em toda tela. O azul #009ace continua sendo a ação;
-   o coral assumiu o papel de alerta e destrutivo, onde a energia dele rende.
+   2. NÃO EXISTE SOMBRA. Separação vem de cor (branco sobre #f5f5f7) e de filete
+      de 1px. Essa é a regra que mais muda o aspecto do sistema — sombra preta a
+      30% era o que dava peso de "painel" às listas e aos menus.
+
+   3. A TINTA É FRIA E QUASE SEM CROMA. Ink (#1d1d1f) para título e corpo, Slate
+      (#707070) para apoio, Steel (#86868b) para contorno e menor ênfase. Não há
+      cinza-azulado nem cinza-roxo: é o neutro da Apple, que faz o branco ao
+      redor parecer papel e não tela acesa.
+
+   A escala `slate` do Tailwind continua sendo REDEFINIDA (em vez de reescrever
+   centenas de classes nas páginas): 50–300 são SUPERFÍCIES e bordas; 400–900
+   são TEXTO, do apoio ao principal. Os valores no @theme são os do tema claro,
+   que agora é o padrão; o tema escuro re-declara tudo mais adiante.
    ========================================================================== */
 
 @theme {
-  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  /* -- Tipografia ---------------------------------------------------------
+     SF Pro nativo onde existe (Mac, iPhone, iPad — é onde a referência foi
+     medida); Inter como substituto, que é o que o próprio DESIGN.md indica.
+     `display` e `text` são famílias diferentes na Apple: a Display é usada dos
+     19px para cima e tem tracking mais apertado. */
+  --font-sans: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Inter",
+    ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-display: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Inter",
+    ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
 
-  /* Azul da marca: #009ace (escala derivada dele) */
-  --color-blue-50: #e5f6fc;
-  --color-blue-100: #cfeef9;
-  --color-blue-200: #a0def2;
-  --color-blue-500: #00ace6;
-  --color-blue-600: #009ace;
-  --color-blue-700: #007ea8;
+  /* -- Raios --------------------------------------------------------------
+     A referência dá cards em 28px, links em 10px e botões em 9999px. Como o
+     sistema inteiro já está escrito em `rounded-lg` / `rounded-xl` /
+     `rounded-2xl`, reafinar os três tokens reafina 153 usos de uma vez.
 
-  /* Neutros do template. slate-900 é o foreground; slate-500 o muted-foreground;
-     slate-200 a borda; slate-50 o muted. */
-  --color-slate-50: #f8f8f8;
-  --color-slate-100: #f2f2f2;
-  --color-slate-200: #ededed;
-  --color-slate-300: #e4e4e4;
-  --color-slate-400: #a3a3a3;
-  --color-slate-500: #858585;
-  --color-slate-600: #5c6478;
-  --color-slate-700: #485066;
-  --color-slate-800: #242424;
-  --color-slate-900: #0a1b39;
+     `rounded-2xl` é o card: 28px, o valor canônico da galeria.
+     `rounded-xl` é o controle de formulário: 12px. A referência pede 980px nos
+     campos, mas isso é a busca da barra de navegação da Apple — um campo só.
+     Num formulário de 40 campos a cápsula come o espaço útil e desalinha o
+     texto do rótulo, então aqui o campo fica em 12px.
+     `rounded-lg` é o controle pequeno: 10px, o valor de "links" da referência. */
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-2xl: 28px;
 
-  /* Coral do template no lugar do vermelho — vencido, atrasado, excluir */
-  --color-red-50: #fff2f2;
-  --color-red-100: #ffe1e1;
-  --color-red-200: #ffc9c9;
-  --color-red-500: #ff5150;
-  --color-red-600: #ff5150;
-  --color-red-700: #e63b3a;
+  /* -- Neutros (claro — padrão) -------------------------------------------
+     50–300 são superfície e borda; 400–900 são texto. 600/700/800 não existem
+     na referência (ela só nomeia Ink, Slate e Steel): são interpolados para os
+     degraus que o sistema já usava. */
+  --color-slate-50: #f5f5f7;   /* Studio Mist — canvas da página */
+  --color-slate-100: #fafafc;  /* Paper Frost — campo afundado, corpo do modal */
+  --color-slate-200: #e6e6e8;  /* Control Gray — filete de 1px, divisores */
+  --color-slate-300: #d6d6d6;  /* Hairline Silver — borda de controle */
+  --color-slate-400: #86868b;  /* Steel — menor ênfase, contorno de campo */
+  --color-slate-500: #707070;  /* Slate — texto secundário */
+  --color-slate-600: #565658;
+  --color-slate-700: #3a3a3c;
+  --color-slate-800: #2b2b2d;
+  --color-slate-900: #1d1d1f;  /* Ink — título e corpo principal */
 
-  /* Superfície azulada do template (--accent: #edf3fc), usada no estado ativo
-     da sidebar e em destaques suaves. */
-  --color-accent-suave: #edf3fc;
+  /* -- Azul ---------------------------------------------------------------
+     A referência usa DOIS azuis, e a diferença importa: Pricing Blue (#0071e3)
+     é o preenchimento da pílula de ação, e só dela; Apple Blue (#0066cc) é o
+     link e o texto azul. O 500 preenche, o 600 é link e pílula ativa. */
+  --color-blue-50: #f0f6fd;
+  --color-blue-100: #dceafa;
+  --color-blue-200: #b8d4f2;
+  --color-blue-300: #6fa9e4;
+  --color-blue-400: #2b86dc;
+  --color-blue-500: #0071e3;  /* Pricing Blue — preenchimento de ação */
+  --color-blue-600: #0066cc;  /* Apple Blue — link, pílula ativa */
+  --color-blue-700: #0055b0;
+
+  /* -- Status -------------------------------------------------------------
+     A referência só nomeia Launch Orange (#b64400), porque uma página de
+     produto não tem estado. Um CRM tem. O resto vem da paleta de sistema da
+     Apple nos valores acessíveis sobre branco — é a extensão honesta da
+     referência, não uma paleta inventada. */
+  --color-emerald-50: #eaf6ed;
+  --color-emerald-100: #d3ecda;
+  --color-emerald-200: #a6d8b6;
+  --color-emerald-400: #2d9a49;
+  --color-emerald-500: #248a3d;
+  --color-emerald-600: #1d7233;
+  --color-emerald-700: #165a28;
+
+  --color-red-50: #fdecee;
+  --color-red-100: #fad7da;
+  --color-red-200: #f3aeb4;
+  --color-red-500: #d70015;
+  --color-red-600: #b30012;
+  --color-red-700: #8f000e;
+
+  --color-amber-50: #fdf0e8;
+  --color-amber-100: #fadfcd;
+  --color-amber-200: #f0bf9c;
+  --color-amber-400: #cc5200;
+  --color-amber-500: #b64400;  /* Launch Orange */
+  --color-amber-600: #983800;
+  --color-amber-700: #7a2d00;
+
+  --color-violet-50: #eeeefd;
+  --color-violet-500: #5e5ce6;  /* systemIndigo */
+  --color-violet-600: #4f4dc4;
+
+  /* Destaque suave: um neutro elevado, nunca uma tinta azul. */
+  --color-accent-suave: #f0f0f2;
 }
 
 /* ============================================================================
-   Cockpit operacional escuro
-   A referência do redesign usa contraste entre um canvas quase preto e painéis
-   grafite. A escala slate é semântica: 50–300 são superfícies e bordas; 400–900
-   são texto, do apoio ao foreground.
-   ========================================================================== */
-@theme {
-  --color-slate-50: #0d0c12;
-  --color-slate-100: #17161c;
-  --color-slate-200: #2b2932;
-  --color-slate-300: #3a3742;
-  --color-slate-400: #9891a2;
-  --color-slate-500: #b1aaba;
-  --color-slate-600: #c9c4cf;
-  --color-slate-700: #dedbe3;
-  --color-slate-800: #efedf3;
-  --color-slate-900: #faf9fc;
-
-  --color-blue-50: #18213b;
-  --color-blue-100: #22315a;
-  --color-blue-200: #b7c7ff;
-  --color-blue-500: #7696ff;
-  --color-blue-600: #5f82ef;
-  --color-blue-700: #cad5ff;
-
-  --color-red-50: #351d22;
-  --color-red-100: #4b242a;
-  --color-red-200: #74333b;
-  --color-red-500: #ff7e7d;
-  --color-red-600: #ff9796;
-  --color-red-700: #ffc2c1;
-
-  --color-emerald-50: #153128;
-  --color-emerald-100: #1b4033;
-  --color-emerald-200: #2c6a52;
-  --color-emerald-400: #68e6aa;
-  --color-emerald-500: #5bdfa0;
-  --color-emerald-600: #74edb6;
-  --color-emerald-700: #a9f5d2;
-
-  --color-amber-50: #342c1d;
-  --color-amber-100: #493a21;
-  --color-amber-200: #735a2d;
-  --color-amber-400: #f1ca70;
-  --color-amber-500: #e7bb55;
-  --color-amber-600: #f3cf7c;
-  --color-amber-700: #f8dfa5;
-
-  --color-violet-50: #271e3c;
-  --color-violet-500: #ae8af1;
-  --color-violet-600: #c1a5f7;
-
-  --color-accent-suave: #202a49;
-}
-
-/* ============================================================================
-   Temas — escuro (padrão, o "cockpit" do redesign) e claro (opt-in)
+   Temas — claro (padrão) e escuro (opt-in)
    ============================================================================
-   As escalas do Tailwind acima já geram os utilitários (bg-slate-*, text-
-   slate-*, border-*, etc.). Aqui só trocamos os VALORES das variáveis conforme
-   o <html data-theme>. Nenhuma classe muda entre um tema e outro — quem alterna
-   é src/lib/tema.js. Sem data-theme, vale o escuro.
+   Nenhuma classe muda entre um tema e outro: as utilidades do Tailwind
+   resolvem var(--color-*) na hora da cascata, então basta trocar os VALORES
+   conforme o <html data-theme>. Quem alterna é src/lib/tema.js.
    ========================================================================== */
 
 :root,
-:root[data-theme="dark"] {
-  color-scheme: dark;
-
-  --surface-base: #08070d;
-  --surface-nav: #121116;
-  --surface-card: #1a191f;
-  --surface-raised: #222127;
-  --accent-blue: #7696ff;
-  --accent-green: #68e6aa;
-  --accent-coral: #ff8a78;
-  --accent-yellow: #f1cf78;
-
-  --nav-active-bg: #f6f4fb;
-  --nav-active-fg: #0d0b12;
-  --btn-primary-fg: #08070d;
-  --logo-filter: brightness(0) invert(1);
-  --topnav-bg: rgb(8 7 13 / 0.95);
-  --nav-blur-bg: rgb(18 17 22 / 0.98);
-  --scrollbar-thumb: #3a3742;
-  --scrollbar-track: #121116;
-  --focus-ring: #9bb2ff;
-  --card-hover-border: #45414d;
-  --selection-fg: #08070d;
-}
-
 :root[data-theme="light"] {
   color-scheme: light;
 
-  /* Neutros claros do template "library-dashboard" */
-  --color-slate-50: #f8f8f8;
-  --color-slate-100: #f2f2f2;
-  --color-slate-200: #ededed;
-  --color-slate-300: #e4e4e4;
-  --color-slate-400: #a3a3a3;
-  --color-slate-500: #858585;
-  --color-slate-600: #5c6478;
-  --color-slate-700: #485066;
-  --color-slate-800: #242424;
-  --color-slate-900: #0a1b39;
-
-  --color-blue-50: #e5f6fc;
-  --color-blue-100: #cfeef9;
-  --color-blue-200: #a0def2;
-  --color-blue-500: #00ace6;
-  --color-blue-600: #009ace;
-  --color-blue-700: #007ea8;
-
-  --color-red-50: #fff2f2;
-  --color-red-100: #ffe1e1;
-  --color-red-200: #ffc9c9;
-  --color-red-500: #ff5150;
-  --color-red-600: #ff5150;
-  --color-red-700: #e63b3a;
-
-  --color-emerald-50: #ecfdf5;
-  --color-emerald-100: #d1fae5;
-  --color-emerald-200: #a7f3d0;
-  --color-emerald-400: #34d399;
-  --color-emerald-500: #10b981;
-  --color-emerald-600: #059669;
-  --color-emerald-700: #047857;
-
-  --color-amber-50: #fffbeb;
-  --color-amber-100: #fef3c7;
-  --color-amber-200: #fde68a;
-  --color-amber-400: #fbbf24;
-  --color-amber-500: #f59e0b;
-  --color-amber-600: #d97706;
-  --color-amber-700: #b45309;
-
-  --color-violet-50: #f5f3ff;
-  --color-violet-500: #8b5cf6;
-  --color-violet-600: #7c3aed;
-
-  --color-accent-suave: #edf3fc;
-
-  --surface-base: #f8f8f8;
-  --surface-nav: #ffffff;
+  --surface-base: #f5f5f7;   /* Studio Mist */
+  --surface-nav: #ffffff;    /* Gallery White */
   --surface-card: #ffffff;
-  --surface-raised: #ffffff;
-  --accent-blue: #009ace;
-  --accent-green: #059669;
-  --accent-coral: #ff5150;
-  --accent-yellow: #d97706;
+  --surface-raised: #fafafc; /* Paper Frost */
+  /* O campo de formulário. Branco no claro (é o campo da referência); no escuro
+     precisa SUBIR da superfície do card, senão vira branco sobre branco. */
+  --surface-campo: #ffffff;
 
-  --nav-active-bg: #edf3fc;
-  --nav-active-fg: #007ea8;
+  --accent-blue: #0071e3;
+  --accent-green: #248a3d;
+  --accent-coral: #d70015;
+  --accent-yellow: #b64400;
+
+  /* Item ativo da navegação: pílula neutra e discreta. A referência não usa
+     preenchimento colorido para "onde eu estou" — a marcação é de peso e de
+     superfície, não de tinta. */
+  --nav-active-bg: #f0f0f2;
+  --nav-active-fg: #1d1d1f;
+
+  /* Texto sobre o Pricing Blue preenchido. A referência é explícita: pílula
+     azul recebe texto BRANCO. */
   --btn-primary-fg: #ffffff;
+
   --logo-filter: none;
-  --topnav-bg: rgb(255 255 255 / 0.9);
-  --nav-blur-bg: rgb(255 255 255 / 0.98);
-  --scrollbar-thumb: #cfcfcf;
-  --scrollbar-track: #f2f2f2;
-  --focus-ring: #009ace;
-  --card-hover-border: #d4d4d4;
+  --topnav-bg: rgb(255 255 255 / 0.8);
+  --nav-blur-bg: rgb(255 255 255 / 0.92);
+  --scrollbar-thumb: #d6d6d6;
+  --scrollbar-track: #f5f5f7;
+  --focus-ring: #0071e3;
+  --card-hover-border: #d6d6d6;
+  --surface-hover: #f5f5f7;
   --selection-fg: #ffffff;
+
+  /* A única superfície que continua escura nos dois temas é a legenda sobre a
+     foto do Login. Fica no :root de propósito e o tema escuro não redeclara. */
+  --on-dark-fg: #ffffff;
+  --on-dark-muted: rgb(255 255 255 / 0.76);
+  --on-dark-accent: #6fa9e4;
+
+  /* Scrim do modal. A referência não tem modal, mas tem a regra do véu claro:
+     escurecer o mínimo necessário para o painel branco destacar. */
+  --scrim: rgb(0 0 0 / 0.36);
+}
+
+/* ---------------------------------------------------------------------------
+   Escuro — a variante que a própria Apple usa quando o sistema está em modo
+   escuro: preto puro de canvas, superfície #1d1d1f (a Ink vira superfície), e o
+   azul abre para #2997ff porque #0071e3 não tem contraste sobre preto.
+   Os NOMES dos tokens são os mesmos; nenhuma classe de página muda.
+   ------------------------------------------------------------------------ */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-slate-50: #000000;   /* canvas */
+  --color-slate-100: #1c1c1e;  /* campo afundado */
+  --color-slate-200: #38383a;  /* filete */
+  --color-slate-300: #48484a;
+  --color-slate-400: #8e8e93;  /* Steel do modo escuro */
+  --color-slate-500: #aeaeb2;
+  --color-slate-600: #c7c7cc;
+  --color-slate-700: #d1d1d6;
+  --color-slate-800: #e5e5ea;
+  --color-slate-900: #f5f5f7;  /* texto principal */
+
+  --color-blue-50: #0a1a2b;
+  --color-blue-100: #0d2742;
+  --color-blue-200: #16406b;
+  --color-blue-300: #1f5f9e;
+  --color-blue-400: #2680d4;
+  --color-blue-500: #2997ff;
+  --color-blue-600: #5aafff;
+  --color-blue-700: #9dcdff;
+
+  --color-emerald-50: #0c2113;
+  --color-emerald-100: #12301c;
+  --color-emerald-200: #1d5230;
+  --color-emerald-400: #2fa14d;
+  --color-emerald-500: #30d158;
+  --color-emerald-600: #5cdd7c;
+  --color-emerald-700: #9aeaae;
+
+  --color-red-50: #2a1114;
+  --color-red-100: #3b171b;
+  --color-red-200: #63272d;
+  --color-red-500: #ff453a;
+  --color-red-600: #ff6f66;
+  --color-red-700: #ffa9a3;
+
+  --color-amber-50: #2a1708;
+  --color-amber-100: #3b200b;
+  --color-amber-200: #643714;
+  --color-amber-400: #e07c2a;
+  --color-amber-500: #ff9f0a;
+  --color-amber-600: #ffb443;
+  --color-amber-700: #ffd28c;
+
+  --color-violet-50: #1a1a33;
+  --color-violet-500: #7d7aff;
+  --color-violet-600: #9a98ff;
+
+  --color-accent-suave: #2c2c2e;
+
+  --surface-base: #000000;
+  --surface-nav: #1c1c1e;
+  --surface-card: #1c1c1e;
+  --surface-raised: #2c2c2e;
+  --surface-campo: #2c2c2e;
+
+  --accent-blue: #2997ff;
+  --accent-green: #30d158;
+  --accent-coral: #ff453a;
+  --accent-yellow: #ff9f0a;
+
+  --nav-active-bg: #2c2c2e;
+  --nav-active-fg: #f5f5f7;
+
+  /* No escuro o azul é claro o bastante para pedir texto quase-preto. */
+  --btn-primary-fg: #000000;
+
+  --logo-filter: brightness(0) invert(1);
+  --topnav-bg: rgb(28 28 30 / 0.8);
+  --nav-blur-bg: rgb(28 28 30 / 0.94);
+  --scrollbar-thumb: #48484a;
+  --scrollbar-track: #1c1c1e;
+  --focus-ring: #2997ff;
+  --card-hover-border: #48484a;
+  --surface-hover: #2c2c2e;
+  --selection-fg: #000000;
+
+  --scrim: rgb(0 0 0 / 0.6);
 }
 
 html {
@@ -225,6 +267,23 @@ body {
   @apply bg-slate-50 text-slate-900 font-sans antialiased;
   min-width: 320px;
   background: var(--surface-base);
+  /* O tracking negativo é a assinatura da referência em texto pequeno: é o que
+     mantém a interface densa sem parecer UI genérica de sistema. */
+  letter-spacing: -0.016em;
+}
+
+/* Da Display para cima: a Apple usa a família Display dos 19px em diante e
+   aperta mais o tracking conforme o corpo cresce. */
+h1, h2, h3, .font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.022em;
+}
+
+.texto-heroi {
+  font-family: var(--font-display);
+  letter-spacing: -0.03em;
+  font-weight: 600;
+  line-height: 1.05;
 }
 
 ::selection {
@@ -245,16 +304,36 @@ body {
   background: var(--surface-base);
 }
 
-/* Classes antigas de superfície continuam aparecendo nas páginas. "Branco" passa
-   a significar o painel principal — grafite no escuro, branco de fato no claro. */
+/* Classes antigas de superfície continuam aparecendo nas páginas. "Branco" é o
+   Gallery White de fato no claro, e a superfície elevada no escuro. */
 .app-shell .bg-white {
   background-color: var(--surface-card);
 }
 
-/* Só no escuro o azul de ação recebe texto quase-preto; no claro ele mantém o
-   texto branco padrão do Tailwind. */
-:root:not([data-theme="light"]) .app-shell .bg-blue-600.text-white {
-  color: #08070d;
+/* ----------------------------------------------------------------------------
+   A regra que mais muda o aspecto do sistema.
+
+   A referência é categórica: "do not use shadows on feature cards, editorial
+   blocks, or floating pricing capsules" — a elevação é 0 0 0 1px, nunca sombra
+   projetada. Havia 23 sombras espalhadas pelo sistema (menus, modal, toast,
+   card arrastado do funil), quase todas em preto a 30–40%, calibradas para o
+   canvas escuro. Sobre branco elas viram borrão.
+
+   Matar na origem é mais seguro do que caçar classe por classe: qualquer
+   `shadow-*` que sobre em algum canto (ou que apareça em código novo) já nasce
+   neutralizado, e quem precisa de separação usa .superficie-flutuante.
+   -------------------------------------------------------------------------- */
+.app-shell [class*="shadow-"],
+.login-shell [class*="shadow-"] {
+  box-shadow: none;
+}
+
+/* Popover, menu e listbox: uma receita só para o sistema inteiro. Antes havia
+   duas concorrentes (bg-slate-100/border-slate-300/shadow-xl e
+   bg-white/border-slate-200/shadow-lg) para o mesmo trabalho visual. */
+.superficie-flutuante {
+  background: var(--surface-card);
+  box-shadow: 0 0 0 1px var(--color-slate-300);
 }
 
 .app-shell a,
@@ -265,7 +344,7 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* A logo é um SVG azul: no escuro vira branco por filtro, no claro fica natural. */
+/* A logo é um SVG azul: natural no claro, branca por filtro no escuro. */
 .logo-mark {
   filter: var(--logo-filter);
 }
@@ -275,16 +354,18 @@ body {
 }
 
 .ui-card-interativa {
-  transition: border-color 160ms ease, background-color 160ms ease, transform 160ms ease;
+  transition: border-color 160ms ease, background-color 160ms ease;
 }
 
 .ui-card-interativa:hover {
   border-color: var(--card-hover-border);
-  transform: translateY(-1px);
 }
 
-.dashboard-painel-claro {
-  color-scheme: light;
+/* Hover de superfície. Existe porque `hover:bg-slate-50` — espalhado pelo
+   sistema — aponta para o fundo da PÁGINA, e o elemento ficava da cor do canvas
+   ao passar o mouse. Este token sobe no escuro e desce no claro. */
+.hover-superficie:hover {
+  background-color: var(--surface-hover);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -301,9 +382,9 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* A sidebar rola sem barra visível, como no template. Restrito a ela de
-   propósito: esconder a barra de rolagem da página inteira tira do usuário a
-   noção de quanto conteúdo existe. */
+/* A sidebar rola sem barra visível. Restrito a ela de propósito: esconder a
+   barra de rolagem da página inteira tira do usuário a noção de quanto
+   conteúdo existe. */
 .sem-barra {
   scrollbar-width: none;
   -ms-overflow-style: none;

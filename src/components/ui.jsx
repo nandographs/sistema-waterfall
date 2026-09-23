@@ -1,5 +1,6 @@
-// Componentes visuais compartilhados — estilo flat: bordas sutis, sem sombras pesadas,
-// sem gradientes e sem animações.
+// Componentes visuais compartilhados — a galeria branca: superfície Gallery
+// White sobre canvas Studio Mist, filete de 1px no lugar de sombra, cards de
+// 28px, pílula para ação e tinta Ink no texto. Ver docs/referencia-apple/.
 
 import { useEffect, useId, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
@@ -32,12 +33,16 @@ export function Toasts() {
           key={aviso.id}
           role={aviso.tipo === 'erro' ? 'alert' : 'status'}
           aria-live={aviso.tipo === 'erro' ? 'assertive' : 'polite'}
-          className={`rounded-xl border px-4 py-3 text-sm font-semibold shadow-xl shadow-black/35 ${
-            aviso.tipo === 'erro'
-              ? 'border-red-200 bg-red-50 text-red-700'
-              : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+          // Cápsula branca com filete, no formato do "Floating Pricing Callout":
+          // a cor fica no ponto e no texto, não no fundo.
+          className={`ui-card superficie-flutuante rounded-2xl px-4 py-3 text-sm font-medium flex items-center gap-2.5 ${
+            aviso.tipo === 'erro' ? 'text-red-600' : 'text-slate-900'
           }`}
         >
+          <span
+            aria-hidden="true"
+            className={`h-1.5 w-1.5 shrink-0 rounded-full ${aviso.tipo === 'erro' ? 'bg-red-500' : 'bg-emerald-500'}`}
+          />
           {aviso.mensagem}
         </div>
       ))}
@@ -70,43 +75,57 @@ export function PageTitle({ children, subtitle, action }) {
     <div className="flex flex-wrap items-end justify-between gap-4 mb-5 lg:mb-7">
       <div>
         {!repeteTopbar && (
-          <h2 className="text-2xl lg:text-[2rem] font-semibold tracking-[-0.03em] text-slate-900">{children}</h2>
+          <h2 className="texto-heroi text-[1.75rem] lg:text-[2.5rem] text-slate-900">{children}</h2>
         )}
-        {subtitle && <p className="text-sm text-slate-500 mt-1">{subtitle}</p>}
+        {/* 17px é o corpo da referência, com o tracking dela. */}
+        {subtitle && <p className="text-[15px] lg:text-[17px] text-slate-500 mt-2 tracking-[-0.022em]">{subtitle}</p>}
       </div>
       {action}
     </div>
   )
 }
 
+// A "Feature Media Card" da referência: Gallery White, 28px de raio (o
+// rounded-2xl do projeto vale 28px — ver os overrides de --radius-* em
+// index.css), sem sombra. O filete de 1px fica porque no tema escuro branco
+// sobre branco não existe: lá a separação PRECISA do traço.
 export function Card({ title, action, children, className = '', ...props }) {
   return (
     <section className={`ui-card bg-white rounded-2xl border border-slate-200 ${className}`} {...props}>
       {(title || action) && (
-        <header className="flex items-center justify-between gap-3 px-5 lg:px-6 pt-5 lg:pt-6 pb-4">
-          <h3 className="text-base font-semibold tracking-[-0.015em] text-slate-900">{title}</h3>
+        <header className="flex items-center justify-between gap-3 px-5 lg:px-7 pt-5 lg:pt-6 pb-4">
+          <h3 className="text-[17px] font-semibold text-slate-900">{title}</h3>
           {action}
         </header>
       )}
-      <div className="px-5 lg:px-6 pb-5 lg:pb-6 pt-0 [&:first-child]:pt-5 lg:[&:first-child]:pt-6">{children}</div>
+      <div className="px-5 lg:px-7 pb-5 lg:pb-7 pt-0 [&:first-child]:pt-5 lg:[&:first-child]:pt-6">{children}</div>
     </section>
   )
 }
 
+// Todo botão é pílula — é a forma da referência, e a única que ela admite.
+//
+// A hierarquia é a da Apple, e ela é mais estreita do que parece: Pricing Blue
+// preenchido é reservado à ação de conversão (uma por tela, em geral), o resto
+// é a "Outlined Explore Pill" — fundo transparente, tinta Ink, filete Steel.
+// Por isso `secondary` não tem preenchimento cinza: fundo cinza em botão é o
+// que fazia a barra de ações virar um bloco de caixinhas.
 export function Button({ children, variant = 'primary', className = '', ...props }) {
   const styles = {
-    primary: 'bg-blue-500 text-[var(--btn-primary-fg)] hover:bg-blue-600',
-    secondary: 'bg-slate-100 text-slate-800 border border-slate-300 hover:bg-slate-200',
-    danger: 'bg-red-50 text-red-700 border border-red-200 hover:bg-red-100',
-    ghost: 'text-blue-700 hover:bg-blue-50',
-    // Para uso sobre fundos escuros (hero)
-    hero: 'bg-white/8 text-white border border-white/20 hover:bg-white/14',
+    primary: 'bg-blue-500 text-[var(--btn-primary-fg)] border border-transparent hover:opacity-85',
+    secondary: 'bg-transparent text-slate-900 border border-slate-400 hover:bg-slate-100',
+    danger: 'bg-transparent text-red-600 border border-red-200 hover:bg-red-50',
+    ghost: 'text-blue-600 border border-transparent hover:bg-slate-100',
   }
   // min-h-11 (44px) no mobile atende o alvo mínimo de toque; no desktop volta
   // aos 36px originais para não inchar as barras de ação densas.
+  //
+  // O anel de foco some: o *:focus-visible global do index.css já desenha o
+  // contorno, e o ring com offset pregado no canvas ficava com a cor errada
+  // sobre card e dentro de modal.
   return (
     <button
-      className={`inline-flex items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-sm font-semibold cursor-pointer min-h-11 sm:min-h-9 disabled:opacity-40 disabled:cursor-not-allowed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 ${styles[variant]} ${className}`}
+      className={`inline-flex items-center justify-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium cursor-pointer min-h-11 sm:min-h-9 disabled:opacity-40 disabled:cursor-not-allowed transition-[background-color,opacity,border-color] ${styles[variant]} ${className}`}
       {...props}
     >
       {children}
@@ -117,21 +136,25 @@ export function Button({ children, variant = 'primary', className = '', ...props
 export function Field({ label, children }) {
   return (
     <label className="block">
-      <span className="block text-[13px] font-semibold text-slate-700 mb-1.5">{label}</span>
+      <span className="block text-[13px] font-medium text-slate-500 mb-1.5">{label}</span>
       {children}
     </label>
   )
 }
 
-// Campo preenchido e sem borda, como no template (bg-input + border-none): o
-// contraste com o branco do card já delimita o campo, e sem a borda a tela fica
-// visivelmente mais calma num formulário de 40 campos.
+// O campo da referência é branco com contorno de 1px Steel — não preenchido.
+// Sobre o branco do card o contorno é o que delimita, e é ele que mantém o
+// formulário parecendo parte da galeria em vez de uma grade de caixas cinzas.
+//
+// O raio é 12px (rounded-xl), não os 980px da referência: aqueles 980px são a
+// busca da barra de navegação da Apple, um campo isolado. Num formulário de 40
+// campos a cápsula come o espaço útil e descola o texto do rótulo.
 //
 // text-base (16px) no mobile é obrigatório: abaixo disso o Safari do iPhone dá
 // zoom automático ao focar o campo e desloca o layout inteiro. No desktop volta
 // para 14px. O py maior no mobile leva o campo aos 44px mínimos de toque.
 export const inputCls =
-  'w-full rounded-xl border border-slate-200 bg-slate-100 px-3.5 py-2.5 sm:py-2 text-base sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-blue-500 focus:bg-slate-100 focus:ring-2 focus:ring-blue-100 transition-colors'
+  'w-full rounded-xl border border-slate-400 bg-[var(--surface-campo)] px-3.5 py-2.5 sm:py-2 text-base sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors'
 
 // ---------------------------------------------------------------- números
 //
@@ -198,24 +221,112 @@ export function InputNumero({ value, onChange, step, min, max, name, ...props })
   )
 }
 
+// A "Launch Status Label" da referência: texto colorido puro, sem preenchimento
+// e sem borda — ela proíbe explicitamente a pílula de status colorida.
+//
+// O ponto de 6px não está na referência e é uma adaptação necessária: numa
+// página de produto existe UM rótulo de status; numa lista de 2.600 linhas o
+// status é uma coluna que se lê varrendo a vertical, e cor de texto sozinha não
+// se acha nessa varredura. O ponto devolve o ponto de fixação sem trazer de
+// volta o bloco tingido.
 export function Badge({ children, color = 'slate' }) {
   const colors = {
-    slate: 'bg-slate-100 text-slate-600 border border-slate-200',
-    green: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
-    amber: 'bg-amber-50 text-amber-700 border border-amber-200',
-    red: 'bg-red-50 text-red-700 border border-red-200',
-    sky: 'bg-blue-50 text-blue-700 border border-blue-200',
+    slate: ['text-slate-500', 'bg-slate-400'],
+    green: ['text-emerald-600', 'bg-emerald-500'],
+    amber: ['text-amber-600', 'bg-amber-500'],
+    red: ['text-red-600', 'bg-red-500'],
+    sky: ['text-blue-600', 'bg-blue-500'],
   }
+  const [texto, ponto] = colors[color] ?? colors.slate
   return (
-    <span className={`inline-flex items-center rounded-lg px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap ${colors[color]}`}>
+    <span className={`inline-flex items-center gap-1.5 text-[12px] font-medium whitespace-nowrap tracking-[-0.012em] ${texto}`}>
+      <span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${ponto}`} />
       {children}
     </span>
   )
 }
 
 export function Empty({ children }) {
-  return <p className="text-sm text-slate-500 py-8 text-center">{children}</p>
+  return <p className="text-[15px] text-slate-500 py-10 text-center tracking-[-0.022em]">{children}</p>
 }
+
+// ---- Aviso ----
+//
+// A faixa de alerta inline existia em ~18 cópias à mão pelo sistema, cada uma
+// com o seu raio (`rounded-lg` ou `rounded-xl`) e o seu tom (`-600` ou `-700`).
+// Aqui ela é uma só, e no idioma da galeria: superfície neutra, filete de 1px,
+// e a cor só no ponto e no texto — nunca um retângulo tingido.
+export function Aviso({ children, tipo = 'info', className = '' }) {
+  const tons = {
+    info: ['text-slate-600', 'bg-slate-400'],
+    erro: ['text-red-600', 'bg-red-500'],
+    alerta: ['text-amber-600', 'bg-amber-500'],
+    ok: ['text-emerald-600', 'bg-emerald-500'],
+  }
+  const [texto, ponto] = tons[tipo] ?? tons.info
+  return (
+    <div
+      role={tipo === 'erro' ? 'alert' : undefined}
+      className={`flex items-start gap-2.5 rounded-xl border border-slate-200 bg-slate-100 px-3.5 py-2.5 text-[13px] leading-relaxed ${texto} ${className}`}
+    >
+      <span aria-hidden="true" className={`mt-[0.4em] h-1.5 w-1.5 shrink-0 rounded-full ${ponto}`} />
+      <span className="min-w-0">{children}</span>
+    </div>
+  )
+}
+
+// ---- Segmentos ----
+//
+// Havia CINCO desenhos concorrentes de aba/segmento no sistema (bandeja cinza,
+// pílula azul preenchida, sólido invertido, bandeja arredondada, pílula
+// fantasma) — às vezes dois deles na mesma tela. Este é o único.
+//
+// A forma é a da referência: bandeja discreta, e o ativo é uma pílula branca
+// com filete, marcada por SUPERFÍCIE e peso, não por tinta azul.
+//
+// `opcoes` aceita as três formas que já existiam espalhadas pelo sistema:
+// 'mes', ['mes', 'Mês'] ou { valor: 'mes', rotulo: 'Mês' }. É o que permite
+// trocar os cinco desenhos antigos sem reescrever nenhuma chamada.
+export function Segmentos({ opcoes, valor, onChange, className = '', rotulo, 'aria-label': aria }) {
+  const itens = opcoes.map((o) => {
+    if (typeof o === 'string') return { valor: o, rotulo: o }
+    if (Array.isArray(o)) return { valor: o[0], rotulo: o[1] }
+    return o
+  })
+  return (
+    <div role="tablist" aria-label={aria ?? rotulo} className={`inline-flex items-center gap-1 rounded-full bg-slate-100 p-1 ${className}`}>
+      {itens.map(({ valor: v, rotulo }) => {
+        const ativo = v === valor
+        return (
+          <button
+            key={v}
+            type="button"
+            role="tab"
+            aria-selected={ativo}
+            onClick={() => onChange(v)}
+            className={`rounded-full px-3.5 min-h-9 text-[13px] font-medium whitespace-nowrap cursor-pointer transition-colors ${
+              ativo
+                ? 'ui-card bg-white text-slate-900 border border-slate-300'
+                : 'border border-transparent text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            {rotulo}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// A superfície de qualquer coisa que flutua sobre o conteúdo — menu, popover,
+// listbox de autocomplete. Uma receita só: Gallery White com contorno de 1px, o
+// `0 0 0 1px` que a referência chama de única marca de elevação. Sem sombra.
+export const menuFlutuante =
+  'ui-card superficie-flutuante rounded-2xl border-0 p-1.5 z-30'
+
+// O item dentro desse menu. O texto estava duplicado em quatro arquivos.
+export const itemMenu =
+  'flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-sm font-medium text-slate-700 hover:bg-slate-100 cursor-pointer'
 
 // ---- Paginação ----
 //
@@ -272,10 +383,10 @@ export function Paginacao({ pagina, paginas, total, de, porPagina, irPara }) {
 
   return (
     <nav
-      className="flex flex-wrap items-center justify-between gap-3 pt-4 mt-2 border-t border-slate-100"
+      className="flex flex-wrap items-center justify-between gap-3 pt-4 mt-2 border-t border-slate-200"
       aria-label="Paginação"
     >
-      <p className="text-xs text-slate-400">
+      <p className="text-xs text-slate-400 tnum">
         {de + 1}–{ate} de {total}
       </p>
       <div className="flex items-center gap-1">
@@ -290,10 +401,10 @@ export function Paginacao({ pagina, paginas, total, de, porPagina, irPara }) {
               key={p}
               onClick={() => ir(p)}
               aria-current={p === pagina ? 'page' : undefined}
-              className={`min-w-[34px] h-[34px] px-2 rounded-lg text-sm border transition-colors ${
+              className={`min-w-[34px] h-[34px] px-2 rounded-full text-sm border cursor-pointer transition-colors tnum ${
                 p === pagina
-                  ? 'border-sky-600 bg-sky-600 text-white font-semibold'
-                  : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                  ? 'border-transparent bg-blue-500 text-[var(--btn-primary-fg)] font-medium'
+                  : 'border-transparent text-slate-500 hover:text-slate-900 hover-superficie'
               }`}
             >
               {p}
@@ -367,7 +478,7 @@ export function Modal({ title, open, onClose, children, size = 'md', fecharNoFun
   const width = size === 'wide' ? 'max-w-3xl' : 'max-w-lg'
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/75 sm:p-4"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-[var(--scrim)] sm:p-4"
       onClick={fecharNoFundo ? onClose : undefined}
       role="dialog"
       aria-modal="true"
@@ -377,11 +488,11 @@ export function Modal({ title, open, onClose, children, size = 'md', fecharNoFun
         ref={painelRef}
         // dvh em vez de vh: no iOS o vh não encolhe quando o teclado abre, e o
         // modal ficava centrado atrás do teclado com o campo focado invisível.
-        className={`bg-slate-100 border border-slate-300 w-full ${width} max-h-[92dvh] overflow-y-auto rounded-t-2xl rounded-b-none sm:rounded-2xl shadow-2xl shadow-black/30`}
+        className={`ui-card bg-white border border-slate-200 w-full ${width} max-h-[92dvh] overflow-y-auto rounded-t-2xl rounded-b-none sm:rounded-2xl`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="sticky top-0 z-10 bg-slate-100 flex items-center justify-between gap-3 px-4 sm:px-6 pt-4 sm:pt-5 pb-3 sm:pb-4 border-b border-slate-200 rounded-t-2xl">
-          <h3 id={tituloId} className="text-base font-semibold text-slate-900">{title}</h3>
+        <div className="sticky top-0 z-10 bg-[var(--surface-card)] flex items-center justify-between gap-3 px-4 sm:px-6 pt-4 sm:pt-5 pb-3 sm:pb-4 border-b border-slate-200 rounded-t-2xl">
+          <h3 id={tituloId} className="text-[17px] font-semibold text-slate-900">{title}</h3>
           <button
             type="button"
             className="text-slate-400 hover:text-slate-600 cursor-pointer inline-flex items-center justify-center min-h-11 min-w-11 -mr-2 shrink-0"

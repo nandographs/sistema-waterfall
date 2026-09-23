@@ -41,7 +41,7 @@ export default function FotoUnica({ url, onEnviar, onRemover, placeholder, forma
   return (
     <div className="flex flex-col items-center gap-2">
       <div className="relative" style={{ width: tamanho, height: tamanho }}>
-        <div className={`w-full h-full ${raio} overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center text-slate-300`}>
+        <div className={`w-full h-full ${raio} overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center text-slate-400`}>
           {url ? (
             <img src={url} alt="" className="w-full h-full object-cover" />
           ) : (
@@ -52,7 +52,7 @@ export default function FotoUnica({ url, onEnviar, onRemover, placeholder, forma
           type="button"
           onClick={() => inputRef.current?.click()}
           disabled={ocupado}
-          className="absolute -bottom-1 -right-1 bg-blue-600 text-white rounded-full p-1.5 border-2 border-white hover:bg-blue-700 cursor-pointer disabled:opacity-60"
+          className="absolute -bottom-1 -right-1 bg-blue-500 text-[var(--btn-primary-fg)] rounded-full p-1.5 hover:opacity-85 cursor-pointer disabled:opacity-60"
           aria-label="Alterar foto"
           title="Alterar foto"
         >

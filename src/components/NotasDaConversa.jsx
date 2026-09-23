@@ -59,17 +59,17 @@ export default function NotasDaConversa({ conversa, aoMudar }) {
       <button
         type="button"
         onClick={() => setAberto((v) => !v)}
-        className="flex w-full items-center gap-2 px-3 sm:px-4 py-2 text-left cursor-pointer hover:bg-slate-50"
+        className="flex w-full items-center gap-2 px-3 sm:px-4 py-2 text-left cursor-pointer hover-superficie"
       >
-        <span className="text-[11px] font-bold uppercase tracking-wide text-amber-700">
+        <span className="text-[12px] font-medium text-amber-600">
           Anotações internas
         </span>
         {notas.length > 0 && (
-          <span className="inline-flex min-w-[1.15rem] h-[1.15rem] items-center justify-center rounded-full bg-amber-400 px-1 text-[10px] font-bold text-amber-950 tnum">
+          <span className="inline-flex min-w-[1.15rem] h-[1.15rem] items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-medium text-white tnum">
             {notas.length}
           </span>
         )}
-        <span className="ml-auto text-[11px] font-semibold text-slate-500">
+        <span className="ml-auto text-[12px] text-slate-500">
           {aberto ? 'ocultar' : (notas.length ? 'ver' : 'anotar')}
         </span>
       </button>
@@ -86,11 +86,11 @@ export default function NotasDaConversa({ conversa, aoMudar }) {
           {notas.map((nota) => (
             <div
               key={nota.id}
-              className="group flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2"
+              className="group flex items-start gap-2 rounded-lg border-l-2 border-amber-500 bg-slate-100 px-2.5 py-2"
             >
               <div className="min-w-0 flex-1">
-                <p className="text-sm text-amber-950 whitespace-pre-wrap break-words">{nota.descricao}</p>
-                <p className="mt-0.5 text-[10px] font-semibold text-amber-800">
+                <p className="text-sm text-slate-900 whitespace-pre-wrap break-words">{nota.descricao}</p>
+                <p className="mt-0.5 text-[11px] text-slate-500">
                   {nota.criadoPor || 'alguém'}
                   {nota.criadoEm ? ` · ${formatData(String(nota.criadoEm).slice(0, 10))} ${formatHora(String(nota.criadoEm).slice(11, 16))}` : ''}
                 </p>
@@ -99,7 +99,7 @@ export default function NotasDaConversa({ conversa, aoMudar }) {
                 type="button"
                 onClick={() => remover(nota)}
                 aria-label="Apagar anotação"
-                className="shrink-0 rounded-md p-1 text-amber-700 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-amber-100 cursor-pointer"
+                className="shrink-0 rounded-md p-1 text-slate-400 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-red-600 cursor-pointer"
               >
                 <IconTrash size={13} />
               </button>
@@ -111,13 +111,13 @@ export default function NotasDaConversa({ conversa, aoMudar }) {
               value={texto}
               onChange={(e) => setTexto(e.target.value)}
               placeholder="Deixar um recado para quem atender depois…"
-              className="min-w-0 flex-1 rounded-lg border border-amber-200 bg-white px-2.5 py-1.5 text-sm placeholder:text-slate-400"
+              className="min-w-0 flex-1 rounded-lg border border-slate-400 bg-[var(--surface-campo)] text-slate-900 px-2.5 py-1.5 text-sm placeholder:text-slate-400"
             />
             <button
               type="submit"
               disabled={salvando || !texto.trim()}
               aria-label="Salvar anotação"
-              className="shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-lg bg-amber-400 text-amber-950 disabled:opacity-40 cursor-pointer"
+              className="shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-full bg-amber-500 text-white disabled:opacity-40 cursor-pointer"
             >
               <IconMais size={16} />
             </button>

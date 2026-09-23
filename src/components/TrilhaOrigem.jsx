@@ -19,7 +19,7 @@ export default function TrilhaOrigem({ registro, onAbrirAtividade }) {
       <ol className="space-y-1">
         {trilha.map((atividade, i) => (
           <li key={atividade.id} className="flex items-start gap-1.5 text-[13px]">
-            <span className="text-slate-300 shrink-0" style={{ paddingLeft: `${i * 10}px` }}>↳</span>
+            <span className="text-slate-400 shrink-0" style={{ paddingLeft: `${i * 10}px` }}>↳</span>
             <button
               type="button"
               onClick={() => onAbrirAtividade?.(atividade)}

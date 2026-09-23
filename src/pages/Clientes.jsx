@@ -265,14 +265,14 @@ export default function Clientes() {
           <Button variant="secondary" onClick={() => setPainelAberto((v) => !v)}>
             <IconFilter size={16} /> Filtrar por
             {qtdFiltros > 0 && (
-              <span className="ml-1 inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full bg-blue-600 text-white text-xs font-semibold">
+              <span className="ml-1 text-xs font-medium text-blue-600 tnum">
                 {qtdFiltros}
               </span>
             )}
           </Button>
 
           {painelAberto && (
-            <div className="absolute right-0 z-20 mt-2 w-72 max-w-[calc(100vw-3rem)] bg-white rounded-xl border border-slate-200 shadow-lg p-4 space-y-4">
+            <div className="absolute right-0 z-20 mt-2 w-72 max-w-[calc(100vw-3rem)] rounded-2xl superficie-flutuante p-4 space-y-4">
               <div>
                 <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Cidade</label>
                 <select className={selectCls} value={cidade} onChange={(e) => setCidade(e.target.value)}>
@@ -335,7 +335,7 @@ export default function Clientes() {
             return (
               <li key={c.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3">
                 <div className="flex items-center gap-3 min-w-0">
-                  <span className="w-10 h-10 shrink-0 rounded-full overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center text-slate-300">
+                  <span className="w-10 h-10 shrink-0 rounded-full overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center text-slate-400">
                     {c.fotoPerfilUrl ? (
                       <img src={c.fotoPerfilUrl} alt="" className="w-full h-full object-cover" />
                     ) : (
@@ -343,7 +343,7 @@ export default function Clientes() {
                     )}
                   </span>
                   <div className="min-w-0">
-                    <Link to={`/clientes/${c.id}`} className="font-medium text-sky-700 hover:underline">
+                    <Link to={`/clientes/${c.id}`} className="font-semibold text-slate-900 hover:text-blue-600">
                       {c.nome}
                     </Link>
                     <p className="text-xs text-slate-500">
