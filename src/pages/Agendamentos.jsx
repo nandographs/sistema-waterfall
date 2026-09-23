@@ -5,7 +5,7 @@ import {
   textoAutorDoAgendamento, formatData, formatBRL, TIPOS_AGENDAMENTO, FORMAS_PAGAMENTO,
 } from '../data/repository.js'
 import { formatHora } from '../lib/datas.js'
-import { Card, Page, PageTitle, Button, Field, inputCls, InputNumero, Empty, Modal, Badge, notificar, usePaginacao, Paginacao } from '../components/ui.jsx'
+import { Card, Page, PageTitle, Button, Field, inputCls, InputNumero, Empty, Modal, Badge, notificar, usePaginacao, Paginacao, Segmentos } from '../components/ui.jsx'
 import { IconPlus, IconFileText, IconTrash, IconEye, IconSearch, IconFilter, IconMais } from '../components/icons.jsx'
 import OrdemServicoModal from '../components/OrdemServicoModal.jsx'
 import AgendamentoDetalheModal from '../components/AgendamentoDetalheModal.jsx'
@@ -109,6 +109,8 @@ function AcoesAgendamento({ agendamento: a, ocupado, onVer, onGerarOS, onEditar,
 export default function Agendamentos() {
   const [lista, setLista] = useState(agendamentos.list())
   const [form, setForm] = useState(null)
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState('')
   const [filtro, setFiltro] = useState('agendado')
   const [busca, setBusca] = useState('')
   const [dataDe, setDataDe] = useState('')
@@ -157,11 +159,29 @@ export default function Agendamentos() {
 
   const { visiveis, barra } = usePaginacao(filtrados)
 
+  // Abrir e fechar o formulário passa por aqui para o erro da tentativa
+  // anterior não reaparecer no próximo agendamento.
+  const abrirForm = (dados) => { setErro(''); setForm({ ...FORM_VAZIO, ...dados }) }
+  const fecharForm = () => { setErro(''); setForm(null) }
+
+  // Sem try/catch, uma recusa do banco (coluna faltando, RLS, rede) rejeitava a
+  // promise em silêncio: o modal ficava aberto, nada era gravado e o Salvar
+  // parecia não ter sido clicado. O erro agora aparece dentro do próprio modal,
+  // onde a pessoa está olhando — mesmo padrão do formulário de venda.
   async function salvar(e) {
     e.preventDefault()
-    await salvarAgendamento(form)
-    setForm(null)
-    refresh()
+    setErro('')
+    setSalvando(true)
+    try {
+      await salvarAgendamento(form)
+      notificar(form.id ? 'Agendamento atualizado.' : 'Agendamento salvo.')
+      setForm(null)
+      refresh()
+    } catch (ex) {
+      setErro(ex?.message || String(ex))
+    } finally {
+      setSalvando(false)
+    }
   }
 
   // Sem try/catch, uma falha aqui rejeitava a promise em silêncio: o refresh
@@ -208,26 +228,18 @@ export default function Agendamentos() {
     <Page>
       <PageTitle
         subtitle="Visitas, instalações e trocas de refil — o serviço em campo"
-        action={<Button onClick={() => setForm({ ...FORM_VAZIO })}><IconPlus size={16} /> Novo agendamento</Button>}
+        action={<Button onClick={() => abrirForm()}><IconPlus size={16} /> Novo agendamento</Button>}
       >
         Serviços
       </PageTitle>
 
-      <div className="flex flex-wrap items-center gap-2 mb-4">
-        {[['agendado', 'Agendados'], ['concluido', 'Concluídos'], ['cancelado', 'Cancelados'], ['todos', 'Todos']].map(
-          ([valor, rotulo]) => (
-            <button
-              key={valor}
-              onClick={() => setFiltro(valor)}
-              className={`rounded-full px-4 py-1.5 text-sm font-medium cursor-pointer ${
-                filtro === valor ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-              }`}
-            >
-              {rotulo}
-            </button>
-          ),
-        )}
-      </div>
+      <Segmentos
+        className="mb-4"
+        rotulo="Situação do serviço"
+        valor={filtro}
+        onChange={setFiltro}
+        opcoes={[['agendado', 'Agendados'], ['concluido', 'Concluídos'], ['cancelado', 'Cancelados'], ['todos', 'Todos']]}
+      />
 
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <div className="relative flex-1 min-w-[220px] max-w-sm">
@@ -244,14 +256,14 @@ export default function Agendamentos() {
           <Button variant="secondary" onClick={() => setPainelAberto((v) => !v)}>
             <IconFilter size={16} /> Filtrar por
             {qtdFiltros > 0 && (
-              <span className="ml-1 inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full bg-blue-600 text-white text-xs font-semibold">
+              <span className="ml-1 text-xs font-medium text-blue-600 tnum">
                 {qtdFiltros}
               </span>
             )}
           </Button>
 
           {painelAberto && (
-            <div className="absolute right-0 z-20 mt-2 w-72 max-w-[calc(100vw-3rem)] bg-white rounded-xl border border-slate-200 shadow-lg p-4 space-y-4">
+            <div className="absolute right-0 z-20 mt-2 w-72 max-w-[calc(100vw-3rem)] rounded-2xl superficie-flutuante p-4 space-y-4">
               <div>
                 <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Data — de</label>
                 <input
@@ -328,7 +340,7 @@ export default function Agendamentos() {
                     ocupado={mudandoStatus === a.id}
                     onVer={() => setAgDetalhe(a)}
                     onGerarOS={() => setOsAgendamento(a)}
-                    onEditar={() => setForm({ ...FORM_VAZIO, ...a })}
+                    onEditar={() => abrirForm(a)}
                     onConcluir={() => mudarStatus(a.id, 'concluido')}
                     onCancelar={() => mudarStatus(a.id, 'cancelado')}
                     onExcluir={() => setAgExcluir(a)}
@@ -354,7 +366,7 @@ export default function Agendamentos() {
         <AgendamentoDetalheModal
           agendamento={agDetalhe}
           onClose={() => setAgDetalhe(null)}
-          onEditar={(a) => { setAgDetalhe(null); setForm({ ...FORM_VAZIO, ...a }) }}
+          onEditar={(a) => { setAgDetalhe(null); abrirForm(a) }}
         />
       )}
 
@@ -381,7 +393,7 @@ export default function Agendamentos() {
         )}
       </Modal>
 
-      <Modal title={form?.id ? 'Editar agendamento' : 'Novo agendamento'} open={!!form} onClose={() => setForm(null)}>
+      <Modal title={form?.id ? 'Editar agendamento' : 'Novo agendamento'} open={!!form} onClose={fecharForm}>
         {form && (
           <form onSubmit={salvar} className="space-y-4">
             <Field label="Cliente">
@@ -440,7 +452,7 @@ export default function Agendamentos() {
                               <button
                                 type="button"
                                 onClick={() => alternarProduto(id)}
-                                className="text-red-500 hover:text-red-700 text-lg leading-none cursor-pointer px-1"
+                                className="text-red-500 hover:text-red-600 text-lg leading-none cursor-pointer px-1"
                                 title="Remover produto"
                                 aria-label={`Remover ${p?.nome ?? 'produto'}`}
                               >
@@ -532,9 +544,13 @@ export default function Agendamentos() {
             <Field label="Observações">
               <textarea className={inputCls} rows="2" value={form.observacoes} onChange={set('observacoes')} />
             </Field>
+            {erro && (
+              <p role="alert" aria-live="polite" className="text-sm text-red-600 bg-slate-100 border border-slate-200 rounded-xl px-3 py-2">{erro}</p>
+            )}
+
             <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="secondary" onClick={() => setForm(null)}>Cancelar</Button>
-              <Button type="submit">Salvar</Button>
+              <Button type="button" variant="secondary" onClick={fecharForm} disabled={salvando}>Cancelar</Button>
+              <Button type="submit" disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar'}</Button>
             </div>
           </form>
         )}

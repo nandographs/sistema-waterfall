@@ -18,6 +18,7 @@ export default function ClienteBusca({ clientes, value, onChange, required, plac
   const [aberto, setAberto] = useState(false)
   const [destaque, setDestaque] = useState(0)
   const wrapRef = useRef(null)
+  const campoRef = useRef(null)
   const listaId = useId()
 
   // Mantém o texto do campo em sincronia com o cliente selecionado (ex.: ao
@@ -39,6 +40,25 @@ export default function ClienteBusca({ clientes, value, onChange, required, plac
     document.addEventListener('mousedown', aoClicarFora)
     return () => document.removeEventListener('mousedown', aoClicarFora)
   }, [])
+
+  // O `required` do formulário é cobrado NO PRÓPRIO campo de texto.
+  //
+  // Antes ele morava num input invisível colado embaixo: o navegador barrava o
+  // envio, mas não tinha onde desenhar o aviso (campo de altura zero e
+  // opacidade zero), então clicar em Salvar não fazia absolutamente nada — nem
+  // salvava, nem dizia por quê. O caso comum é digitar o nome e não ESCOLHER
+  // ninguém da lista: o texto está no campo, o id do cliente não.
+  // A bolha nativa do navegador não serve aqui: ela aparece ao lado de um campo
+  // que, ao receber o foco, abre a lista e a desmonta. Então o aviso é nosso,
+  // impresso embaixo do campo — onInvalid ainda é o gancho certo, porque é o
+  // navegador que decide quando o formulário foi barrado.
+  const [aviso, setAviso] = useState('')
+  useEffect(() => {
+    const campo = campoRef.current
+    if (!campo) return
+    campo.setCustomValidity(required && !value ? 'Escolha um cliente da lista.' : '')
+    if (value) setAviso('')
+  }, [required, value])
 
   const q = normalizar(query)
   const digitos = /^[\d\s()+-]+$/.test(query) ? query.replace(/\D/g, '') : ''
@@ -111,18 +131,21 @@ export default function ClienteBusca({ clientes, value, onChange, required, plac
       <div className="relative">
         <IconSearch size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
         <input
+          ref={campoRef}
           className={`${inputCls} pl-9 ${value ? 'pr-9' : ''}`}
           type="text"
           value={query}
           onChange={aoDigitar}
           onFocus={() => setAberto(true)}
           onKeyDown={aoTeclar}
+          onInvalid={(e) => { e.preventDefault(); setAviso(e.target.validationMessage) }}
           placeholder={placeholder}
           autoComplete="off"
           role="combobox"
           aria-autocomplete="list"
           aria-expanded={aberto}
           aria-controls={listaId}
+          aria-required={required || undefined}
           aria-activedescendant={aberto && opcoes[destaque] ? `${listaId}-${opcoes[destaque].id}` : undefined}
         />
         {value && (
@@ -135,21 +158,10 @@ export default function ClienteBusca({ clientes, value, onChange, required, plac
             <IconX size={16} />
           </button>
         )}
-        {/* Espelha o `required` do form sem atrapalhar a UX do campo de texto. */}
-        {required && (
-          <input
-            tabIndex={-1}
-            aria-hidden="true"
-            required
-            value={value || ''}
-            onChange={() => {}}
-            className="absolute inset-x-0 bottom-0 h-0 w-full opacity-0 pointer-events-none"
-          />
-        )}
       </div>
 
       {aberto && (
-        <ul id={listaId} role="listbox" className="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto rounded-xl border border-slate-300 bg-slate-100 shadow-xl shadow-black/30 divide-y divide-slate-200">
+        <ul id={listaId} role="listbox" className="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto rounded-2xl superficie-flutuante divide-y divide-slate-200">
           {opcoes.length === 0 ? (
             <li className="px-3 py-2.5 text-sm text-slate-400">Nenhum cliente encontrado.</li>
           ) : (
@@ -163,7 +175,7 @@ export default function ClienteBusca({ clientes, value, onChange, required, plac
                   onMouseEnter={() => setDestaque(i)}
                   onClick={() => selecionar(c)}
                   className={`w-full min-h-11 text-left px-3 py-2 text-sm cursor-pointer ${
-                    i === destaque ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-50'
+                    i === destaque ? 'bg-blue-50 text-blue-600' : 'text-slate-700 hover-superficie'
                   } ${c.id === value ? 'font-semibold' : ''}`}
                 >
                   {c.nome}
@@ -174,6 +186,10 @@ export default function ClienteBusca({ clientes, value, onChange, required, plac
           )}
         </ul>
       )}
+
+      {/* Depois da lista no JSX de propósito: a lista é absoluta e se posiciona
+          logo abaixo do campo — um parágrafo antes dela a empurraria para baixo. */}
+      {aviso && <p role="alert" className="mt-1.5 text-xs text-red-600">{aviso}</p>}
     </div>
   )
 }
