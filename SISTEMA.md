@@ -126,6 +126,14 @@ Pontos-chave:
   previsão da próxima troca (`proximaTroca`).
 - **`agendamentos`** = serviço em campo. Gera OS, pode entrar no caixa, cria o
   equipamento ao ser concluído e dispara o ciclo de refil.
+  Status: `agendado` | `concluido` | `cancelado` | `reagendado` (`sql/024`).
+  **Reagendar ≠ remarcar**: remarcar MOVE o registro de dia; reagendar deixa o
+  dia original no lugar como `reagendado` e cria um serviço novo na data
+  combinada, ligados por `reagendado_para_id`/`reagendado_de_id`. O primeiro
+  serve para corrigir um erro de digitação; o segundo para registrar que o
+  cliente adiou — sem ele, a terceira remarcação some da história. As parcelas
+  do caixa acompanham o serviço novo (não são recriadas, para não duplicar
+  receita já recebida).
 - **`atividades`** = diário de trabalho (ligação, WhatsApp, e-mail, visita,
   reunião, tarefa, nota). É **deliberadamente leve**: não move dinheiro nem gera
   documento. `pendente` = tarefa a fazer; `concluida` = histórico — a mesma linha

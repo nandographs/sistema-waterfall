@@ -4,7 +4,7 @@ import {
   agendamentos, clientes, equipamentos, lancamentos, produtos,
   eventosDoDia, eventosPorDia, pendenciasAtrasadas, assinarDados,
   concluirAtividade, mudarStatusAgendamento,
-  proximaTroca, formatBRL, formatData, FORMAS_PAGAMENTO, TIPOS_AGENDAMENTO,
+  proximaTroca, agendamentoEncerrado, formatBRL, formatData, FORMAS_PAGAMENTO, TIPOS_AGENDAMENTO,
   resumoDoFunil, oportunidadesParadas, ETAPAS_ABERTAS, ETAPAS_FUNIL,
 } from '../data/repository.js'
 import { hojeISO, mesAtual, mesDe, gradeDoMes, diaExtenso } from '../lib/datas.js'
@@ -97,7 +97,11 @@ export default function Dashboard() {
     .filter((a) => a.status === 'agendado' && a.data >= hoje)
     .sort((a, b) => a.data.localeCompare(b.data))
 
-  const visitasDoMes = agendamentos.list().filter((a) => a.data?.startsWith(mesCorrente) && a.status !== 'cancelado')
+  // Um serviço reagendado fica no mês com o registro antigo E com o novo;
+  // contar os dois inflaria "Visitas no mês" a cada remarcação.
+  const visitasDoMes = agendamentos
+    .list()
+    .filter((a) => a.data?.startsWith(mesCorrente) && !agendamentoEncerrado(a))
 
   const trocasPrevistas = equipamentos
     .list()

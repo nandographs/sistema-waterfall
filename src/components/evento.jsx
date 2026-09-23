@@ -89,6 +89,9 @@ const PALETAS = {
 // informação que muda o que você faz agora.
 export function estiloDoEvento(evento) {
   if (evento.cancelado) return { ...PALETAS.cinza, texto: 'text-slate-400 line-through' }
+  // Reagendado não é riscado: o serviço não foi desfeito, mudou de dia. Cinza
+  // basta para tirá-lo da fila do que ainda se faz hoje.
+  if (evento.reagendado) return PALETAS.cinza
   if (evento.concluido) return PALETAS.cinza
   if (evento.pendente && ehPassado(evento.data)) return PALETAS.red
   if (evento.fonte === 'agendamento') return PALETAS.blue
@@ -140,6 +143,7 @@ export function LinhaEvento({ evento, onAbrir, onConcluir, acoes }) {
           <span className="truncate">{etiquetaDoEvento(evento)}</span>
           {atrasado && <span className="font-medium text-red-600">· atrasado</span>}
           {evento.concluido && <span className="text-emerald-600">· concluído</span>}
+          {evento.reagendado && <span className="text-slate-500">· reagendado</span>}
         </p>
         <button
           type="button"

@@ -19,6 +19,7 @@ import { LinhaEvento, IconeDoEvento, estiloDoEvento, etiquetaDoEvento } from '..
 import { GradeDoMes, FaixaDaSemana, LinhaDoTempo } from '../components/calendario.jsx'
 import AtividadeModal, { atividadeNova } from '../components/AtividadeModal.jsx'
 import AgendamentoDetalheModal from '../components/AgendamentoDetalheModal.jsx'
+import ReagendarModal from '../components/ReagendarModal.jsx'
 
 // Quantos atrasados a lista mostra antes de oferecer o resto.
 const LIMITE_ATRASADOS = 5
@@ -309,6 +310,7 @@ export default function Agenda() {
   const [form, setForm] = useState(null)
   const [concluindo, setConcluindo] = useState(null)
   const [agDetalhe, setAgDetalhe] = useState(null)
+  const [reagendando, setReagendando] = useState(null)
   const [fechandoDia, setFechandoDia] = useState(false)
   const [versao, setVersao] = useState(0)
   const [todosAtrasados, setTodosAtrasados] = useState(false)
@@ -668,6 +670,24 @@ export default function Agenda() {
               clienteId: ag.clienteId,
               agendamentoId: ag.id,
             }))
+          }}
+          onReagendar={(ag) => {
+            setAgDetalhe(null)
+            setReagendando(ag)
+          }}
+        />
+      )}
+
+      {reagendando && (
+        <ReagendarModal
+          agendamento={reagendando}
+          onFechar={() => setReagendando(null)}
+          onReagendado={(novo) => {
+            setReagendando(null)
+            recarregar()
+            // A agenda pula para o dia novo: quem acabou de reagendar quer ver
+            // o serviço no lugar onde ele foi parar, não o buraco que ficou.
+            if (novo?.data) selecionarDia(novo.data)
           }}
         />
       )}

@@ -7,7 +7,7 @@ import {
   registrarEquipamento, definirFotoPerfil, removerFotoPerfil, resolverPagamentos,
   explicarColunaFaltante,
   proximoPasso, linhaDoTempoDoCliente, oportunidadesDoCliente, conversaDoCliente,
-  proximaTroca, formatBRL, formatData, enderecoCompleto,
+  proximaTroca, badgeDoAgendamento, formatBRL, formatData, enderecoCompleto,
   FORMAS_PAGAMENTO, STATUS_VENDA, RESULTADOS_ATIVIDADE, ETAPAS_FUNIL, ETAPAS_FECHADAS,
   TIPOS_AGENDAMENTO,
 } from '../data/repository.js'
@@ -596,11 +596,7 @@ export default function ClienteDetalhe() {
             {meusServicos.length === 0 && <Empty>Nenhum serviço registrado para este cliente.</Empty>}
             <ul className="divide-y divide-slate-100">
               {meusServicos.map((a) => {
-                const [cor, rotulo] = a.status === 'concluido'
-                  ? ['green', 'Concluído']
-                  : a.status === 'cancelado'
-                    ? ['red', 'Cancelado']
-                    : ['sky', 'Agendado']
+                const [cor, rotulo] = badgeDoAgendamento(a)
                 const temValor = Number(a.valor) > 0
                 return (
                   <li key={a.id} className="py-3 flex flex-wrap items-center justify-between gap-3">
@@ -705,8 +701,8 @@ export default function ClienteDetalhe() {
                     {item.categoria === 'agendamento' && (
                       <>
                         {item.registro.osNumero && <Badge color="slate">OS Nº {item.registro.osNumero}</Badge>}
-                        <Badge color={item.registro.status === 'concluido' ? 'green' : item.registro.status === 'cancelado' ? 'red' : 'sky'}>
-                          {item.registro.status === 'concluido' ? 'Concluído' : item.registro.status === 'cancelado' ? 'Cancelado' : 'Agendado'}
+                        <Badge color={badgeDoAgendamento(item.registro)[0]}>
+                          {badgeDoAgendamento(item.registro)[1]}
                         </Badge>
                         <Button variant="ghost" onClick={() => setAgDetalhe(item.registro)} title="Ver informações">
                           <IconEye size={15} /> Ver

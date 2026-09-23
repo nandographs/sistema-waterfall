@@ -177,6 +177,10 @@ unificado** — mistura `atividades` (contatos/tarefas) e `agendamentos`
   decisão sobre tudo que ficou pendente no dia, para nada ficar solto.
 - Concluir uma **tarefa** é um clique; concluir um **contato** abre o registro
   do desfecho (resultado + descrição), porque é aí que nasce o próximo passo.
+- Clicar num **serviço** abre o pop-up de detalhes, que tem **Reagendar**: o dia
+  original fica marcado como reagendado (âmbar, sem risco) e o serviço novo
+  nasce na data escolhida; a agenda pula para lá. Os dois lados aparecem no
+  pop-up ("veio do dia X" / "foi para o dia Y") com o motivo, se houver.
 
 ### Clientes (`/clientes`)
 Lista + cadastro. Busca, filtro por cidade/UF (dinâmico, com deduplicação de

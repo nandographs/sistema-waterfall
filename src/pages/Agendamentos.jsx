@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   agendamentos, clientes, produtos, salvarAgendamento, mudarStatusAgendamento, excluirAgendamento, assinarDados,
-  textoAutorDoAgendamento, formatData, formatBRL, TIPOS_AGENDAMENTO, FORMAS_PAGAMENTO,
+  textoAutorDoAgendamento, badgeDoAgendamento, agendamentoEncerrado,
+  formatData, formatBRL, TIPOS_AGENDAMENTO, FORMAS_PAGAMENTO,
 } from '../data/repository.js'
 import { formatHora } from '../lib/datas.js'
 import { Card, Page, PageTitle, Button, Field, inputCls, InputNumero, Empty, Modal, Badge, notificar, usePaginacao, Paginacao, Segmentos } from '../components/ui.jsx'
@@ -19,12 +20,6 @@ const FORM_VAZIO = {
   lancarFinanceiro: true,
 }
 
-const STATUS_BADGE = {
-  agendado: ['sky', 'Agendado'],
-  concluido: ['green', 'Concluído'],
-  cancelado: ['red', 'Cancelado'],
-}
-
 // As ações de uma linha somavam 706px numa tela de 375px — a página inteira
 // rolava de lado. No desktop continuam em linha; no celular fica só "Ver" e um
 // "⋯" que abre o resto empilhado, com alvos de 44px. Concluir e Cancelar, que
@@ -33,7 +28,7 @@ function AcoesAgendamento({ agendamento: a, ocupado, onVer, onGerarOS, onEditar,
   const [aberto, setAberto] = useState(false)
   const secundarias = []
 
-  if (a.status !== 'cancelado') {
+  if (!agendamentoEncerrado(a)) {
     secundarias.push({ rotulo: 'Gerar OS', Icon: IconFileText, onClick: onGerarOS })
   }
   if (a.status === 'agendado') {
@@ -50,7 +45,7 @@ function AcoesAgendamento({ agendamento: a, ocupado, onVer, onGerarOS, onEditar,
       {/* Desktop: tudo visível, como sempre foi */}
       <div className="hidden sm:flex items-center gap-2">
         <Button variant="ghost" onClick={onVer}><IconEye size={16} /> Ver</Button>
-        {a.status !== 'cancelado' && (
+        {!agendamentoEncerrado(a) && (
           <Button variant="secondary" onClick={onGerarOS}><IconFileText size={16} /> Gerar OS</Button>
         )}
         {a.status === 'agendado' && (
@@ -304,7 +299,7 @@ export default function Agendamentos() {
         )}
         <ul className="divide-y divide-slate-100">
           {visiveis.map((a) => {
-            const [cor, rotulo] = STATUS_BADGE[a.status] ?? ['slate', a.status]
+            const [cor, rotulo] = badgeDoAgendamento(a)
             const idsProdutos = a.produtoIds?.length ? a.produtoIds : (a.produtoId ? [a.produtoId] : [])
             const nomesProdutos = idsProdutos.map((id) => produtos.get(id)?.nome).filter(Boolean).join(', ')
             return (
@@ -326,7 +321,7 @@ export default function Agendamentos() {
                   {Number(a.valor) > 0 && (
                     <span className="text-sm font-semibold text-slate-900 tnum inline-flex items-center gap-1.5">
                       {formatBRL(a.valor)}
-                      {a.status !== 'cancelado' && (
+                      {!agendamentoEncerrado(a) && (
                         <Badge color={a.statusPagamento === 'pago' ? 'green' : 'amber'}>
                           {a.statusPagamento === 'pago' ? 'Pago' : 'A receber'}
                         </Badge>

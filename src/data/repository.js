@@ -354,14 +354,18 @@ export const funcionarios = makeStore('funcionarios')
 export const atividades = makeStore('atividades')
 
 // Agendamento: { clienteId, data, hora, tipo: 'instalacao'|'troca_refil'|'manutencao'|'visita',
-//                status: 'agendado'|'concluido'|'cancelado', observacoes,
+//                status: 'agendado'|'concluido'|'cancelado'|'reagendado', observacoes,
 //                produtoIds (lista de produtos do serviço; uuid[]),
 //                produtoId (1º produto — mantido p/ financeiro e Ordem de Serviço),
 //                valor, formaPagamento, parcelas,
 //                statusPagamento: 'pago'|'pendente', lancamentoId (1º lançamento vinculado),
 //                vendaOrigemId (venda que gerou este agendamento, se houver),
 //                osNumero, osEmitidaEm (rastreabilidade da Ordem de Serviço gerada),
-//                criadoPor, automatico (ver autorDoAgendamento) }
+//                criadoPor, automatico (ver autorDoAgendamento),
+//                reagendadoParaId / reagendadoDeId / motivoReagendamento
+//                (os dois lados de um reagendamento — ver reagendarAgendamento) }
+// O status 'reagendado' encerra o registro do dia original: o serviço não
+// aconteceu ali, foi para outra data, e o rastro fica no lugar.
 export const agendamentos = makeStore('agendamentos')
 
 // ---- Helpers de domínio ----
@@ -375,6 +379,31 @@ export const TIPOS_AGENDAMENTO = {
   manutencao: 'Manutenção',
   visita: 'Visita',
 }
+
+export const STATUS_AGENDAMENTO = {
+  agendado: 'Agendado',
+  concluido: 'Concluído',
+  cancelado: 'Cancelado',
+  reagendado: 'Reagendado',
+}
+
+// A cor e o texto da etiqueta de status. Mora aqui porque a mesma etiqueta
+// aparece na lista de Serviços, na ficha do cliente e no pop-up de detalhes —
+// quando ela era copiada em cada tela, um status novo aparecia certo numa e
+// mentia nas outras.
+export function badgeDoAgendamento(a) {
+  const cores = { agendado: 'sky', concluido: 'green', cancelado: 'red', reagendado: 'amber' }
+  const status = a?.status || ''
+  return [cores[status] || 'slate', STATUS_AGENDAMENTO[status] || status]
+}
+
+// Cancelado e reagendado são os dois jeitos de um serviço NÃO acontecer no dia
+// em que estava marcado. Nenhum dos dois gera Ordem de Serviço, entra no caixa
+// ou conta como visita do mês — no reagendado, quem faz tudo isso é o registro
+// novo, na data nova. Sem esta função, um serviço reagendado seria contado duas
+// vezes em todo lugar que só sabia perguntar `status !== 'cancelado'`.
+export const agendamentoEncerrado = (a) =>
+  a?.status === 'cancelado' || a?.status === 'reagendado'
 
 export const TIPOS_ATIVIDADE = {
   ligacao: 'Ligação',
@@ -557,6 +586,9 @@ const MIGRACAO_DA_COLUNA = {
   intervalo_troca_meses: 'sql/022_intervalo_troca_combinado.sql',
   criado_por: 'sql/023_autor_do_agendamento.sql',
   automatico: 'sql/023_autor_do_agendamento.sql',
+  reagendado_para_id: 'sql/024_reagendamento.sql',
+  reagendado_de_id: 'sql/024_reagendamento.sql',
+  motivo_reagendamento: 'sql/024_reagendamento.sql',
 }
 
 export function explicarColunaFaltante(erro) {
@@ -1754,7 +1786,7 @@ async function sincronizarFinanceiro(ag) {
   // !== false e não com truthy: registros anteriores à migração 006 vêm sem o
   // campo e devem continuar lançando.
   const contabiliza =
-    ag.lancarFinanceiro !== false && Number(ag.valor) > 0 && ag.status !== 'cancelado'
+    ag.lancarFinanceiro !== false && Number(ag.valor) > 0 && !agendamentoEncerrado(ag)
 
   const plano = contabiliza
     ? planoDeParcelas({
@@ -2025,6 +2057,86 @@ export async function remarcarAgendamento(id, data, hora) {
   return sincronizarFinanceiro(atualizado)
 }
 
+// O que um serviço reagendado leva para a data nova. Ficam DE FORA, de
+// propósito: a Ordem de Serviço já emitida, o vínculo com o lançamento, a data
+// de conclusão e os próprios campos do reagendamento — tudo isso pertence ao
+// registro que ficou no dia original.
+const CAMPOS_HERDADOS_AO_REAGENDAR = [
+  'clienteId', 'tipo', 'observacoes', 'produtoIds', 'produtoId',
+  'valor', 'formaPagamento', 'parcelas', 'statusPagamento', 'taxaCartao',
+  'lancarFinanceiro', 'intervaloTrocaMeses', 'vendaOrigemId', 'origemAtividadeId',
+]
+
+// Reagenda um serviço: o dia original CONTINUA existindo, encerrado como
+// `reagendado`, e um serviço novo nasce na data combinada.
+//
+// É a diferença entre remarcar e reagendar, e ela importa. remarcarAgendamento
+// MOVE o registro — bom para corrigir um erro de digitação, péssimo para
+// registrar que o cliente desmarcou, porque apaga o fato de ter desmarcado.
+// Aqui os dois lados ficam ligados (reagendadoParaId / reagendadoDeId), então a
+// agenda da semana passada continua contando a história inteira.
+export async function reagendarAgendamento(id, { data, hora = '', motivo = '' } = {}) {
+  const original = agendamentos.get(id)
+  if (!original) throw new Error('Serviço não encontrado.')
+  if (!data) throw new Error('Escolha a nova data do serviço.')
+  if (original.status !== 'agendado') {
+    throw new Error('Só um serviço ainda agendado pode ser reagendado.')
+  }
+  // O registro carregado do banco tem uma chave por coluna (null vira ''), então
+  // `undefined` aqui só significa uma coisa: a migração ainda não rodou. Vale a
+  // pena avisar ANTES de criar o serviço novo — o erro do banco viria no meio do
+  // caminho e deixaria um duplicado para trás.
+  if (original.reagendadoParaId === undefined) {
+    throw new Error(
+      'Reagendar precisa da migração 024. Rode sql/024_reagendamento.sql no SQL Editor ' +
+      'do Supabase e recarregue esta página.',
+    )
+  }
+
+  const herdado = {}
+  for (const campo of CAMPOS_HERDADOS_AO_REAGENDAR) {
+    if (original[campo] !== undefined) herdado[campo] = original[campo]
+  }
+
+  const novo = await agendamentos.create({
+    ...herdado,
+    data,
+    hora: hora || '',
+    status: 'agendado',
+    reagendadoDeId: original.id,
+    criadoPor: usuarioAtual(),
+    automatico: false,
+  }).catch(explicarColunaFaltante)
+
+  // O dinheiro segue o serviço. As parcelas trocam de dono em vez de serem
+  // apagadas e recriadas: assim o que já foi recebido continua recebido, e o
+  // vencimento passa a acompanhar a data nova pela sincronia lá embaixo.
+  // Recriar do zero daria um lançamento novo em cima de um pagamento antigo —
+  // receita contada duas vezes no relatório do mês.
+  for (const l of lancamentos.list().filter((l) => l.agendamentoId === original.id)) {
+    await lancamentos.update(l.id, { agendamentoId: novo.id })
+  }
+
+  await agendamentos.update(original.id, {
+    status: 'reagendado',
+    reagendadoParaId: novo.id,
+    motivoReagendamento: motivo || '',
+    lancamentoId: '',
+  }).catch(explicarColunaFaltante)
+
+  return sincronizarFinanceiro(novo)
+}
+
+// Os dois lados de um reagendamento, para a tela mostrar de onde veio e para
+// onde foi. `motivo` mora no registro ANTIGO — é lá que ele foi escrito.
+export function reagendamentoDe(a) {
+  if (!a) return null
+  const anterior = a.reagendadoDeId ? agendamentos.get(a.reagendadoDeId) : null
+  const seguinte = a.reagendadoParaId ? agendamentos.get(a.reagendadoParaId) : null
+  if (!anterior && !seguinte) return null
+  return { anterior, seguinte, motivo: a.motivoReagendamento || anterior?.motivoReagendamento || '' }
+}
+
 // ---- Atividades: o diário de trabalho ----
 
 const precisaDeRetorno = (a) => a.status === 'concluida' && a.resultado === 'retornar'
@@ -2211,6 +2323,7 @@ function eventoDoAgendamento(ag) {
     pendente: ag.status === 'agendado',
     concluido: ag.status === 'concluido',
     cancelado: ag.status === 'cancelado',
+    reagendado: ag.status === 'reagendado',
   }
 }
 
