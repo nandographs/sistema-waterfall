@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  clientes, produtos, agendamentos,
+  clientes, agendamentos, produtosDoAgendamento,
   formatBRL, formatData,
 } from '../data/repository.js'
 import { gerarOrdemServico } from '../os/gerar.js'
@@ -47,14 +47,59 @@ const totalDoItem = (item) => (
   String(item.valor_total ?? '').trim() ? paraNumero(item.valor_total) : calcularLinha(item)
 )
 
+// Os itens da ordem: TODOS os produtos do serviço, cada um com a sua
+// quantidade — não só o primeiro. Era isso que fazia o total da ordem sair
+// cobrando um refil quando a visita trocava quatro.
+//
+// O preço de cada linha é o da tabela. A exceção é o serviço de produto ÚNICO
+// com valor próprio (uma visita cobrada à parte, por exemplo): ali o valor
+// combinado no agendamento vale mais que a tabela, e é ele que sai na ordem.
+function itensDoServico(agendamento) {
+  const linhas = produtosDoAgendamento(agendamento)
+  const valorDoServico = Number(agendamento.valor ?? 0)
+
+  return linhas.map(({ produto, quantidade }) => {
+    const unitario = linhas.length === 1 && valorDoServico > 0
+      ? valorDoServico / quantidade
+      : Number(produto.valor || 0)
+    return {
+      ...ITEM_VAZIO,
+      descricao: produto.nome.slice(0, 70),
+      quantidade: String(quantidade),
+      valor_unitario: brl(unitario),
+      valor_total: brl(unitario * quantidade),
+    }
+  })
+}
+
+// Da quarta linha em diante o modelo não tem espaço: o restante vira
+// "+ N itens", com o valor somado, para o total da ordem continuar fechando.
+function resumoDoExcedente(itens) {
+  const total = itens.reduce((soma, item) => soma + totalDoItem(item), 0)
+  const nomes = itens.map((i) => i.descricao).join(', ')
+  return {
+    ...ITEM_VAZIO,
+    descricao: `+ ${itens.length} ${itens.length === 1 ? 'item' : 'itens'}: ${nomes}`.slice(0, 70),
+    quantidade: String(itens.reduce((soma, i) => soma + (Number(i.quantidade) || 1), 0)),
+    valor_total: brl(total),
+  }
+}
+
 // Monta o formulário inicial puxando tudo o que o sistema já sabe:
-// dados do cliente, do agendamento, do produto e do financeiro vinculado.
+// dados do cliente, do agendamento, dos produtos e do financeiro vinculado.
 function montarInicial(agendamento) {
   const cliente = clientes.get(agendamento.clienteId) ?? {}
-  const produto = produtos.get(agendamento.produtoId)
-  // O próprio agendamento é a fonte do financeiro do serviço; os lançamentos
-  // no caixa são derivados dele.
-  const valor = Number(agendamento.valor ?? 0)
+  const todos = itensDoServico(agendamento)
+  // O modelo tem quatro linhas; o que passar disso vira uma linha de resumo,
+  // para nenhum produto simplesmente sumir da ordem.
+  const itens = todos.length <= 4 ? todos : [...todos.slice(0, 3), resumoDoExcedente(todos.slice(3))]
+  // O equipamento é o que a ordem descreve; com mais de um produto na visita,
+  // os nomes entram juntos, dentro do limite da célula do modelo.
+  const equipamento = todos.map((item) => item.descricao).join(', ').slice(0, 80)
+  // O que se cobra é a soma das linhas. O valor do agendamento só entra sozinho
+  // quando não há produto nenhum — uma visita avulsa.
+  const total = itens.reduce((soma, item) => soma + totalDoItem(item), 0)
+    || Number(agendamento.valor ?? 0)
 
   return {
     os_numero: agendamento.osNumero || proximoNumeroOS(),
@@ -76,22 +121,18 @@ function montarInicial(agendamento) {
     tecnico: localStorage.getItem('waterfall:os_tecnico') || '',
     agendado_para: agendamento.data ? formatData(agendamento.data) : '',
     previsao_conclusao: '',
-    equipamento_modelo: produto?.nome || '',
+    equipamento_modelo: equipamento,
     numero_serie: '',
     servico_executado: agendamento.observacoes || '',
-    itens: produto
-      ? [{
-          ...ITEM_VAZIO,
-          descricao: produto.nome.slice(0, 70),
-          quantidade: '1',
-          valor_unitario: brl(valor || Number(produto.valor)),
-          valor_total: brl(valor || Number(produto.valor)),
-        }]
-      : [],
-    aplicarPagamento: valor > 0,
+    itens,
+    // O serviço que nasceu de uma venda tem valor zero de propósito — quem
+    // cobra é a venda —, e a ordem dele sai sem quadro de pagamento, como antes.
+    // Quando há pagamento, o valor é o TOTAL da ordem: era aqui que saía o
+    // preço de um produto só.
+    aplicarPagamento: Number(agendamento.valor ?? 0) > 0,
     pagamento: {
       forma: FORMA_OS[agendamento.formaPagamento] ?? '',
-      valor: brl(valor),
+      valor: brl(total),
     },
   }
 }

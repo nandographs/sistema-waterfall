@@ -276,7 +276,9 @@ export const clientes = makeStore('clientes')
 // Produto: { nome, codigo (SKU/referência, opcional — usado na busca),
 //            tipo: 'aparelho' | 'refil' | 'acessorio' | 'outro', valor,
 //            cor (opcional), unidade (ver UNIDADES; vazio = 'un'),
-//            intervaloTrocaMeses (refil), aparelhoCompativelId (refil) }
+//            intervaloTrocaMeses (refil),
+//            compativeisIds (produtos compatíveis com este, nos DOIS sentidos;
+//              migração 025 — antes era aparelhoCompativelId, um vínculo só) }
 export const produtos = makeStore('produtos')
 
 // O catálogo não é só equipamento: acessório (mangueira, conexão, torneira) e
@@ -356,6 +358,7 @@ export const atividades = makeStore('atividades')
 // Agendamento: { clienteId, data, hora, tipo: 'instalacao'|'troca_refil'|'manutencao'|'visita',
 //                status: 'agendado'|'concluido'|'cancelado'|'reagendado', observacoes,
 //                produtoIds (lista de produtos do serviço; uuid[]),
+//                produtoQuantidades ({ produtoId: quantidade }; ausente = 1),
 //                produtoId (1º produto — mantido p/ financeiro e Ordem de Serviço),
 //                valor, formaPagamento, parcelas,
 //                statusPagamento: 'pago'|'pendente', lancamentoId (1º lançamento vinculado),
@@ -586,6 +589,8 @@ const MIGRACAO_DA_COLUNA = {
   intervalo_troca_meses: 'sql/022_intervalo_troca_combinado.sql',
   criado_por: 'sql/023_autor_do_agendamento.sql',
   automatico: 'sql/023_autor_do_agendamento.sql',
+  compativeis_ids: 'sql/025_compatibilidade_e_quantidade.sql',
+  produto_quantidades: 'sql/025_compatibilidade_e_quantidade.sql',
   reagendado_para_id: 'sql/024_reagendamento.sql',
   reagendado_de_id: 'sql/024_reagendamento.sql',
   motivo_reagendamento: 'sql/024_reagendamento.sql',
@@ -732,6 +737,14 @@ export async function agendarServicosDaVenda(venda) {
 
   const itens = itensDaVenda(venda.id)
   const produtosVendidos = itens.map((i) => produtos.get(i.produtoId)).filter(Boolean)
+  // Quem vendeu quatro refis vai instalar quatro: a quantidade da venda segue
+  // para o serviço, e dali para a Ordem de Serviço.
+  const quantidadeVendida = (produtoId) => {
+    const total = itens
+      .filter((i) => i.produtoId === produtoId)
+      .reduce((soma, i) => soma + (Number(i.quantidade) || 0), 0)
+    return total > 1 ? total : 1
+  }
   const aparelhos = produtosVendidos.filter((p) => p.tipo === 'aparelho')
   const refis = produtosVendidos.filter((p) => p.tipo === 'refil')
 
@@ -756,6 +769,11 @@ export async function agendarServicosDaVenda(venda) {
     status: 'agendado',
     observacoes: `Gerado pela venda ${venda.numero || ''}`.trim(),
     produtoIds: alvo.produtos.map((p) => p.id),
+    produtoQuantidades: Object.fromEntries(
+      alvo.produtos
+        .map((p) => [p.id, quantidadeVendida(p.id)])
+        .filter(([, quantidade]) => quantidade > 1),
+    ),
     produtoId: alvo.produtos[0].id,
     valor: 0,
     formaPagamento: venda.formaPagamento || 'pix',
@@ -1714,6 +1732,37 @@ export function lancamentoDaFolha(funcionario, competencia, { tipo = 'vale', val
   }
 }
 
+// ---- Quantidade de cada produto do serviço (migração 025) ----
+//
+// Trocar quatro refis na mesma visita é UMA linha com quantidade 4, não quatro
+// linhas iguais. O mapa guarda só o que foge do padrão de um: produto ausente
+// do mapa vale 1, que é como todo serviço anterior à migração se comporta.
+export function quantidadeDoProduto(agendamento, produtoId) {
+  const n = Number(agendamento?.produtoQuantidades?.[produtoId])
+  return Number.isFinite(n) && n > 0 ? n : 1
+}
+
+// Os produtos de um serviço, com a quantidade de cada: [{ produto, quantidade }].
+export function produtosDoAgendamento(agendamento) {
+  const ids = agendamento?.produtoIds?.length
+    ? agendamento.produtoIds
+    : (agendamento?.produtoId ? [agendamento.produtoId] : [])
+  return ids
+    .map((id) => ({ produto: produtos.get(id), quantidade: quantidadeDoProduto(agendamento, id) }))
+    .filter((linha) => linha.produto)
+}
+
+// O mapa gravado: só os produtos que ainda estão no serviço, e só as
+// quantidades diferentes de 1 — o padrão não precisa ocupar espaço no banco.
+function normalizarQuantidades(produtoIds, quantidades) {
+  const mapa = {}
+  for (const id of produtoIds) {
+    const n = Number(quantidades?.[id])
+    if (Number.isFinite(n) && n > 1) mapa[id] = n
+  }
+  return mapa
+}
+
 // Salva um agendamento e mantém o financeiro vinculado em sincronia.
 // Um agendamento com valor > 0 gera lançamentos a receber; cancelar ou zerar o
 // valor os remove.
@@ -1726,6 +1775,7 @@ export async function salvarAgendamento(form) {
   const dados = {
     ...form,
     produtoIds,
+    produtoQuantidades: normalizarQuantidades(produtoIds, form.produtoQuantidades),
     produtoId: produtoIds[0] || '',
     valor: Number(form.valor || 0),
     parcelas: Number(form.parcelas || 1),
@@ -1884,9 +1934,12 @@ async function aplicarEfeitosConclusao(ag) {
       await realinharTrocaComAInstalacao(ag, refil, base, meses)
       await agendarTrocaDeRefil({ clienteId: ag.clienteId, refil, dataBase: base, meses })
     } else if (produto.tipo === 'refil') {
+      // Um refil pode servir vários aparelhos: a troca marca o equipamento
+      // que ESTE cliente tem — o primeiro compatível que estiver na ficha dele.
+      const idsAparelhos = aparelhosDoRefil(produto).map((a) => a.id)
       const eq = equipamentos
         .list()
-        .find((e) => e.clienteId === ag.clienteId && e.produtoId === produto.aparelhoCompativelId)
+        .find((e) => e.clienteId === ag.clienteId && idsAparelhos.includes(e.produtoId))
       if (eq) {
         await equipamentos.update(eq.id, {
           dataUltimaTroca: base,
@@ -1929,10 +1982,70 @@ async function realinharTrocaComAInstalacao(agendamentoInstalacao, refil, dataCo
   await agendamentos.update(aberta.id, { data: somarMeses(dataConclusao, meses) })
 }
 
-// O refil cadastrado como compatível com um aparelho.
-export function refilDoAparelho(aparelho) {
-  if (!aparelho || aparelho.tipo !== 'aparelho') return null
-  return produtos.list().find((p) => p.tipo === 'refil' && p.aparelhoCompativelId === aparelho.id) ?? null
+// ---- Compatibilidade entre produtos (migração 025) ----
+//
+// O vínculo é de MÃO DUPLA e de muitos para muitos: a mesma vela serve três
+// purificadores, e um purificador aceita dois refis. Cada produto guarda a
+// lista do outro lado (compativeisIds), e salvarProduto mantém as duas em dia.
+//
+// A leitura aceita as duas formas do banco porque o sistema tem de continuar
+// funcionando entre o deploy e a migração: a lista nova, quando existe, e o
+// aparelhoCompativelId antigo — de qualquer um dos lados — como retaguarda.
+function idsCompativeis(produto) {
+  if (!produto) return []
+  const ids = new Set((produto.compativeisIds || []).filter(Boolean))
+  if (produto.aparelhoCompativelId) ids.add(produto.aparelhoCompativelId)
+  for (const outro of produtos.list()) {
+    if (outro.aparelhoCompativelId === produto.id) ids.add(outro.id)
+  }
+  ids.delete(produto.id)
+  return [...ids]
+}
+
+// Os produtos compatíveis com este, na ordem do catálogo.
+export function compativeisDe(produto, tipo) {
+  const ids = new Set(idsCompativeis(produto))
+  return produtos.list().filter((p) => ids.has(p.id) && (!tipo || p.tipo === tipo))
+}
+
+// Todos os refis que servem um aparelho, e todos os aparelhos que um refil serve.
+export const refisDoAparelho = (aparelho) =>
+  (aparelho?.tipo === 'aparelho' ? compativeisDe(aparelho, 'refil') : [])
+export const aparelhosDoRefil = (refil) =>
+  (refil?.tipo === 'refil' ? compativeisDe(refil, 'aparelho') : [])
+
+// O primeiro de cada lista. O ciclo de troca precisa escolher UM refil para
+// agendar a próxima troca, e o primeiro compatível é a escolha previsível —
+// era exatamente o que o vínculo único dava antes.
+export const refilDoAparelho = (aparelho) => refisDoAparelho(aparelho)[0] ?? null
+export const aparelhoDoRefil = (refil) => aparelhosDoRefil(refil)[0] ?? null
+
+// Grava o produto e mantém a compatibilidade simétrica: entrar na lista de A
+// põe A na lista de B, e sair de uma tira da outra. Sem isso, "compatível com"
+// dependeria de qual dos dois produtos você abriu para editar.
+export async function salvarProduto(form) {
+  const { compativeisIds, ...campos } = form
+  const escolhidos = [...new Set((compativeisIds || []).filter(Boolean))]
+
+  const produto = form.id
+    ? await produtos.update(form.id, { ...campos, compativeisIds: escolhidos }).catch(explicarColunaFaltante)
+    : await produtos.create({ ...campos, compativeisIds: escolhidos }).catch(explicarColunaFaltante)
+
+  // O outro lado de cada vínculo: quem entrou ganha este produto na lista;
+  // quem saiu o perde. Só gravamos quem de fato mudou.
+  const antes = new Set(produtos.list().filter((p) => (p.compativeisIds || []).includes(produto.id)).map((p) => p.id))
+  const agora = new Set(escolhidos)
+  for (const outro of produtos.list()) {
+    if (outro.id === produto.id) continue
+    const deveTer = agora.has(outro.id)
+    if (deveTer === antes.has(outro.id)) continue
+    const lista = (outro.compativeisIds || []).filter((id) => id !== produto.id)
+    await produtos
+      .update(outro.id, { compativeisIds: deveTer ? [...lista, produto.id] : lista })
+      .catch(explicarColunaFaltante)
+  }
+
+  return produto
 }
 
 // De quantos em quantos meses o refil é trocado naquele caso. O intervalo
@@ -2062,7 +2175,7 @@ export async function remarcarAgendamento(id, data, hora) {
 // de conclusão e os próprios campos do reagendamento — tudo isso pertence ao
 // registro que ficou no dia original.
 const CAMPOS_HERDADOS_AO_REAGENDAR = [
-  'clienteId', 'tipo', 'observacoes', 'produtoIds', 'produtoId',
+  'clienteId', 'tipo', 'observacoes', 'produtoIds', 'produtoQuantidades', 'produtoId',
   'valor', 'formaPagamento', 'parcelas', 'statusPagamento', 'taxaCartao',
   'lancarFinanceiro', 'intervaloTrocaMeses', 'vendaOrigemId', 'origemAtividadeId',
 ]
@@ -2615,7 +2728,7 @@ export function refilDoEquipamento(equipamento) {
   const produto = produtos.get(equipamento?.produtoId)
   if (!produto) return null
   if (produto.tipo === 'refil') return produto
-  return produtos.list().find((p) => p.tipo === 'refil' && p.aparelhoCompativelId === produto.id) ?? null
+  return refilDoAparelho(produto)
 }
 
 // Data prevista da próxima troca de refil de um equipamento do cliente

@@ -1,8 +1,12 @@
 import { useState } from 'react'
-import { produtos, definirFotoProduto, removerFotoProduto, formatBRL, TIPOS_PRODUTO, UNIDADES, unidadeDo } from '../data/repository.js'
+import {
+  produtos, salvarProduto, compativeisDe, definirFotoProduto, removerFotoProduto,
+  formatBRL, TIPOS_PRODUTO, UNIDADES, unidadeDo,
+} from '../data/repository.js'
 import { Card, Page, PageTitle, Button, Field, inputCls, InputNumero, Badge, Empty, Modal, usePaginacao, Paginacao } from '../components/ui.jsx'
 import { IconPlus, IconImage, IconSearch } from '../components/icons.jsx'
 import FotoUnica from '../components/FotoUnica.jsx'
+import ProdutoBusca from '../components/ProdutoBusca.jsx'
 import { combina } from '../lib/texto.js'
 
 // Cor e badge por tipo: aparelho e refil são o miolo do serviço (troca
@@ -11,10 +15,92 @@ const COR_DO_TIPO = { aparelho: 'sky', refil: 'green', acessorio: 'amber', outro
 
 const FORM_VAZIO = {
   nome: '', codigo: '', tipo: 'aparelho', valor: '', cor: '', unidade: 'un',
-  intervaloTrocaMeses: '', aparelhoCompativelId: '',
-  // Só do formulário: o vínculo mora no refil (aparelhoCompativelId), mas é
-  // prático poder escolhê-lo também pelo cadastro do aparelho.
-  refilVinculadoId: '',
+  intervaloTrocaMeses: '',
+  // A compatibilidade é uma LISTA e vale nos dois sentidos (migração 025): um
+  // aparelho aceita vários refis, e o mesmo refil serve vários aparelhos. O
+  // repositório grava os dois lados; aqui só se escolhe.
+  compativeisIds: [],
+}
+
+// Com que tipo de produto este se emparelha. Aparelho combina com refil e
+// vice-versa; acessório e "outro" não entram no ciclo de troca.
+const TIPO_COMPATIVEL = { aparelho: 'refil', refil: 'aparelho' }
+
+// O quadro de compatibilidade do formulário. É uma LISTA dos dois lados: o
+// aparelho aceita vários refis e o refil serve vários aparelhos, então nenhum
+// dos dois cabe num select de escolha única.
+const ROTULO_COMPATIVEL = {
+  refil: {
+    titulo: 'Refis compatíveis',
+    vazio: 'Nenhum refil cadastrado ainda. Cadastre o refil e informe o intervalo de troca.',
+    placeholder: 'Busque o refil por nome ou código…',
+    ajuda: 'É esse vínculo que faz a troca ser agendada sozinha ao vender o aparelho. Com mais de um refil, o ciclo usa o primeiro da lista.',
+  },
+  aparelho: {
+    titulo: 'Aparelhos compatíveis',
+    vazio: 'Nenhum aparelho cadastrado ainda.',
+    placeholder: 'Busque o aparelho por nome ou código…',
+    ajuda: 'O mesmo refil pode servir vários aparelhos. Marcar aqui é o mesmo que marcar este refil no cadastro de cada um deles.',
+  },
+}
+
+function Compatibilidade({ tipoAlvo, candidatos, escolhidos, onChange }) {
+  const rotulo = ROTULO_COMPATIVEL[tipoAlvo]
+  const lista = escolhidos || []
+  const alternar = (id) =>
+    onChange(lista.includes(id) ? lista.filter((x) => x !== id) : [...lista, id])
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
+      <Field label={rotulo.titulo}>
+        {candidatos.length === 0 ? (
+          <p className="text-xs text-slate-400">{rotulo.vazio}</p>
+        ) : (
+          <>
+            <ProdutoBusca
+              produtos={candidatos}
+              onChange={alternar}
+              ocultarIds={lista}
+              limparAoSelecionar
+              placeholder={rotulo.placeholder}
+            />
+            {lista.length > 0 && (
+              <ul className="mt-2 rounded-lg border border-slate-200 bg-white divide-y divide-slate-100">
+                {lista.map((id) => {
+                  const c = produtos.get(id)
+                  return (
+                    <li key={id} className="flex items-center gap-2.5 px-3 py-2">
+                      {c?.codigo && (
+                        <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-500 tnum">
+                          {c.codigo}
+                        </span>
+                      )}
+                      <span className="text-sm text-slate-700 flex-1 truncate">
+                        {c?.nome ?? '(produto removido)'}
+                        {c?.tipo === 'refil' && c?.intervaloTrocaMeses && (
+                          <span className="text-slate-400"> — troca a cada {c.intervaloTrocaMeses} meses</span>
+                        )}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => alternar(id)}
+                        className="text-red-500 hover:text-red-600 text-lg leading-none cursor-pointer px-1"
+                        title="Remover compatibilidade"
+                        aria-label={`Remover ${c?.nome ?? 'produto'}`}
+                      >
+                        ×
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </>
+        )}
+      </Field>
+      <p className="text-xs text-slate-500">{rotulo.ajuda}</p>
+    </div>
+  )
 }
 
 export default function Produtos() {
@@ -25,32 +111,24 @@ export default function Produtos() {
   const [salvando, setSalvando] = useState(false)
 
   const refresh = () => setLista(produtos.list())
-  const aparelhos = lista.filter((p) => p.tipo === 'aparelho')
-  const refis = lista.filter((p) => p.tipo === 'refil')
 
-  const refilDoAparelho = (aparelhoId) =>
-    refis.find((r) => r.aparelhoCompativelId === aparelhoId) ?? null
+  // Os nomes dos compatíveis, para a tabela e para a busca. Vem do repositório
+  // porque é ele que sabe ler a lista nova e o vínculo antigo.
+  const compativeis = (p) => compativeisDe(p, TIPO_COMPATIVEL[p.tipo])
+  const nomesCompativeis = (p) => compativeis(p).map((c) => c.nome).join(', ')
 
   // A busca filtra só o que a tabela mostra: os selects do formulário continuam
   // enxergando a lista inteira, senão o filtro esconderia justo o vínculo a
   // escolher. O par vinculado entra na busca porque procurar pelo aparelho é a
   // forma natural de chegar no refil dele — e vice-versa.
-  const filtrados = lista.filter((p) => {
-    const par = p.tipo === 'refil'
-      ? produtos.get(p.aparelhoCompativelId)?.nome
-      : refilDoAparelho(p.id)?.nome
-    return combina(busca, p.nome, p.codigo, p.cor, TIPOS_PRODUTO[p.tipo], par)
-  })
+  const filtrados = lista.filter((p) =>
+    combina(busca, p.nome, p.codigo, p.cor, TIPOS_PRODUTO[p.tipo], nomesCompativeis(p)))
 
   const { visiveis, barra } = usePaginacao(filtrados)
 
   function abrirEdicao(p) {
     setErro('')
-    setForm({
-      ...FORM_VAZIO,
-      ...p,
-      refilVinculadoId: p.tipo === 'aparelho' ? (refilDoAparelho(p.id)?.id ?? '') : '',
-    })
+    setForm({ ...FORM_VAZIO, ...p, compativeisIds: compativeis(p).map((c) => c.id) })
   }
 
   async function salvar(e) {
@@ -58,21 +136,10 @@ export default function Produtos() {
     setErro('')
     setSalvando(true)
     try {
-      const { refilVinculadoId, ...campos } = form
-      const dados = { ...campos, valor: Number(form.valor || 0) }
-      const produto = form.id ? await produtos.update(form.id, dados) : await produtos.create(dados)
-
-      // Vínculo escolhido pelo lado do aparelho: como ele é gravado no refil,
-      // desfazemos o anterior antes de marcar o novo (um aparelho tem um refil).
-      if (produto.tipo === 'aparelho') {
-        const anterior = refilDoAparelho(produto.id)
-        if (anterior && anterior.id !== refilVinculadoId) {
-          await produtos.update(anterior.id, { aparelhoCompativelId: '' })
-        }
-        if (refilVinculadoId && refilVinculadoId !== anterior?.id) {
-          await produtos.update(refilVinculadoId, { aparelhoCompativelId: produto.id })
-        }
-      }
+      // Acessório e "outro" não têm par: trocar o tipo depois de escolher
+      // compatíveis não pode deixar vínculo órfão para trás.
+      const compativeisIds = TIPO_COMPATIVEL[form.tipo] ? form.compativeisIds : []
+      await salvarProduto({ ...form, compativeisIds, valor: Number(form.valor || 0) })
 
       setForm(null)
       refresh()
@@ -172,16 +239,17 @@ export default function Produtos() {
                       {/* No aparelho mostramos o intervalo do refil dele: é essa a
                           periodicidade da manutenção daquele equipamento. */}
                       {(() => {
+                        // No aparelho, o intervalo é o do refil dele. Com mais de
+                        // um refil compatível vale o primeiro, que é o mesmo que
+                        // o ciclo de troca usa para agendar.
                         const meses = p.tipo === 'refil'
                           ? p.intervaloTrocaMeses
-                          : refilDoAparelho(p.id)?.intervaloTrocaMeses
+                          : compativeis(p)[0]?.intervaloTrocaMeses
                         return meses ? `${meses} meses` : <span className="text-slate-500">—</span>
                       })()}
                     </td>
                     <td className="py-3 pr-4">
-                      {p.tipo === 'refil'
-                        ? (produtos.get(p.aparelhoCompativelId)?.nome ?? <span className="text-slate-500">—</span>)
-                        : (refilDoAparelho(p.id)?.nome ?? <span className="text-slate-500">—</span>)}
+                      {nomesCompativeis(p) || <span className="text-slate-500">—</span>}
                     </td>
                     <td className="py-3 text-right whitespace-nowrap">
                       <Button variant="ghost" onClick={() => abrirEdicao(p)}>Editar</Button>
@@ -263,19 +331,9 @@ export default function Produtos() {
             )}
             {form.tipo === 'refil' && (
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Field label="Troca a cada (meses)">
-                    <InputNumero className={inputCls} min="1" step="1" required value={form.intervaloTrocaMeses} onChange={set('intervaloTrocaMeses')} />
-                  </Field>
-                  <Field label="Aparelho compatível">
-                    <select className={inputCls} value={form.aparelhoCompativelId} onChange={set('aparelhoCompativelId')}>
-                      <option value="">Selecione…</option>
-                      {aparelhos.map((a) => (
-                        <option key={a.id} value={a.id}>{a.nome}</option>
-                      ))}
-                    </select>
-                  </Field>
-                </div>
+                <Field label="Troca a cada (meses)">
+                  <InputNumero className={inputCls} min="1" step="1" required value={form.intervaloTrocaMeses} onChange={set('intervaloTrocaMeses')} />
+                </Field>
                 <p className="text-xs text-slate-500">
                   É esse intervalo que agenda as trocas sozinho: ao vender o aparelho, a
                   primeira troca já entra na agenda, e cada troca concluída marca a seguinte.
@@ -283,36 +341,13 @@ export default function Produtos() {
               </div>
             )}
 
-            {form.tipo === 'aparelho' && (
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
-                <Field label="Refil deste aparelho">
-                  {refis.length === 0 ? (
-                    <p className="text-xs text-slate-400">
-                      Nenhum refil cadastrado ainda. Cadastre o refil e informe o intervalo de troca.
-                    </p>
-                  ) : (
-                    <select
-                      className={inputCls}
-                      value={form.refilVinculadoId}
-                      onChange={set('refilVinculadoId')}
-                      disabled={!form.id}
-                    >
-                      <option value="">Nenhum</option>
-                      {refis.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.nome}
-                          {r.intervaloTrocaMeses ? ` — troca a cada ${r.intervaloTrocaMeses} meses` : ' — sem intervalo definido'}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </Field>
-                <p className="text-xs text-slate-500">
-                  {form.id
-                    ? 'Vincular aqui é o mesmo que escolher este aparelho no cadastro do refil — é o que faz a troca ser agendada sozinha ao vender.'
-                    : 'Salve o aparelho primeiro; depois, editando, você poderá vincular o refil dele.'}
-                </p>
-              </div>
+            {TIPO_COMPATIVEL[form.tipo] && (
+              <Compatibilidade
+                tipoAlvo={TIPO_COMPATIVEL[form.tipo]}
+                candidatos={lista.filter((p) => p.tipo === TIPO_COMPATIVEL[form.tipo] && p.id !== form.id)}
+                escolhidos={form.compativeisIds}
+                onChange={(ids) => setForm({ ...form, compativeisIds: ids })}
+              />
             )}
             {erro && (
               <p className="text-sm text-red-600 bg-slate-100 border border-slate-200 rounded-lg px-3 py-2">{erro}</p>

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import {
   agendamentos, clientes, produtos, salvarAgendamento, mudarStatusAgendamento, excluirAgendamento, assinarDados,
   textoAutorDoAgendamento, badgeDoAgendamento, agendamentoEncerrado,
+  produtosDoAgendamento,
   formatData, formatBRL, TIPOS_AGENDAMENTO, FORMAS_PAGAMENTO,
 } from '../data/repository.js'
 import { formatHora } from '../lib/datas.js'
@@ -16,7 +17,8 @@ import { CampoTaxa, aoMudarForma } from '../components/PagamentosVenda.jsx'
 
 const FORM_VAZIO = {
   clienteId: '', data: '', hora: '', tipo: 'visita', observacoes: '', status: 'agendado',
-  produtoIds: [], valor: '', formaPagamento: 'pix', parcelas: 1, statusPagamento: 'pendente',
+  produtoIds: [], produtoQuantidades: {},
+  valor: '', formaPagamento: 'pix', parcelas: 1, statusPagamento: 'pendente',
   lancarFinanceiro: true,
 }
 
@@ -210,13 +212,42 @@ export default function Agendamentos() {
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
 
-  // Marca/desmarca um produto do serviço e recalcula o valor somando a tabela
-  // dos produtos escolhidos (o valor continua editável manualmente depois).
+  // O valor do serviço é a tabela dos produtos escolhidos VEZES a quantidade de
+  // cada um — quatro refis custam quatro refis. Continua editável à mão depois.
+  const somaDosProdutos = (ids, quantidades) =>
+    ids.reduce((s, pid) => s + Number(produtos.get(pid)?.valor || 0) * quantidadeDe(quantidades, pid), 0)
+
+  // Ausente ou inválida = 1: é assim que se comporta todo serviço anterior à
+  // migração 025, que não tinha quantidade nenhuma.
+  const quantidadeDe = (quantidades, id) => {
+    const n = Number(quantidades?.[id])
+    return Number.isFinite(n) && n > 0 ? n : 1
+  }
+
+  // Marca/desmarca um produto do serviço e recalcula o valor.
   function alternarProduto(id) {
     const atuais = Array.isArray(form.produtoIds) ? form.produtoIds : []
     const novos = atuais.includes(id) ? atuais.filter((x) => x !== id) : [...atuais, id]
-    const soma = novos.reduce((s, pid) => s + Number(produtos.get(pid)?.valor || 0), 0)
-    setForm({ ...form, produtoIds: novos, valor: soma || '' })
+    const quantidades = { ...form.produtoQuantidades }
+    if (novos.includes(id)) quantidades[id] = quantidades[id] || 1
+    else delete quantidades[id]
+    setForm({
+      ...form,
+      produtoIds: novos,
+      produtoQuantidades: quantidades,
+      valor: somaDosProdutos(novos, quantidades) || '',
+    })
+  }
+
+  // Trocar a quantidade refaz o valor pela mesma conta. O campo pode ficar
+  // vazio enquanto se digita — aí vale 1, e o valor acompanha.
+  function mudarQuantidade(id, valorDigitado) {
+    const quantidades = { ...form.produtoQuantidades, [id]: valorDigitado }
+    setForm({
+      ...form,
+      produtoQuantidades: quantidades,
+      valor: somaDosProdutos(form.produtoIds || [], quantidades) || '',
+    })
   }
 
   return (
@@ -300,8 +331,9 @@ export default function Agendamentos() {
         <ul className="divide-y divide-slate-100">
           {visiveis.map((a) => {
             const [cor, rotulo] = badgeDoAgendamento(a)
-            const idsProdutos = a.produtoIds?.length ? a.produtoIds : (a.produtoId ? [a.produtoId] : [])
-            const nomesProdutos = idsProdutos.map((id) => produtos.get(id)?.nome).filter(Boolean).join(', ')
+            const nomesProdutos = produtosDoAgendamento(a)
+              .map(({ produto, quantidade }) => (quantidade > 1 ? `${quantidade}x ${produto.nome}` : produto.nome))
+              .join(', ')
             return (
               <li key={a.id} className="py-3 flex flex-wrap items-center justify-between gap-3">
                 <div className="min-w-0">
@@ -433,6 +465,7 @@ export default function Agendamentos() {
                       <ul className="mt-2 rounded-lg border border-slate-200 bg-white divide-y divide-slate-100">
                         {(form.produtoIds || []).map((id) => {
                           const p = produtos.get(id)
+                          const quantidade = quantidadeDe(form.produtoQuantidades, id)
                           return (
                             <li key={id} className="flex items-center gap-2.5 px-3 py-2">
                               {p?.codigo && (
@@ -443,7 +476,25 @@ export default function Agendamentos() {
                               <span className="text-sm text-slate-700 flex-1 truncate">
                                 {p?.nome ?? '(produto removido)'}
                               </span>
-                              <span className="text-xs text-slate-400 tnum">{formatBRL(p?.valor)}</span>
+                              {/* Quatro refis na mesma visita são UMA linha com
+                                  quantidade 4 — é ela que a Ordem de Serviço
+                                  cobra e que a instalação dá baixa.
+                                  A largura mora no wrapper: inputCls já traz
+                                  w-full, e entre duas classes de mesma
+                                  especificidade quem manda é a ordem do CSS. */}
+                              <div className="w-14 shrink-0">
+                                <InputNumero
+                                  className={`${inputCls} px-2 py-1.5 text-sm text-center`}
+                                  min="1"
+                                  step="1"
+                                  value={form.produtoQuantidades?.[id] ?? 1}
+                                  onChange={(e) => mudarQuantidade(id, e.target.value)}
+                                  aria-label={`Quantidade de ${p?.nome ?? 'produto'}`}
+                                />
+                              </div>
+                              <span className="text-xs text-slate-400 tnum w-20 text-right">
+                                {formatBRL(Number(p?.valor || 0) * quantidade)}
+                              </span>
                               <button
                                 type="button"
                                 onClick={() => alternarProduto(id)}

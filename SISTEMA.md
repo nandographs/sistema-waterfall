@@ -110,7 +110,14 @@ Tabelas: `clientes`, `produtos`, `equipamentos`, `agendamentos`, `oportunidades`
 Pontos-chave:
 
 - **`produtos`** tem `tipo` (`aparelho` | `refil`), `intervalo_troca_meses` e
-  `aparelho_compativel_id` — o refil aponta para o aparelho que ele serve.
+  `compativeis_ids` (`sql/025`) — a lista dos produtos compatíveis com este.
+  A compatibilidade é de **mão dupla e de muitos para muitos**: a mesma vela
+  serve três purificadores, e um purificador aceita dois refis. As duas listas
+  são mantidas simétricas por `salvarProduto` — entrar na lista de A põe A na de
+  B. A coluna antiga `aparelho_compativel_id` (um vínculo só, gravado no refil)
+  continua na tabela como origem do backfill e é lida como retaguarda.
+  Onde o ciclo de troca precisa de UM refil (agendar a próxima troca), vale o
+  primeiro compatível — `refilDoAparelho`.
 - **`clientes`** guarda VÁRIOS telefones em `telefones` (jsonb, `sql/016`):
   `[{numero, rotulo}]`. A coluna `telefone` continua e vale o PRIMEIRO da lista —
   é ela que o WhatsApp, a Ordem de Serviço e o Pedido leem, então nada disso
@@ -127,6 +134,10 @@ Pontos-chave:
 - **`agendamentos`** = serviço em campo. Gera OS, pode entrar no caixa, cria o
   equipamento ao ser concluído e dispara o ciclo de refil.
   Status: `agendado` | `concluido` | `cancelado` | `reagendado` (`sql/024`).
+  Os produtos do serviço estão em `produto_ids`, com a quantidade de cada um em
+  `produto_quantidades` (jsonb, `sql/025`): trocar quatro refis na mesma visita
+  é UMA linha com quantidade 4 — é ela que o valor do serviço e a Ordem de
+  Serviço cobram. Produto ausente do mapa vale 1.
   **Reagendar ≠ remarcar**: remarcar MOVE o registro de dia; reagendar deixa o
   dia original no lugar como `reagendado` e cria um serviço novo na data
   combinada, ligados por `reagendado_para_id`/`reagendado_de_id`. O primeiro

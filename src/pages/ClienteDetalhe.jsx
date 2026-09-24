@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   clientes, produtos, equipamentos, vendas, lancamentos, agendamentos,
   salvarVenda, darBaixa, excluirVenda, itensDaVenda, agendarProximaTroca, agendarTrocaDeRefil,
+  aparelhosDoRefil,
   refilDoAparelho,
   registrarEquipamento, definirFotoPerfil, removerFotoPerfil, resolverPagamentos,
   explicarColunaFaltante,
@@ -176,9 +177,12 @@ export default function ClienteDetalhe() {
       } else if (produto?.tipo === 'refil') {
         // Refil vendido é refil trocado: marca a troca no aparelho do cliente
         // (se ele estiver na ficha) e já deixa a próxima na agenda.
+        // O mesmo refil pode servir vários aparelhos: a troca marca o que
+        // ESTE cliente tem — o primeiro compatível que estiver na ficha dele.
+        const idsAparelhos = aparelhosDoRefil(produto).map((ap) => ap.id)
         const eq = equipamentos
           .list()
-          .find((e) => e.clienteId === id && e.produtoId === produto.aparelhoCompativelId)
+          .find((e) => e.clienteId === id && idsAparelhos.includes(e.produtoId))
         if (eq) {
           await equipamentos.update(eq.id, {
             dataUltimaTroca: dataServico,
