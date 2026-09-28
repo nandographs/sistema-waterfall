@@ -15,6 +15,13 @@ import { paraE164 } from '../_compartilhado/telefone.ts'
 
 const INSTANCIA = Deno.env.get('EVOLUTION_INSTANCIA') ?? 'waterfall'
 
+function motivo(corpo: any): string {
+  if (corpo == null) return ''
+  if (typeof corpo === 'string') return corpo
+  const texto = corpo.message ?? corpo.error
+  return typeof texto === 'string' ? texto : JSON.stringify(corpo)
+}
+
 Deno.serve(async (req) => {
   const opcoes = preflight(req)
   if (opcoes) return opcoes
@@ -101,7 +108,9 @@ Deno.serve(async (req) => {
     status: resposta.ok ? 'enviada' : 'falhou',
     // Guarda o motivo real da falha, e não um "erro ao enviar" genérico: sem
     // isso, descobrir que o número não existe no WhatsApp vira adivinhação.
-    erro: resposta.ok ? null : String(resposta.corpo?.message ?? resposta.corpo ?? '').slice(0, 500),
+    // A Evolution às vezes responde { error: '...' } sem `message` — String() de
+    // um objeto gravava "[object Object]" e escondia justamente o motivo.
+    erro: resposta.ok ? null : motivo(resposta.corpo).slice(0, 500),
     oportunidade_id: corpo?.oportunidadeId ?? null,
     enviado_por: corpo?.enviadoPor ?? null,
     ocorrido_em: new Date().toISOString(),
