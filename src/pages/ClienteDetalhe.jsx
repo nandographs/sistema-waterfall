@@ -26,6 +26,7 @@ import ClienteFormFields from '../components/ClienteFormFields.jsx'
 import PagamentosVenda, { pagamentosIniciais } from '../components/PagamentosVenda.jsx'
 import FotosCliente from '../components/FotosCliente.jsx'
 import FotoUnica from '../components/FotoUnica.jsx'
+import ProdutoBusca from '../components/ProdutoBusca.jsx'
 
 const CLIENTE_VAZIO = {
   telefones: [],
@@ -835,8 +836,8 @@ export default function ClienteDetalhe() {
         {equipForm && (
           <form onSubmit={adicionarEquipamento} className="space-y-4">
             <p className="text-sm text-slate-600">
-              Registra aparelhos que já estão com o cliente, sem gerar venda nem
-              conta a receber. A troca de refil já fica programada a partir da
+              Registra aparelhos, refis e outros produtos que já estão com o
+              cliente, sem gerar venda nem conta a receber. A troca de refil já fica programada a partir da
               data de instalação. A quantidade é quantas unidades daquele modelo
               ele tem na casa — cada uma vira um equipamento na ficha.
             </p>
@@ -847,17 +848,15 @@ export default function ClienteDetalhe() {
                   <div key={indice} className="flex items-end gap-2">
                     <div className="flex-1 min-w-0">
                       <Field label={indice === 0 ? 'Produto' : ' '}>
-                        <select
-                          className={inputCls}
+                        {/* O catálogo inteiro, não só aparelho: refil avulso
+                            também mora na casa do cliente e puxa a troca. */}
+                        <ProdutoBusca
+                          produtos={produtos.list()}
                           required
                           value={item.produtoId}
-                          onChange={(e) => mudarLinhaEquip(indice, 'produtoId', e.target.value)}
-                        >
-                          <option value="">Selecione…</option>
-                          {produtos.list().filter((p) => p.tipo === 'aparelho').map((p) => (
-                            <option key={p.id} value={p.id}>{p.nome}</option>
-                          ))}
-                        </select>
+                          onChange={(produtoId) => mudarLinhaEquip(indice, 'produtoId', produtoId)}
+                          ocultarIds={equipForm.itens.filter((_, i) => i !== indice).map((i) => i.produtoId).filter(Boolean)}
+                        />
                       </Field>
                       {jaTem > 0 && (
                         <p className="mt-1 text-xs text-slate-500">
