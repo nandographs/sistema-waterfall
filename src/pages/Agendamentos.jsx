@@ -1,26 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  agendamentos, clientes, produtos, salvarAgendamento, mudarStatusAgendamento, excluirAgendamento, assinarDados,
+  agendamentos, clientes, mudarStatusAgendamento, excluirAgendamento, assinarDados,
   textoAutorDoAgendamento, badgeDoAgendamento, agendamentoEncerrado,
   produtosDoAgendamento,
-  formatData, formatBRL, TIPOS_AGENDAMENTO, FORMAS_PAGAMENTO,
+  formatData, formatBRL, TIPOS_AGENDAMENTO,
 } from '../data/repository.js'
 import { formatHora } from '../lib/datas.js'
-import { Card, Page, PageTitle, Button, Field, inputCls, InputNumero, Empty, Modal, Badge, notificar, usePaginacao, Paginacao, Segmentos } from '../components/ui.jsx'
+import { Card, Page, PageTitle, Button, inputCls, Empty, Modal, Badge, notificar, usePaginacao, Paginacao, Segmentos } from '../components/ui.jsx'
 import { IconPlus, IconFileText, IconTrash, IconEye, IconSearch, IconFilter, IconMais } from '../components/icons.jsx'
 import OrdemServicoModal from '../components/OrdemServicoModal.jsx'
 import AgendamentoDetalheModal from '../components/AgendamentoDetalheModal.jsx'
-import ClienteBusca from '../components/ClienteBusca.jsx'
-import ProdutoBusca from '../components/ProdutoBusca.jsx'
-import { CampoTaxa, aoMudarForma } from '../components/PagamentosVenda.jsx'
-
-const FORM_VAZIO = {
-  clienteId: '', data: '', hora: '', tipo: 'visita', observacoes: '', status: 'agendado',
-  produtoIds: [], produtoQuantidades: {},
-  valor: '', formaPagamento: 'pix', parcelas: 1, statusPagamento: 'pendente',
-  lancarFinanceiro: true,
-}
+import AgendamentoFormModal from '../components/AgendamentoFormModal.jsx'
 
 // As ações de uma linha somavam 706px numa tela de 375px — a página inteira
 // rolava de lado. No desktop continuam em linha; no celular fica só "Ver" e um
@@ -106,8 +97,6 @@ function AcoesAgendamento({ agendamento: a, ocupado, onVer, onGerarOS, onEditar,
 export default function Agendamentos() {
   const [lista, setLista] = useState(agendamentos.list())
   const [form, setForm] = useState(null)
-  const [salvando, setSalvando] = useState(false)
-  const [erro, setErro] = useState('')
   const [filtro, setFiltro] = useState('agendado')
   const [busca, setBusca] = useState('')
   const [dataDe, setDataDe] = useState('')
@@ -136,8 +125,6 @@ export default function Agendamentos() {
   // A lista também muda fora daqui (concluir pela agenda, refil agendado
   // automaticamente): ouvir o repositório evita a tela mostrar o mundo antigo.
   useEffect(() => assinarDados(refresh), [])
-  const listaClientes = clientes.list()
-  const listaProdutos = produtos.list()
 
   const qtdFiltros = [dataDe, dataAte].filter(Boolean).length
   const filtrosAtivos = qtdFiltros > 0
@@ -156,30 +143,7 @@ export default function Agendamentos() {
 
   const { visiveis, barra } = usePaginacao(filtrados)
 
-  // Abrir e fechar o formulário passa por aqui para o erro da tentativa
-  // anterior não reaparecer no próximo agendamento.
-  const abrirForm = (dados) => { setErro(''); setForm({ ...FORM_VAZIO, ...dados }) }
-  const fecharForm = () => { setErro(''); setForm(null) }
-
-  // Sem try/catch, uma recusa do banco (coluna faltando, RLS, rede) rejeitava a
-  // promise em silêncio: o modal ficava aberto, nada era gravado e o Salvar
-  // parecia não ter sido clicado. O erro agora aparece dentro do próprio modal,
-  // onde a pessoa está olhando — mesmo padrão do formulário de venda.
-  async function salvar(e) {
-    e.preventDefault()
-    setErro('')
-    setSalvando(true)
-    try {
-      await salvarAgendamento(form)
-      notificar(form.id ? 'Agendamento atualizado.' : 'Agendamento salvo.')
-      setForm(null)
-      refresh()
-    } catch (ex) {
-      setErro(ex?.message || String(ex))
-    } finally {
-      setSalvando(false)
-    }
-  }
+  const abrirForm = (dados = {}) => setForm(dados)
 
   // Sem try/catch, uma falha aqui rejeitava a promise em silêncio: o refresh
   // nunca rodava e o botão parecia simplesmente não funcionar. Mesmo padrão do
@@ -208,46 +172,6 @@ export default function Agendamentos() {
     } finally {
       setExcluindo(false)
     }
-  }
-
-  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
-
-  // O valor do serviço é a tabela dos produtos escolhidos VEZES a quantidade de
-  // cada um — quatro refis custam quatro refis. Continua editável à mão depois.
-  const somaDosProdutos = (ids, quantidades) =>
-    ids.reduce((s, pid) => s + Number(produtos.get(pid)?.valor || 0) * quantidadeDe(quantidades, pid), 0)
-
-  // Ausente ou inválida = 1: é assim que se comporta todo serviço anterior à
-  // migração 025, que não tinha quantidade nenhuma.
-  const quantidadeDe = (quantidades, id) => {
-    const n = Number(quantidades?.[id])
-    return Number.isFinite(n) && n > 0 ? n : 1
-  }
-
-  // Marca/desmarca um produto do serviço e recalcula o valor.
-  function alternarProduto(id) {
-    const atuais = Array.isArray(form.produtoIds) ? form.produtoIds : []
-    const novos = atuais.includes(id) ? atuais.filter((x) => x !== id) : [...atuais, id]
-    const quantidades = { ...form.produtoQuantidades }
-    if (novos.includes(id)) quantidades[id] = quantidades[id] || 1
-    else delete quantidades[id]
-    setForm({
-      ...form,
-      produtoIds: novos,
-      produtoQuantidades: quantidades,
-      valor: somaDosProdutos(novos, quantidades) || '',
-    })
-  }
-
-  // Trocar a quantidade refaz o valor pela mesma conta. O campo pode ficar
-  // vazio enquanto se digita — aí vale 1, e o valor acompanha.
-  function mudarQuantidade(id, valorDigitado) {
-    const quantidades = { ...form.produtoQuantidades, [id]: valorDigitado }
-    setForm({
-      ...form,
-      produtoQuantidades: quantidades,
-      valor: somaDosProdutos(form.produtoIds || [], quantidades) || '',
-    })
   }
 
   return (
@@ -420,187 +344,14 @@ export default function Agendamentos() {
         )}
       </Modal>
 
-      <Modal title={form?.id ? 'Editar agendamento' : 'Novo agendamento'} open={!!form} onClose={fecharForm}>
-        {form && (
-          <form onSubmit={salvar} className="space-y-4">
-            <Field label="Cliente">
-              <ClienteBusca
-                clientes={listaClientes}
-                value={form.clienteId}
-                onChange={(id) => setForm({ ...form, clienteId: id })}
-                required
-              />
-            </Field>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <Field label="Data">
-                <input className={inputCls} type="date" required value={form.data} onChange={set('data')} />
-              </Field>
-              <Field label="Hora">
-                <input className={inputCls} type="time" value={form.hora} onChange={set('hora')} />
-              </Field>
-              <Field label="Tipo de serviço">
-                <select className={inputCls} value={form.tipo} onChange={set('tipo')}>
-                  {Object.entries(TIPOS_AGENDAMENTO).map(([v, r]) => (
-                    <option key={v} value={v}>{r}</option>
-                  ))}
-                </select>
-              </Field>
-            </div>
-
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-4">
-              <p className="text-[13px] font-semibold text-slate-700">Financeiro do serviço</p>
-              <Field label="Produtos / serviços">
-                {listaProdutos.length === 0 ? (
-                  <p className="text-xs text-slate-400">Nenhum produto cadastrado.</p>
-                ) : (
-                  <>
-                    <ProdutoBusca
-                      produtos={listaProdutos}
-                      onChange={alternarProduto}
-                      ocultarIds={form.produtoIds || []}
-                      limparAoSelecionar
-                      placeholder="Busque por nome ou código e tecle Enter…"
-                    />
-                    {(form.produtoIds || []).length > 0 && (
-                      <ul className="mt-2 rounded-lg border border-slate-200 bg-white divide-y divide-slate-100">
-                        {(form.produtoIds || []).map((id) => {
-                          const p = produtos.get(id)
-                          const quantidade = quantidadeDe(form.produtoQuantidades, id)
-                          return (
-                            <li key={id} className="flex items-center gap-2.5 px-3 py-2">
-                              {p?.codigo && (
-                                <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-500 tnum">
-                                  {p.codigo}
-                                </span>
-                              )}
-                              <span className="text-sm text-slate-700 flex-1 truncate">
-                                {p?.nome ?? '(produto removido)'}
-                              </span>
-                              {/* Quatro refis na mesma visita são UMA linha com
-                                  quantidade 4 — é ela que a Ordem de Serviço
-                                  cobra e que a instalação dá baixa.
-                                  A largura mora no wrapper: inputCls já traz
-                                  w-full, e entre duas classes de mesma
-                                  especificidade quem manda é a ordem do CSS. */}
-                              <div className="w-14 shrink-0">
-                                <InputNumero
-                                  className={`${inputCls} px-2 py-1.5 text-sm text-center`}
-                                  min="1"
-                                  step="1"
-                                  value={form.produtoQuantidades?.[id] ?? 1}
-                                  onChange={(e) => mudarQuantidade(id, e.target.value)}
-                                  aria-label={`Quantidade de ${p?.nome ?? 'produto'}`}
-                                />
-                              </div>
-                              <span className="text-xs text-slate-400 tnum w-20 text-right">
-                                {formatBRL(Number(p?.valor || 0) * quantidade)}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => alternarProduto(id)}
-                                className="text-red-500 hover:text-red-600 text-lg leading-none cursor-pointer px-1"
-                                title="Remover produto"
-                                aria-label={`Remover ${p?.nome ?? 'produto'}`}
-                              >
-                                ×
-                              </button>
-                            </li>
-                          )
-                        })}
-                      </ul>
-                    )}
-                  </>
-                )}
-                <p className="text-xs text-slate-400 mt-1">
-                  Deixe a lista vazia para uma visita sem produto.
-                </p>
-              </Field>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="Valor do serviço (R$)">
-                  <InputNumero
-                    className={inputCls}
-                    step="0.01"
-                    min="0"
-                    placeholder="0,00"
-                    value={form.valor}
-                    onChange={set('valor')}
-                  />
-                </Field>
-                <Field label="Parcelas">
-                  <InputNumero className={inputCls} min="1" step="1" value={form.parcelas} onChange={set('parcelas')} />
-                </Field>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="Forma de pagamento">
-                  <select
-                    className={inputCls}
-                    value={form.formaPagamento}
-                    onChange={(e) => {
-                      const { forma, taxa } = aoMudarForma(e.target.value, { taxa: form.taxaCartao || '' })
-                      setForm({ ...form, formaPagamento: forma, ...(taxa !== undefined ? { taxaCartao: taxa } : {}) })
-                    }}
-                  >
-                    {Object.entries(FORMAS_PAGAMENTO).map(([v, r]) => (
-                      <option key={v} value={v}>{r}</option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Situação do pagamento">
-                  <select className={inputCls} value={form.statusPagamento} onChange={set('statusPagamento')}>
-                    <option value="pendente">A receber</option>
-                    <option value="pago">Pago</option>
-                  </select>
-                </Field>
-              </div>
-              {form.formaPagamento === 'cartao' && Number(form.valor) > 0 && (
-                <CampoTaxa
-                  pagamento={{ forma: 'cartao', taxa: form.taxaCartao || '', parcelas: form.parcelas }}
-                  valorResolvido={form.valor}
-                  onChange={({ taxa }) => setForm({ ...form, taxaCartao: taxa })}
-                />
-              )}
-              {/* Só aparece quando há valor: sem cobrança, não há o que lançar
-                  e a pergunta seria ruído. */}
-              {Number(form.valor) > 0 && (
-                <label className="flex items-start gap-2.5 cursor-pointer rounded-lg bg-white border border-slate-200 p-3">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600 cursor-pointer"
-                    checked={form.lancarFinanceiro !== false}
-                    onChange={(e) => setForm({ ...form, lancarFinanceiro: e.target.checked })}
-                  />
-                  <span>
-                    <span className="block text-[13px] font-medium text-slate-700">
-                      Lançar no financeiro
-                    </span>
-                    <span className="block text-xs text-slate-400 mt-0.5">
-                      {form.lancarFinanceiro === false
-                        ? 'Este serviço não gera parcelas a receber. Use para cortesia, garantia ou acerto por fora.'
-                        : `Gera ${Math.max(1, Number(form.parcelas) || 1)} parcela${Math.max(1, Number(form.parcelas) || 1) > 1 ? 's' : ''} a receber, somando ${formatBRL(form.valor)}.`}
-                    </span>
-                  </span>
-                </label>
-              )}
-
-              <p className="text-xs text-slate-400">
-                Deixe o valor em branco para agendamentos sem cobrança.
-              </p>
-            </div>
-
-            <Field label="Observações">
-              <textarea className={inputCls} rows="2" value={form.observacoes} onChange={set('observacoes')} />
-            </Field>
-            {erro && (
-              <p role="alert" aria-live="polite" className="text-sm text-red-600 bg-slate-100 border border-slate-200 rounded-xl px-3 py-2">{erro}</p>
-            )}
-
-            <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="secondary" onClick={fecharForm} disabled={salvando}>Cancelar</Button>
-              <Button type="submit" disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar'}</Button>
-            </div>
-          </form>
-        )}
-      </Modal>
+      {form && (
+        <AgendamentoFormModal
+          key={form.id || 'novo-agendamento'}
+          agendamento={form}
+          onFechar={() => setForm(null)}
+          onSalvo={() => { setForm(null); refresh() }}
+        />
+      )}
     </Page>
   )
 }

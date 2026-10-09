@@ -2180,6 +2180,19 @@ const CAMPOS_HERDADOS_AO_REAGENDAR = [
   'lancarFinanceiro', 'intervaloTrocaMeses', 'vendaOrigemId', 'origemAtividadeId',
 ]
 
+// O registro carregado do banco tem uma chave por coluna (null vira ''), então
+// `undefined` aqui só significa uma coisa: a migração ainda não rodou. Vale a
+// pena avisar ANTES de gravar qualquer coisa — o erro do banco viria no meio do
+// caminho e deixaria um duplicado para trás.
+function exigirMigracaoDoReagendamento(original) {
+  if (original.reagendadoParaId === undefined) {
+    throw new Error(
+      'Reagendar precisa da migração 024. Rode sql/024_reagendamento.sql no SQL Editor ' +
+      'do Supabase e recarregue esta página.',
+    )
+  }
+}
+
 // Reagenda um serviço: o dia original CONTINUA existindo, encerrado como
 // `reagendado`, e um serviço novo nasce na data combinada.
 //
@@ -2195,16 +2208,7 @@ export async function reagendarAgendamento(id, { data, hora = '', motivo = '' } 
   if (original.status !== 'agendado') {
     throw new Error('Só um serviço ainda agendado pode ser reagendado.')
   }
-  // O registro carregado do banco tem uma chave por coluna (null vira ''), então
-  // `undefined` aqui só significa uma coisa: a migração ainda não rodou. Vale a
-  // pena avisar ANTES de criar o serviço novo — o erro do banco viria no meio do
-  // caminho e deixaria um duplicado para trás.
-  if (original.reagendadoParaId === undefined) {
-    throw new Error(
-      'Reagendar precisa da migração 024. Rode sql/024_reagendamento.sql no SQL Editor ' +
-      'do Supabase e recarregue esta página.',
-    )
-  }
+  exigirMigracaoDoReagendamento(original)
 
   const herdado = {}
   for (const campo of CAMPOS_HERDADOS_AO_REAGENDAR) {
@@ -2238,6 +2242,23 @@ export async function reagendarAgendamento(id, { data, hora = '', motivo = '' } 
   }).catch(explicarColunaFaltante)
 
   return sincronizarFinanceiro(novo)
+}
+
+// Editar e reagendar no mesmo gesto — é o que acontece quando alguém abre o
+// serviço, troca a data e diz que foi o cliente que não pôde. O resto do que
+// mudou (produtos, valor, observações) é gravado no registro ORIGINAL antes,
+// ainda no dia antigo, porque reagendarAgendamento copia o serviço novo a partir
+// dele: na ordem inversa, as edições ficariam no dia que foi encerrado.
+export async function editarEReagendar(form, motivo = '') {
+  const original = agendamentos.get(form.id)
+  if (!original) throw new Error('Serviço não encontrado.')
+  if (original.status !== 'agendado') {
+    throw new Error('Só um serviço ainda agendado pode ser reagendado.')
+  }
+  exigirMigracaoDoReagendamento(original)
+
+  await salvarAgendamento({ ...form, data: original.data, hora: original.hora })
+  return reagendarAgendamento(form.id, { data: form.data, hora: form.hora, motivo })
 }
 
 // Os dois lados de um reagendamento, para a tela mostrar de onde veio e para

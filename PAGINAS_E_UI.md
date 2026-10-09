@@ -195,6 +195,10 @@ Página 360°, a mais rica em conteúdo do cliente individual:
   serviço, calculada a partir do histórico inteiro.
 - **Produtos e vendas**: histórico de vendas do cliente, com atalho para gerar
   o **Pedido** (.docx) e excluir venda.
+- **Serviços** do cliente: cada um agendado pode ser editado e concluído ali
+  mesmo. Ao editar, se a data muda, o formulário pergunta se é
+  **reagendamento** (o dia original fica como reagendado) ou só **correção**
+  (o serviço muda de dia sem rastro) — o mesmo formulário da tela de Serviços.
 - **Contas a receber** desse cliente (venham de venda ou de agendamento avulso).
 - **Linha do tempo**: todos os eventos do cliente intercalados
   (`linhaDoTempoDoCliente`), com `TrilhaOrigem` mostrando de onde cada coisa veio.

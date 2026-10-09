@@ -8,7 +8,7 @@ import {
   registrarEquipamento, definirFotoPerfil, removerFotoPerfil, resolverPagamentos,
   explicarColunaFaltante,
   proximoPasso, linhaDoTempoDoCliente, oportunidadesDoCliente, conversaDoCliente,
-  proximaTroca, badgeDoAgendamento, formatBRL, formatData, enderecoCompleto,
+  proximaTroca, badgeDoAgendamento, mudarStatusAgendamento, formatBRL, formatData, enderecoCompleto,
   FORMAS_PAGAMENTO, STATUS_VENDA, RESULTADOS_ATIVIDADE, ETAPAS_FUNIL, ETAPAS_FECHADAS,
   TIPOS_AGENDAMENTO,
 } from '../data/repository.js'
@@ -20,6 +20,7 @@ import { IconeDoEvento, estiloDoEvento } from '../components/evento.jsx'
 import AtividadeModal, { atividadeNova } from '../components/AtividadeModal.jsx'
 import OrdemServicoModal from '../components/OrdemServicoModal.jsx'
 import AgendamentoDetalheModal from '../components/AgendamentoDetalheModal.jsx'
+import AgendamentoFormModal from '../components/AgendamentoFormModal.jsx'
 import PedidoModal from '../components/PedidoModal.jsx'
 import OportunidadeModal, { oportunidadeNova } from '../components/OportunidadeModal.jsx'
 import ClienteFormFields from '../components/ClienteFormFields.jsx'
@@ -63,6 +64,8 @@ export default function ClienteDetalhe() {
   const [vendaForm, setVendaForm] = useState(null)
   const [osAgendamento, setOsAgendamento] = useState(null)
   const [agDetalhe, setAgDetalhe] = useState(null)
+  const [agForm, setAgForm] = useState(null)
+  const [concluindo, setConcluindo] = useState('')
   const [vendaExcluir, setVendaExcluir] = useState(null)
   const [pedidoVenda, setPedidoVenda] = useState(null)
   const [removerEquip, setRemoverEquip] = useState(false)
@@ -116,6 +119,22 @@ export default function ClienteDetalhe() {
       refresh()
     } catch (erro) {
       notificar('Não foi possível salvar os dados: ' + (erro?.message || erro), 'erro')
+    }
+  }
+
+  // Concluir daqui faz o mesmo que na tela de Serviços: encerra o serviço,
+  // fecha o financeiro e, se for troca de refil, já programa a próxima.
+  async function concluirServico(a) {
+    setConcluindo(a.id)
+    try {
+      await mudarStatusAgendamento(a.id, 'concluido')
+      notificar('Serviço concluído.')
+      setAgDetalhe(null)
+      refresh()
+    } catch (erro) {
+      notificar('Não foi possível concluir este serviço: ' + (erro?.message || erro), 'erro')
+    } finally {
+      setConcluindo('')
     }
   }
 
@@ -622,6 +641,14 @@ export default function ClienteDetalhe() {
                       <Button variant="ghost" onClick={() => setOsAgendamento(a)}>
                         <IconFileText size={15} /> OS
                       </Button>
+                      {a.status === 'agendado' && (
+                        <>
+                          <Button variant="ghost" onClick={() => setAgForm(a)}>Editar</Button>
+                          <Button variant="secondary" onClick={() => concluirServico(a)} disabled={concluindo === a.id}>
+                            {concluindo === a.id ? 'Salvando…' : 'Concluir'}
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </li>
                 )
@@ -758,10 +785,21 @@ export default function ClienteDetalhe() {
         <AgendamentoDetalheModal
           agendamento={agDetalhe}
           onClose={() => setAgDetalhe(null)}
+          onEditar={(ag) => { setAgDetalhe(null); setAgForm(ag) }}
+          onConcluir={concluirServico}
           onCriarTarefa={(ag) => {
             setAgDetalhe(null)
             setAtividadeForm(atividadeNova({ clienteId: id, tipo: 'tarefa', agendamentoId: ag.id }))
           }}
+        />
+      )}
+
+      {agForm && (
+        <AgendamentoFormModal
+          key={agForm.id}
+          agendamento={agForm}
+          onFechar={() => setAgForm(null)}
+          onSalvo={() => { setAgForm(null); refresh() }}
         />
       )}
 

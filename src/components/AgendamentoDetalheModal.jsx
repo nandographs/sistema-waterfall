@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   clientes, produtos, autorDoAgendamento, reagendamentoDe, agendamentoEncerrado,
@@ -23,7 +24,9 @@ function Linha({ rotulo, children }) {
 // atalho de edição (só faz sentido onde existe o formulário de agendamento) e
 // `onCriarTarefa` para o atalho de lembrete (ex.: "confirmar na véspera") e
 // `onReagendar` para mover o serviço de dia guardando o rastro do dia original.
-export default function AgendamentoDetalheModal({ agendamento, onClose, onEditar, onCriarTarefa, onReagendar }) {
+// `onConcluir` pode devolver uma promise; o botão fica ocupado até ela acabar.
+export default function AgendamentoDetalheModal({ agendamento, onClose, onEditar, onCriarTarefa, onReagendar, onConcluir }) {
+  const [concluindo, setConcluindo] = useState(false)
   if (!agendamento) return null
   const a = agendamento
   const cliente = clientes.get(a.clienteId)
@@ -36,6 +39,16 @@ export default function AgendamentoDetalheModal({ agendamento, onClose, onEditar
   const autor = autorDoAgendamento(a)
   const reag = reagendamentoDe(a)
   const podeReagendar = !!onReagendar && a.status === 'agendado'
+  const podeConcluir = !!onConcluir && a.status === 'agendado'
+
+  async function concluir() {
+    setConcluindo(true)
+    try {
+      await onConcluir(a)
+    } finally {
+      setConcluindo(false)
+    }
+  }
 
   return (
     <Modal title="Detalhes do agendamento" open onClose={onClose}>
@@ -138,6 +151,11 @@ export default function AgendamentoDetalheModal({ agendamento, onClose, onEditar
           {podeReagendar && (
             <Button variant="secondary" onClick={() => onReagendar(a)}>
               <IconCalendar size={15} /> Reagendar
+            </Button>
+          )}
+          {podeConcluir && (
+            <Button variant="secondary" onClick={concluir} disabled={concluindo}>
+              {concluindo ? 'Concluindo…' : 'Concluir'}
             </Button>
           )}
           {onEditar && (
