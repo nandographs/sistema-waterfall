@@ -130,7 +130,13 @@ Pontos-chave:
   (`clienteTemNumero`), não só pelo principal — senão quem escreve do segundo
   número entra como lead, com cartão novo ao lado da ficha que já existe.
 - **`equipamentos`** = o aparelho instalado na casa do cliente; dele sai a
-  previsão da próxima troca (`proximaTroca`).
+  previsão da próxima troca (`proximaTroca`). Cada um tem histórico próprio
+  (`historicoDoEquipamento`): os serviços concluídos com `equipamento_id`
+  (`sql/026`) apontando para ele — e, para os anteriores à migração, os que
+  levam o aparelho ou um refil dele. Troca ou manutenção feita fora do sistema
+  entra por `registrarServicoDoEquipamento`, como serviço já concluído (valor
+  opcional; sem valor, nada vai para o caixa). Uma troca mais recente que a
+  última move a troca em aberto, se ninguém a remarcou à mão.
 - **`agendamentos`** = serviço em campo. Gera OS, pode entrar no caixa, cria o
   equipamento ao ser concluído e dispara o ciclo de refil.
   Status: `agendado` | `concluido` | `cancelado` | `reagendado` (`sql/024`).

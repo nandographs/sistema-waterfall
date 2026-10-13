@@ -5,7 +5,8 @@ import {
   salvarVenda, darBaixa, excluirVenda, itensDaVenda, agendarProximaTroca, agendarTrocaDeRefil,
   aparelhosDoRefil,
   refilDoAparelho,
-  registrarEquipamento, definirFotoPerfil, removerFotoPerfil, resolverPagamentos,
+  registrarEquipamento, historicoDoEquipamento, registrarServicoDoEquipamento, refilDoEquipamento,
+  SERVICOS_DO_EQUIPAMENTO, definirFotoPerfil, removerFotoPerfil, resolverPagamentos,
   explicarColunaFaltante,
   proximoPasso, linhaDoTempoDoCliente, oportunidadesDoCliente, conversaDoCliente,
   proximaTroca, badgeDoAgendamento, mudarStatusAgendamento, formatBRL, formatData, enderecoCompleto,
@@ -14,7 +15,7 @@ import {
 } from '../data/repository.js'
 import { hojeISO, formatHora, diaCurto } from '../lib/datas.js'
 import { Card, Page, PageTitle, Button, Field, inputCls, InputNumero, Empty, Modal, Badge, notificar } from '../components/ui.jsx'
-import { IconPlus, IconFileText, IconChevronLeft, IconUser, IconTrash, IconEye, IconAlert, IconMessage } from '../components/icons.jsx'
+import { IconPlus, IconFileText, IconChevronLeft, IconUser, IconTrash, IconEye, IconAlert, IconMessage, IconClock } from '../components/icons.jsx'
 import { paraE164, telefonesDoCliente, comTelefonePrincipal } from '../lib/telefone.js'
 import { IconeDoEvento, estiloDoEvento } from '../components/evento.jsx'
 import AtividadeModal, { atividadeNova } from '../components/AtividadeModal.jsx'
@@ -44,6 +45,9 @@ const VENDA_VAZIA = {
 
 const LINHA_EQUIPAMENTO_VAZIA = { produtoId: '', quantidade: 1 }
 const EQUIPAMENTO_VAZIO = { itens: [{ ...LINHA_EQUIPAMENTO_VAZIA }], dataInstalacao: hojeISO() }
+const SERVICO_DO_EQUIPAMENTO_VAZIO = {
+  tipo: 'troca_refil', valor: '', formaPagamento: 'pix', statusPagamento: 'pago', observacoes: '',
+}
 
 export default function ClienteDetalhe() {
   const { id } = useParams()
@@ -73,6 +77,9 @@ export default function ClienteDetalhe() {
   const [atividadeForm, setAtividadeForm] = useState(null)
   const [oportunidadeForm, setOportunidadeForm] = useState(null)
   const [equipForm, setEquipForm] = useState(null)
+  const [historicoEquipId, setHistoricoEquipId] = useState('')
+  const [servicoEquipForm, setServicoEquipForm] = useState(null)
+  const [salvandoServicoEquip, setSalvandoServicoEquip] = useState(false)
   const [pagamentos, setPagamentos] = useState([])
 
   if (!cliente) {
@@ -214,6 +221,7 @@ export default function ClienteDetalhe() {
           refil: produto,
           dataBase: dataServico,
           meses: combinado || Number(eq?.intervaloTrocaMeses) || 0,
+          equipamentoId: eq?.id,
         })
       }
 
@@ -274,6 +282,36 @@ export default function ClienteDetalhe() {
     if (!confirm(`Remover "${nome}" da ficha do cliente? As vendas e o histórico não são afetados.`)) return
     await equipamentos.remove(equipamento.id)
     refresh()
+  }
+
+  // O form de registro nasce já na troca quando o aparelho tem refil; sem
+  // refil no catálogo, troca não há o que registrar, só manutenção.
+  function abrirServicoEquip(equipamento) {
+    setServicoEquipForm({
+      ...SERVICO_DO_EQUIPAMENTO_VAZIO,
+      tipo: refilDoEquipamento(equipamento) ? 'troca_refil' : 'manutencao',
+      data: hojeISO(),
+    })
+  }
+
+  async function salvarServicoEquip(e) {
+    e.preventDefault()
+    setSalvandoServicoEquip(true)
+    try {
+      await registrarServicoDoEquipamento(equipamentos.get(historicoEquipId), servicoEquipForm)
+      notificar(`${SERVICOS_DO_EQUIPAMENTO[servicoEquipForm.tipo]} registrada no histórico.`)
+      setServicoEquipForm(null)
+      refresh()
+    } catch (erro) {
+      notificar('Não foi possível registrar: ' + (erro?.message || erro), 'erro')
+    } finally {
+      setSalvandoServicoEquip(false)
+    }
+  }
+
+  function fecharHistoricoEquip() {
+    setHistoricoEquipId('')
+    setServicoEquipForm(null)
   }
 
   async function receber(lancamentoId) {
@@ -561,9 +599,14 @@ export default function ClienteDetalhe() {
                         {troca ? ` · próxima troca de refil: ${formatData(troca)}` : ''}
                       </p>
                     </div>
-                    <Button variant="danger" onClick={() => removerEquipamento(eq)} title="Remover da ficha">
-                      <IconTrash size={15} />
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button variant="ghost" onClick={() => setHistoricoEquipId(eq.id)} title="Trocas e manutenções deste aparelho">
+                        <IconClock size={15} /> Histórico
+                      </Button>
+                      <Button variant="danger" onClick={() => removerEquipamento(eq)} title="Remover da ficha">
+                        <IconTrash size={15} />
+                      </Button>
+                    </div>
                   </li>
                 )
               })}
@@ -949,6 +992,158 @@ export default function ClienteDetalhe() {
             </div>
           </form>
         )}
+      </Modal>
+
+      {/* A vida de UM aparelho da ficha: o que já foi feito nele e o registro
+          do que aconteceu fora do sistema — a troca que o cliente fez antes
+          do cadastro, a manutenção que ninguém lançou na hora. */}
+      <Modal title="Histórico do equipamento" open={!!historicoEquipId} onClose={fecharHistoricoEquip}>
+        {historicoEquipId && (() => {
+          const eq = equipamentos.get(historicoEquipId)
+          if (!eq) return <Empty>Este equipamento não está mais na ficha.</Empty>
+          const produto = produtos.get(eq.produtoId)
+          const troca = proximaTroca(eq)
+          const temRefil = !!refilDoEquipamento(eq)
+          const itens = historicoDoEquipamento(eq)
+          const setS = (k) => (ev) => setServicoEquipForm({ ...servicoEquipForm, [k]: ev.target.value })
+          const comValor = Number(servicoEquipForm?.valor) > 0
+          return (
+            <div className="space-y-5">
+              <div>
+                <p className="font-medium text-slate-900">{produto?.nome || 'Produto removido do catálogo'}</p>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Instalado em {formatData(eq.dataInstalacao)}
+                  {eq.dataUltimaTroca ? ` · última troca ${formatData(eq.dataUltimaTroca)}` : ''}
+                  {troca ? ` · próxima troca de refil: ${formatData(troca)}` : ''}
+                </p>
+              </div>
+
+              {servicoEquipForm ? (
+                <form onSubmit={salvarServicoEquip} className="space-y-4 rounded-lg border border-slate-200 p-3 sm:p-4">
+                  <p className="text-sm text-slate-600">
+                    Para o que já foi feito neste aparelho. Entra como serviço
+                    concluído, e só vai para o financeiro se tiver valor.
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Field label="O que foi feito">
+                      <select className={inputCls} value={servicoEquipForm.tipo} onChange={setS('tipo')}>
+                        {Object.entries(SERVICOS_DO_EQUIPAMENTO).map(([valor, rotulo]) => (
+                          <option key={valor} value={valor} disabled={valor === 'troca_refil' && !temRefil}>
+                            {rotulo}{valor === 'troca_refil' && !temRefil ? ' (sem refil no catálogo)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Data">
+                      <input
+                        className={inputCls}
+                        type="date"
+                        required
+                        max={hoje}
+                        value={servicoEquipForm.data}
+                        onChange={setS('data')}
+                      />
+                    </Field>
+                  </div>
+                  <Field label="Valor (opcional)">
+                    <InputNumero
+                      className={inputCls}
+                      step="0.01"
+                      min="0"
+                      placeholder="0,00"
+                      value={servicoEquipForm.valor}
+                      onChange={setS('valor')}
+                    />
+                  </Field>
+                  {/* Sem valor não há o que receber, e as duas perguntas seriam ruído. */}
+                  {comValor && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <Field label="Forma de pagamento">
+                        <select className={inputCls} value={servicoEquipForm.formaPagamento} onChange={setS('formaPagamento')}>
+                          {Object.entries(FORMAS_PAGAMENTO).map(([valor, rotulo]) => (
+                            <option key={valor} value={valor}>{rotulo}</option>
+                          ))}
+                        </select>
+                      </Field>
+                      <Field label="Situação do pagamento">
+                        <select className={inputCls} value={servicoEquipForm.statusPagamento} onChange={setS('statusPagamento')}>
+                          <option value="pago">Pago</option>
+                          <option value="pendente">A receber</option>
+                        </select>
+                      </Field>
+                    </div>
+                  )}
+                  <Field label="Observações">
+                    <textarea
+                      className={inputCls}
+                      rows={2}
+                      placeholder={servicoEquipForm.tipo === 'manutencao' ? 'Defeito, peças trocadas…' : ''}
+                      value={servicoEquipForm.observacoes}
+                      onChange={setS('observacoes')}
+                    />
+                  </Field>
+                  {servicoEquipForm.tipo === 'troca_refil' && (
+                    <p className="text-xs text-slate-500">
+                      A próxima troca passa a contar desta data, a não ser que
+                      você já a tenha remarcado à mão.
+                    </p>
+                  )}
+                  <div className="flex justify-end gap-2">
+                    <Button type="button" variant="secondary" onClick={() => setServicoEquipForm(null)} disabled={salvandoServicoEquip}>
+                      Cancelar
+                    </Button>
+                    <Button type="submit" disabled={salvandoServicoEquip}>
+                      {salvandoServicoEquip ? 'Registrando…' : 'Registrar'}
+                    </Button>
+                  </div>
+                </form>
+              ) : (
+                <Button variant="secondary" onClick={() => abrirServicoEquip(eq)}>
+                  <IconPlus size={16} /> Registrar troca ou manutenção
+                </Button>
+              )}
+
+              {itens.length === 0 && <Empty>Nada registrado neste aparelho ainda.</Empty>}
+              <ul className="divide-y divide-slate-100">
+                {itens.map(({ id: chave, quando, servico }) => {
+                  const detalhe = servico
+                    ? [
+                        Number(servico.valor) > 0
+                          ? `${formatBRL(servico.valor)}${servico.statusPagamento === 'pendente' ? ' a receber' : ''}`
+                          : '',
+                        servico.osNumero ? `OS Nº ${servico.osNumero}` : '',
+                      ].filter(Boolean).join(' · ')
+                    : 'Data em que entrou na ficha'
+                  return (
+                  <li key={chave} className="py-3 flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 flex items-start gap-2.5">
+                      <span className="w-20 shrink-0 text-xs text-slate-400 tnum pt-0.5">{formatData(quando)}</span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-slate-900">
+                          {servico ? (TIPOS_AGENDAMENTO[servico.tipo] ?? servico.tipo) : 'Instalação'}
+                        </p>
+                        {detalhe && <p className="text-xs text-slate-500 mt-0.5">{detalhe}</p>}
+                        {servico?.observacoes && (
+                          <p className="text-xs text-slate-500 mt-0.5">{servico.observacoes}</p>
+                        )}
+                      </div>
+                    </div>
+                    {servico && (
+                      <Button
+                        variant="ghost"
+                        title="Ver informações"
+                        onClick={() => { fecharHistoricoEquip(); setAgDetalhe(servico) }}
+                      >
+                        <IconEye size={15} /> Ver
+                      </Button>
+                    )}
+                  </li>
+                  )
+                })}
+              </ul>
+            </div>
+          )
+        })()}
       </Modal>
 
       <Modal title="Registrar venda" open={!!vendaForm} onClose={() => setVendaForm(null)}>

@@ -594,6 +594,7 @@ const MIGRACAO_DA_COLUNA = {
   reagendado_para_id: 'sql/024_reagendamento.sql',
   reagendado_de_id: 'sql/024_reagendamento.sql',
   motivo_reagendamento: 'sql/024_reagendamento.sql',
+  equipamento_id: 'sql/026_servico_do_equipamento.sql',
 }
 
 export function explicarColunaFaltante(erro) {
@@ -1909,17 +1910,25 @@ async function aplicarEfeitosConclusao(ag) {
   const base = ag.concluidoEm || ag.data
   const combinado = Number(ag.intervaloTrocaMeses) || 0
   const ids = ag.produtoIds?.length ? ag.produtoIds : (ag.produtoId ? [ag.produtoId] : [])
+  // O aparelho em que o serviço foi feito, quando o serviço diz (migração 026).
+  // Vale mais que qualquer palpite pelos produtos: com dois purificadores
+  // iguais na casa, "o primeiro compatível" nem sempre é o certo.
+  const doServico = ag.equipamentoId ? equipamentos.get(ag.equipamentoId) : null
 
   for (const pid of ids) {
     const produto = produtos.get(pid)
     if (!produto) continue
 
-    if (produto.tipo === 'aparelho') {
-      const jaTem = equipamentos
-        .list()
-        .find((e) => e.clienteId === ag.clienteId && e.produtoId === produto.id)
+    // Manutenção não instala nada: o aparelho dela já está na ficha. Sem este
+    // corte, concluir a manutenção de um purificador o "instalava" de novo e
+    // reiniciava a contagem do refil a partir do dia do conserto.
+    if (produto.tipo === 'aparelho' && ag.tipo !== 'manutencao') {
+      const jaTem = doServico?.produtoId === produto.id
+        ? doServico
+        : equipamentos.list().find((e) => e.clienteId === ag.clienteId && e.produtoId === produto.id)
+      let eq = jaTem
       if (!jaTem) {
-        await equipamentos.create({
+        eq = await equipamentos.create({
           clienteId: ag.clienteId,
           produtoId: produto.id,
           dataInstalacao: base,
@@ -1929,57 +1938,92 @@ async function aplicarEfeitosConclusao(ag) {
       } else if (combinado && Number(jaTem.intervaloTrocaMeses) !== combinado) {
         await equipamentos.update(jaTem.id, { intervaloTrocaMeses: combinado })
       }
+      // A instalação abre o histórico do aparelho que ela pôs na ficha.
+      if (eq && !ag.equipamentoId && servicoSabeOEquipamento()) {
+        await agendamentos.update(ag.id, { equipamentoId: eq.id })
+      }
       const refil = refilDoAparelho(produto)
       const meses = combinado || Number(jaTem?.intervaloTrocaMeses) || 0
-      await realinharTrocaComAInstalacao(ag, refil, base, meses)
-      await agendarTrocaDeRefil({ clienteId: ag.clienteId, refil, dataBase: base, meses })
+      await moverTrocaAberta({ clienteId: ag.clienteId, refil, de: ag.data, para: base, meses })
+      await agendarTrocaDeRefil({ clienteId: ag.clienteId, refil, dataBase: base, meses, equipamentoId: eq?.id })
     } else if (produto.tipo === 'refil') {
-      // Um refil pode servir vários aparelhos: a troca marca o equipamento
-      // que ESTE cliente tem — o primeiro compatível que estiver na ficha dele.
-      const idsAparelhos = aparelhosDoRefil(produto).map((a) => a.id)
-      const eq = equipamentos
-        .list()
-        .find((e) => e.clienteId === ag.clienteId && idsAparelhos.includes(e.produtoId))
+      // Um refil pode servir vários aparelhos: sem o aparelho no serviço, a
+      // troca marca o que ESTE cliente tem — o primeiro compatível da ficha (ou
+      // o próprio refil, quando foi ele que entrou na ficha sem aparelho).
+      const servidos = [...aparelhosDoRefil(produto).map((a) => a.id), produto.id]
+      const eq = doServico && servidos.includes(doServico.produtoId)
+        ? doServico
+        : equipamentos.list().find((e) => e.clienteId === ag.clienteId && servidos.includes(e.produtoId))
+      const meses = combinado || Number(eq?.intervaloTrocaMeses) || 0
+
+      // Troca lançada fora de ordem (a de março registrada depois da de junho)
+      // entra no histórico, mas não volta a data da última troca para trás nem
+      // agenda a próxima a partir de um dia que já passou.
+      const maisRecente = !eq?.dataUltimaTroca || base >= eq.dataUltimaTroca
       if (eq) {
-        await equipamentos.update(eq.id, {
-          dataUltimaTroca: base,
+        const baseAnterior = eq.dataUltimaTroca || eq.dataInstalacao
+        const mudancas = {
+          ...(maisRecente ? { dataUltimaTroca: base } : {}),
           ...(combinado ? { intervaloTrocaMeses: combinado } : {}),
-        })
+        }
+        if (Object.keys(mudancas).length) await equipamentos.update(eq.id, mudancas)
+        if (maisRecente) {
+          await moverTrocaAberta({
+            clienteId: ag.clienteId,
+            refil: produto,
+            de: baseAnterior,
+            para: base,
+            mesesAntes: eq.intervaloTrocaMeses,
+            meses,
+          })
+        }
       }
       // A próxima troca é agendada mesmo sem equipamento cadastrado: o que
       // determina o ciclo é o refil e a data em que ele foi trocado.
-      await agendarTrocaDeRefil({
-        clienteId: ag.clienteId,
-        refil: produto,
-        dataBase: base,
-        meses: combinado || Number(eq?.intervaloTrocaMeses) || 0,
-      })
+      if (maisRecente) {
+        await agendarTrocaDeRefil({
+          clienteId: ag.clienteId,
+          refil: produto,
+          dataBase: base,
+          meses,
+          equipamentoId: eq?.id,
+        })
+      }
     }
   }
 }
 
-// A primeira troca é agendada já na venda, contando a partir da data prevista
-// de entrega. Se a instalação acabou acontecendo em outro dia, essa data ficou
-// desatualizada — o filtro começou a viver depois.
+// A troca em aberto foi calculada a partir de um dia (`de`) que deixou de ser
+// o começo do ciclo: a instalação aconteceu noutro dia que o previsto na
+// venda, ou o refil foi trocado antes da troca programada chegar. O filtro
+// passou a viver a partir de `para`, e a troca acompanha.
 //
-// Só reajusta se a data ainda for exatamente a calculada na venda, ou seja, se
-// ninguém a moveu à mão. Uma troca que você adiantou continua onde você pôs.
-async function realinharTrocaComAInstalacao(agendamentoInstalacao, refil, dataConclusao, combinado) {
-  const meses = mesesDeTroca(refil, combinado)
-  if (!refil || !meses || !agendamentoInstalacao.data) return
-  if (agendamentoInstalacao.data === dataConclusao) return
-
-  const comoFoiCalculada = somarMeses(agendamentoInstalacao.data, meses)
+// Só mexe se a data ainda for exatamente a calculada, ou seja, se ninguém a
+// moveu à mão. Uma troca que você adiantou continua onde você pôs.
+// `mesesAntes` é o intervalo com que ela foi calculada, quando o desta troca
+// mudou (o cliente combinou outro ritmo agora); sem ele, vale o mesmo.
+async function moverTrocaAberta({ clienteId, refil, de, para, meses, mesesAntes }) {
+  const intervalo = mesesDeTroca(refil, meses)
+  const intervaloAntes = mesesDeTroca(refil, mesesAntes ?? meses)
+  if (!refil || !intervalo || !intervaloAntes || !de || !para || de === para) return
 
   const aberta = agendamentos.list().find((a) =>
-    a.clienteId === agendamentoInstalacao.clienteId &&
+    a.clienteId === clienteId &&
     a.status === 'agendado' &&
     a.tipo === 'troca_refil' &&
     (a.produtoIds || []).includes(refil.id),
   )
-  if (!aberta || aberta.data !== comoFoiCalculada) return
+  if (!aberta || aberta.data !== somarMeses(de, intervaloAntes)) return
 
-  await agendamentos.update(aberta.id, { data: somarMeses(dataConclusao, meses) })
+  await agendamentos.update(aberta.id, { data: somarMeses(para, intervalo) })
+}
+
+// A coluna `equipamento_id` (migração 026) existe quando os serviços
+// carregados do banco a trazem — vazia vira '', ausente fica undefined. Os
+// fluxos automáticos só a gravam quando ela existe: sem isso, deixar de rodar
+// a migração travaria o agendamento de toda troca de refil.
+function servicoSabeOEquipamento() {
+  return agendamentos.list().some((a) => a.equipamentoId !== undefined)
 }
 
 // ---- Compatibilidade entre produtos (migração 025) ----
@@ -2063,7 +2107,10 @@ export function mesesDeTroca(refil, combinado) {
 // criado — assim o agendamento que você adiantou ou remarcou à mão continua
 // valendo. Um agendamento cancelado não conta como aberto, então cancelar
 // encerra o ciclo (é exatamente o que se espera de um cancelamento).
-export async function agendarTrocaDeRefil({ clienteId, refil, dataBase, observacoes, meses }) {
+//
+// `equipamentoId` é o aparelho da ficha cujo refil vence; ele vai junto para a
+// troca, e é ela que, concluída, marca a troca no aparelho certo.
+export async function agendarTrocaDeRefil({ clienteId, refil, dataBase, observacoes, meses, equipamentoId }) {
   const intervalo = mesesDeTroca(refil, meses)
   if (!clienteId || !refil || !intervalo || !dataBase) return null
   const combinado = Number(meses) > 0 ? Number(meses) : 0
@@ -2093,6 +2140,7 @@ export async function agendarTrocaDeRefil({ clienteId, refil, dataBase, observac
     statusPagamento: 'pendente',
     // Guardado para a conclusão desta troca agendar a seguinte no mesmo ritmo.
     ...(combinado ? { intervaloTrocaMeses: combinado } : {}),
+    ...(equipamentoId && servicoSabeOEquipamento() ? { equipamentoId } : {}),
     criadoPor: usuarioAtual(),
     automatico: true,
   }).catch(explicarColunaFaltante)
@@ -2106,7 +2154,100 @@ export async function agendarProximaTroca(equipamento) {
     refil: refilDoEquipamento(equipamento),
     dataBase: equipamento?.dataUltimaTroca || equipamento?.dataInstalacao,
     meses: equipamento?.intervaloTrocaMeses,
+    equipamentoId: equipamento?.id,
   })
+}
+
+// Os tipos de serviço que se registram no histórico de um aparelho depois de
+// feitos. Instalação fica de fora: ela é o próprio cadastro na ficha.
+export const SERVICOS_DO_EQUIPAMENTO = {
+  troca_refil: TIPOS_AGENDAMENTO.troca_refil,
+  manutencao: TIPOS_AGENDAMENTO.manutencao,
+}
+
+// Registra no histórico de um aparelho uma troca de refil ou manutenção que JÁ
+// aconteceu — típico do aparelho cadastrado sem venda, cuja vida começou antes
+// do sistema.
+//
+// Entra como serviço concluído, e não numa tabela própria do aparelho, por um
+// motivo: a conclusão já sabe o que uma troca faz (marca a última troca, move
+// a troca programada, agenda a seguinte). Uma tabela à parte teria de repetir
+// essa regra, e as duas cópias acabariam discordando. De quebra, o registro
+// aparece em Serviços, na linha do tempo e pode gerar a Ordem de Serviço.
+//
+// O valor é opcional. Sem ele, nada vai para o caixa; com ele, entra como
+// qualquer serviço — pago ou a receber.
+export async function registrarServicoDoEquipamento(equipamento, {
+  tipo, data, valor, formaPagamento, statusPagamento, observacoes,
+} = {}) {
+  if (!equipamento) throw new Error('Equipamento não encontrado.')
+  if (!SERVICOS_DO_EQUIPAMENTO[tipo]) throw new Error('Escolha entre troca de refil e manutenção.')
+
+  const produto = produtos.get(equipamento.produtoId)
+  const refil = refilDoEquipamento(equipamento)
+  if (tipo === 'troca_refil' && !refil) {
+    throw new Error('Este produto não tem refil compatível no catálogo. Vincule um refil a ele em Produtos.')
+  }
+  // A manutenção leva o próprio aparelho, para a Ordem de Serviço dizer o que
+  // foi consertado; se o que está na ficha é um refil avulso, vai sem produto —
+  // senão a conclusão a leria como troca.
+  const produtoIds = tipo === 'troca_refil'
+    ? [refil.id]
+    : (produto && produto.tipo !== 'refil' ? [produto.id] : [])
+  const dia = data || hojeISO()
+  const total = Number(valor || 0)
+
+  const ag = await salvarAgendamento({
+    clienteId: equipamento.clienteId,
+    equipamentoId: equipamento.id,
+    tipo,
+    data: dia,
+    status: 'concluido',
+    concluidoEm: dia,
+    produtoIds,
+    observacoes: observacoes || '',
+    valor: total,
+    parcelas: 1,
+    formaPagamento: formaPagamento || 'pix',
+    statusPagamento: total > 0 ? (statusPagamento || 'pago') : 'pendente',
+    lancarFinanceiro: total > 0,
+  })
+  await aplicarEfeitosConclusao(ag)
+  return ag
+}
+
+// O que foi feito num aparelho da ficha, do mais recente para o mais antigo:
+// a instalação, as trocas de refil e as manutenções concluídas.
+//
+// Serviço que diz o aparelho (migração 026) é dele e de mais nenhum. Os de
+// antes não dizem, e são reconhecidos pelos produtos: o próprio aparelho ou um
+// refil que o serve. Com dois aparelhos iguais na ficha, esses antigos
+// aparecem nos dois — não há como saber em qual deles foi.
+//
+// Cada item: { id, quando, servico } — `servico` é o agendamento, ou null na
+// linha da instalação de um aparelho que entrou na ficha sem serviço nenhum.
+export function historicoDoEquipamento(equipamento) {
+  if (!equipamento) return []
+  const produto = produtos.get(equipamento.produtoId)
+  const servidos = new Set([equipamento.produtoId, ...refisDoAparelho(produto).map((r) => r.id)])
+  const unicoNaFicha = equipamentos.list().filter((e) => e.clienteId === equipamento.clienteId).length === 1
+
+  const servicos = agendamentos.list().filter((a) => {
+    if (a.clienteId !== equipamento.clienteId || a.status !== 'concluido') return false
+    if (a.equipamentoId) return a.equipamentoId === equipamento.id
+    const ids = a.produtoIds?.length ? a.produtoIds : (a.produtoId ? [a.produtoId] : [])
+    if (ids.length) return ids.some((pid) => servidos.has(pid))
+    // Manutenção sem produto só tem um dono possível: o único aparelho da ficha.
+    return a.tipo === 'manutencao' && unicoNaFicha
+  })
+
+  const itens = servicos.map((a) => ({ id: a.id, quando: a.concluidoEm || a.data, servico: a }))
+  // Aparelho que entrou na ficha sem venda nem serviço: a data de instalação
+  // da ficha é o começo da história dele.
+  if (equipamento.dataInstalacao && !servicos.some((a) => a.tipo === 'instalacao')) {
+    itens.push({ id: `instalacao:${equipamento.id}`, quando: equipamento.dataInstalacao, servico: null })
+  }
+  return itens.sort((a, b) => String(b.quando).localeCompare(String(a.quando)))
 }
 
 // Coloca um aparelho na ficha do cliente SEM gerar venda, item nem financeiro.
@@ -2178,6 +2319,7 @@ const CAMPOS_HERDADOS_AO_REAGENDAR = [
   'clienteId', 'tipo', 'observacoes', 'produtoIds', 'produtoQuantidades', 'produtoId',
   'valor', 'formaPagamento', 'parcelas', 'statusPagamento', 'taxaCartao',
   'lancarFinanceiro', 'intervaloTrocaMeses', 'vendaOrigemId', 'origemAtividadeId',
+  'equipamentoId',
 ]
 
 // O registro carregado do banco tem uma chave por coluna (null vira ''), então
