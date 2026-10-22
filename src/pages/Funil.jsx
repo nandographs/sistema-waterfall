@@ -11,6 +11,7 @@ import OportunidadeCard from '../components/OportunidadeCard.jsx'
 import OportunidadeModal, { FecharOportunidadeModal, oportunidadeNova } from '../components/OportunidadeModal.jsx'
 import ConversaClienteModal from '../components/ConversaClienteModal.jsx'
 import ConverterLeadModal from '../components/ConverterLeadModal.jsx'
+import ConfirmarVendaModal from '../components/ConfirmarVendaModal.jsx'
 import { assinarWhatsapp } from '../data/repository.js'
 
 // Remove acentos e caixa, como no ClienteBusca — "joão" tem que casar com "Joao".
@@ -61,6 +62,7 @@ export default function Funil() {
   const [fechando, setFechando] = useState(null)
   const [conversaAberta, setConversaAberta] = useState(null)
   const [convertendo, setConvertendo] = useState(null)
+  const [confirmandoVenda, setConfirmandoVenda] = useState(null)
   const [arrastando, setArrastando] = useState(null)
   // Onde o cartão cairia agora: { etapa, indice }.
   const [alvo, setAlvo] = useState(null)
@@ -207,6 +209,7 @@ export default function Funil() {
                 onMover={(destino) => mover(oportunidade, destino, null)}
                 onConversar={setConversaAberta}
                 onConverter={setConvertendo}
+                onConfirmarVenda={setConfirmandoVenda}
               />
             </div>
           ))}
@@ -285,6 +288,15 @@ export default function Funil() {
           etapa={fechando.etapa}
           onFechar={() => setFechando(null)}
           onSalvo={recarregar}
+        />
+      )}
+
+      {confirmandoVenda && (
+        <ConfirmarVendaModal
+          key={confirmandoVenda.id}
+          venda={confirmandoVenda}
+          onClose={() => setConfirmandoVenda(null)}
+          onConfirmada={recarregar}
         />
       )}
 

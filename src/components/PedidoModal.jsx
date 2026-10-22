@@ -6,7 +6,7 @@ import { quantidadeComUnidade } from '../lib/unidades.js'
 import { gerarPedido } from '../pedido/gerar.js'
 import { gerarPedidoPdf } from '../pedido/gerarPdf.js'
 import { Modal, Button, Field, inputCls } from './ui.jsx'
-import { IconFileText, IconPlus } from './icons.jsx'
+import { IconFileText, IconPlus, IconCheck } from './icons.jsx'
 
 // O sistema trabalha com 4 formas; o modelo do pedido detalha 6. "Cartão" do
 // cadastro sai como "Crédito" no documento (o mesmo critério da Ordem de Serviço).
@@ -92,7 +92,7 @@ const ouNulo = (v) => {
   return s ? s : null
 }
 
-export default function PedidoModal({ venda, onClose, onGerado }) {
+export default function PedidoModal({ venda, onClose, onGerado, onConfirmar }) {
   const [form, setForm] = useState(() => montarInicial(venda))
   const [erro, setErro] = useState('')
   const [gerando, setGerando] = useState('')
@@ -179,6 +179,21 @@ export default function PedidoModal({ venda, onClose, onGerado }) {
   return (
     <Modal title={`Pedido de Venda — ${form.cliente || 'sem cliente'}`} open onClose={onClose} size="wide">
       <form onSubmit={(e) => { e.preventDefault(); emitir('docx', gerarPedido) }} className="space-y-5">
+        {/* O "Status" logo abaixo é só o que sai impresso no papel. Sem este
+            aviso, marcar "Confirmado" aqui parecia fechar a venda — e não
+            fechava: o sistema continuava com uma proposta. */}
+        {venda.status === 'proposta' && onConfirmar && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+            <p className="text-sm text-slate-600 min-w-0 flex-1 basis-[16rem]">
+              No sistema esta venda ainda é uma <strong>proposta</strong>. O status deste
+              formulário só muda o documento.
+            </p>
+            <Button type="button" onClick={() => onConfirmar(venda)}>
+              <IconCheck size={16} /> Confirmar venda
+            </Button>
+          </div>
+        )}
+
         {/* Identificação */}
         <section>
           <p className={secao}>Identificação</p>

@@ -10,11 +10,12 @@ import {
 import { PERIODOS, dentroDoPeriodo } from '../lib/datas.js'
 import { semAcento } from '../lib/texto.js'
 import { Card, Page, PageTitle, Button, Field, inputCls, InputNumero, Empty, Modal, Badge, notificar, usePaginacao, Paginacao, Segmentos } from '../components/ui.jsx'
-import { IconPlus, IconFileText, IconTrash, IconEye, IconMais, IconSearch } from '../components/icons.jsx'
+import { IconPlus, IconFileText, IconTrash, IconEye, IconMais, IconSearch, IconCheck } from '../components/icons.jsx'
 import ClienteBusca from '../components/ClienteBusca.jsx'
 import ProdutoBusca from '../components/ProdutoBusca.jsx'
 import PedidoModal from '../components/PedidoModal.jsx'
 import OrcamentoModal from '../components/OrcamentoModal.jsx'
+import ConfirmarVendaModal from '../components/ConfirmarVendaModal.jsx'
 import { montarDadosOrcamento } from '../orcamento/html.js'
 import { gerarOrcamentoPdf } from '../orcamento/gerarPdf.js'
 import PagamentosVenda, { pagamentosIniciais } from '../components/PagamentosVenda.jsx'
@@ -50,6 +51,10 @@ function AcoesVenda({ venda, onVer, onPedido, onProposta, onEditar, onConfirmar,
 
   return (
     <div className="flex items-center gap-2 shrink-0">
+      {/* Fechar a proposta é o próximo passo dela — fica à vista, não no menu. */}
+      {venda.status === 'proposta' && (
+        <Button onClick={onConfirmar}><IconCheck size={16} /> Confirmar venda</Button>
+      )}
       <Button variant="secondary" onClick={onVer}><IconEye size={16} /> Ver</Button>
       <details className="relative">
         <summary
@@ -68,10 +73,7 @@ function AcoesVenda({ venda, onVer, onPedido, onProposta, onEditar, onConfirmar,
             <IconFileText size={16} /> Gerar pedido
           </button>
           {venda.status === 'proposta' && (
-            <>
-              <button type="button" className={acaoCls} onClick={(e) => { fechar(e); onEditar() }}>Editar</button>
-              <button type="button" className={acaoCls} onClick={(e) => { fechar(e); onConfirmar() }}>Confirmar venda</button>
-            </>
+            <button type="button" className={acaoCls} onClick={(e) => { fechar(e); onEditar() }}>Editar</button>
           )}
           {venda.status === 'confirmada' && (
             <button type="button" className={acaoCls} onClick={(e) => { fechar(e); onCancelar() }}>Cancelar venda</button>
@@ -102,6 +104,7 @@ export default function Vendas() {
   // null = fechado; 'novo' = proposta em branco; uma venda = editando a proposta.
   const [orcamento, setOrcamento] = useState(null)
   const [detalhe, setDetalhe] = useState(null)
+  const [confirmando, setConfirmando] = useState(null)
   const [excluir, setExcluir] = useState(null)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
@@ -201,10 +204,12 @@ export default function Vendas() {
     }
   }
 
-  async function mudarStatus(venda, status) {
+  // Só cancela. Confirmar passa pelo ConfirmarVendaModal: a proposta ainda não
+  // sabe como o cliente paga, e trocar só o status gerava venda sem financeiro.
+  async function cancelarVenda(venda) {
     try {
-      await salvarVenda({ ...venda, status }, itensDaVenda(venda.id))
-      notificar(status === 'confirmada' ? 'Venda confirmada e desdobramentos atualizados.' : 'Venda cancelada.')
+      await salvarVenda({ ...venda, status: 'cancelada' }, itensDaVenda(venda.id))
+      notificar('Venda cancelada.')
       refresh()
     } catch (ex) {
       notificar('Não foi possível alterar a venda: ' + (ex?.message || ex), 'erro')
@@ -350,8 +355,8 @@ export default function Vendas() {
                   onPedido={() => setPedidoVenda(v)}
                   onProposta={() => baixarProposta(v)}
                   onEditar={() => (v.tipo === 'orcamento' ? setOrcamento(v) : abrirEdicao(v))}
-                  onConfirmar={() => mudarStatus(v, 'confirmada')}
-                  onCancelar={() => mudarStatus(v, 'cancelada')}
+                  onConfirmar={() => setConfirmando(v)}
+                  onCancelar={() => cancelarVenda(v)}
                   onExcluir={() => setExcluir(v)}
                 />
               </li>
@@ -377,6 +382,16 @@ export default function Vendas() {
           venda={pedidoVenda}
           onClose={() => setPedidoVenda(null)}
           onGerado={refresh}
+          onConfirmar={(v) => { setPedidoVenda(null); setConfirmando(v) }}
+        />
+      )}
+
+      {confirmando && (
+        <ConfirmarVendaModal
+          key={confirmando.id}
+          venda={confirmando}
+          onClose={() => setConfirmando(null)}
+          onConfirmada={refresh}
         />
       )}
 
@@ -464,6 +479,14 @@ export default function Vendas() {
               <p className="text-slate-600">
                 <span className="font-medium text-slate-700">Observações:</span> {detalhe.observacoes}
               </p>
+            )}
+
+            {detalhe.status === 'proposta' && (
+              <div className="flex justify-end pt-1">
+                <Button onClick={() => { setConfirmando(detalhe); setDetalhe(null) }}>
+                  <IconCheck size={16} /> Confirmar venda
+                </Button>
+              </div>
             )}
           </div>
         )}

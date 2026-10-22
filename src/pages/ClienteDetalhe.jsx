@@ -15,7 +15,7 @@ import {
 } from '../data/repository.js'
 import { hojeISO, formatHora, diaCurto } from '../lib/datas.js'
 import { Card, Page, PageTitle, Button, Field, inputCls, InputNumero, Empty, Modal, Badge, notificar } from '../components/ui.jsx'
-import { IconPlus, IconFileText, IconChevronLeft, IconUser, IconTrash, IconEye, IconAlert, IconMessage, IconClock } from '../components/icons.jsx'
+import { IconPlus, IconFileText, IconChevronLeft, IconUser, IconTrash, IconEye, IconAlert, IconMessage, IconClock, IconCheck } from '../components/icons.jsx'
 import { paraE164, telefonesDoCliente, comTelefonePrincipal } from '../lib/telefone.js'
 import { IconeDoEvento, estiloDoEvento } from '../components/evento.jsx'
 import AtividadeModal, { atividadeNova } from '../components/AtividadeModal.jsx'
@@ -23,6 +23,7 @@ import OrdemServicoModal from '../components/OrdemServicoModal.jsx'
 import AgendamentoDetalheModal from '../components/AgendamentoDetalheModal.jsx'
 import AgendamentoFormModal from '../components/AgendamentoFormModal.jsx'
 import PedidoModal from '../components/PedidoModal.jsx'
+import ConfirmarVendaModal from '../components/ConfirmarVendaModal.jsx'
 import OportunidadeModal, { oportunidadeNova } from '../components/OportunidadeModal.jsx'
 import ClienteFormFields from '../components/ClienteFormFields.jsx'
 import PagamentosVenda, { pagamentosIniciais } from '../components/PagamentosVenda.jsx'
@@ -72,6 +73,7 @@ export default function ClienteDetalhe() {
   const [concluindo, setConcluindo] = useState('')
   const [vendaExcluir, setVendaExcluir] = useState(null)
   const [pedidoVenda, setPedidoVenda] = useState(null)
+  const [confirmandoVenda, setConfirmandoVenda] = useState(null)
   const [removerEquip, setRemoverEquip] = useState(false)
   const [excluindo, setExcluindo] = useState(false)
   const [atividadeForm, setAtividadeForm] = useState(null)
@@ -641,6 +643,11 @@ export default function ClienteDetalhe() {
                       }>
                         {STATUS_VENDA[v.status] ?? v.status}
                       </Badge>
+                      {v.status === 'proposta' && (
+                        <Button onClick={() => setConfirmandoVenda(v)}>
+                          <IconCheck size={15} /> Confirmar venda
+                        </Button>
+                      )}
                       <Button variant="ghost" onClick={() => setPedidoVenda(v)} title="Gerar pedido">
                         <IconFileText size={15} /> Pedido
                       </Button>
@@ -871,6 +878,16 @@ export default function ClienteDetalhe() {
           venda={pedidoVenda}
           onClose={() => setPedidoVenda(null)}
           onGerado={refresh}
+          onConfirmar={(v) => { setPedidoVenda(null); setConfirmandoVenda(v) }}
+        />
+      )}
+
+      {confirmandoVenda && (
+        <ConfirmarVendaModal
+          key={confirmandoVenda.id}
+          venda={confirmandoVenda}
+          onClose={() => setConfirmandoVenda(null)}
+          onConfirmada={refresh}
         />
       )}
 

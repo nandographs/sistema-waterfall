@@ -1,19 +1,19 @@
 import { Link } from 'react-router-dom'
 import {
-  proximoPasso, formatBRL, formatData,
+  proximoPasso, formatBRL, formatData, vendas,
   contatoDaOportunidade, naoLidasDaOportunidade,
   ETAPAS_FUNIL, ETAPAS_ABERTAS, ETAPAS_FECHADAS, CANAIS_OPORTUNIDADE, MOTIVOS_PERDA,
 } from '../data/repository.js'
 import { hojeISO } from '../lib/datas.js'
-import { Badge } from './ui.jsx'
+import { Badge, Button } from './ui.jsx'
 import { AvatarContato } from './Avatar.jsx'
-import { IconMais, IconAlert, IconArrastar, IconMessage } from './icons.jsx'
+import { IconMais, IconAlert, IconArrastar, IconMessage, IconCheck } from './icons.jsx'
 
 // Cartão do funil. Mostra o mínimo para decidir o que fazer com a negociação
 // sem abrir nada: de quem é, quanto vale e qual é o próximo passo — este último
 // em destaque quando está atrasado, porque é o que muda a ordem do dia.
 export default function OportunidadeCard({
-  oportunidade, onAbrir, onMover, onConversar, onConverter,
+  oportunidade, onAbrir, onMover, onConversar, onConverter, onConfirmarVenda,
   arrastavel = false, arrastando = false, onDragStart, onDragEnd,
 }) {
   // O contato pode ser um cliente cadastrado ou um LEAD — alguém que escreveu
@@ -25,6 +25,10 @@ export default function OportunidadeCard({
   const naoLidas = naoLidasDaOportunidade(oportunidade)
   const fechada = ETAPAS_FECHADAS.includes(oportunidade.etapa)
   const valor = Number(oportunidade.valorEstimado || 0)
+  // Negócio ganho cria a venda como PROPOSTA. Enquanto ninguém a confirma, o
+  // "ganho" ainda não virou dinheiro — o cartão diz isso e oferece o passo.
+  const venda = oportunidade.vendaId ? vendas.get(oportunidade.vendaId) : null
+  const propostaAberta = venda?.status === 'proposta'
 
   // Só as abertas cobram próximo passo: negócio fechado não tem o que esperar.
   const semProximoPasso = !fechada && !passo
@@ -195,7 +199,9 @@ export default function OportunidadeCard({
           <Badge color="red">{MOTIVOS_PERDA[oportunidade.motivoPerda] ?? oportunidade.motivoPerda}</Badge>
         )}
         {oportunidade.etapa === 'ganho' && (
-          <Badge color="green">{oportunidade.vendaId ? 'Venda criada' : 'Ganho'}</Badge>
+          propostaAberta
+            ? <Badge color="sky">Proposta a confirmar</Badge>
+            : <Badge color="green">{oportunidade.vendaId ? 'Venda criada' : 'Ganho'}</Badge>
         )}
 
         {!fechada && passo && (
@@ -219,6 +225,12 @@ export default function OportunidadeCard({
           </span>
         )}
       </div>
+
+      {propostaAberta && onConfirmarVenda && (
+        <Button className="mt-2.5 w-full" onClick={() => onConfirmarVenda(venda)}>
+          <IconCheck size={15} /> Confirmar venda
+        </Button>
+      )}
     </article>
   )
 }

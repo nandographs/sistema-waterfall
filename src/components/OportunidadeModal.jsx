@@ -243,7 +243,7 @@ export function FecharOportunidadeModal({ oportunidade, etapa, onFechar, onSalvo
         await ganharOportunidade(oportunidade.id, { criarVenda })
         notificar(
           criarVenda
-            ? 'Negócio ganho. A proposta foi criada em Vendas — confirme lá para gerar o financeiro e a agenda.'
+            ? 'Negócio ganho. A proposta foi criada — use “Confirmar venda” no cartão para gerar o financeiro e a agenda.'
             : 'Negócio ganho.',
         )
       } else {
@@ -288,7 +288,7 @@ export function FecharOportunidadeModal({ oportunidade, etapa, onFechar, onSalvo
                   Criar a proposta de venda com estes dados.
                   <span className="block text-xs text-slate-500 mt-0.5">
                     Ela nasce como <strong>proposta</strong>: nada entra no caixa nem na agenda
-                    até você confirmar a venda na tela de Vendas.
+                    até você clicar em “Confirmar venda” (no cartão, em Vendas ou na ficha do cliente).
                   </span>
                 </span>
               </label>
