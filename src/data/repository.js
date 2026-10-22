@@ -2286,19 +2286,72 @@ export async function registrarEquipamento({ clienteId, produtoId, dataInstalaca
   return registros
 }
 
-// Exclui uma ordem de serviço (agendamento). Só é permitido para as canceladas.
-// Os lançamentos vinculados são removidos junto (uma OS cancelada normalmente
-// já não tem nenhum, pois o cancelamento os tirou do caixa).
+// Exclui uma ordem de serviço (agendamento). Na tela de Serviços só é
+// permitido para as canceladas; quem apaga outras é a ficha do cliente, que
+// usa `excluirServico` direto e avisa o que sai junto.
 export async function excluirAgendamento(id) {
   const ag = agendamentos.get(id)
   if (!ag) return
   if (ag.status !== 'cancelado') {
     throw new Error('Só é possível excluir ordens de serviço canceladas.')
   }
+  await excluirServico(id)
+}
+
+// Apaga um serviço de qualquer situação — inclusive concluído — para o
+// registro feito por engano (cliente errado, troca lançada duas vezes, data
+// que não aconteceu). Leva junto as contas a receber dele, mesmo as já
+// recebidas: o dinheiro de um serviço que não existiu também não existiu.
+//
+// Troca de refil concluída mexeu no aparelho (ver aplicarEfeitosConclusao):
+// marcou a última troca e empurrou a próxima. Apagar só a linha deixaria o
+// aparelho contando a partir de uma troca que não houve, então isso volta para
+// a troca anterior que sobrou no histórico — ou para a instalação. A próxima
+// troca só é movida se ainda estiver onde aquela conclusão a pôs; remarcada à
+// mão, fica onde você deixou.
+//
+// Instalação concluída NÃO tira o aparelho da ficha: ele pode estar lá por
+// outro motivo, e "Remover da ficha" existe para quando for o caso.
+export async function excluirServico(id) {
+  const ag = agendamentos.get(id)
+  if (!ag) return
+
+  const afetados = []
+  if (ag.status === 'concluido' && ag.tipo === 'troca_refil') {
+    const base = ag.concluidoEm || ag.data
+    const ids = ag.produtoIds?.length ? ag.produtoIds : (ag.produtoId ? [ag.produtoId] : [])
+    const doServico = ag.equipamentoId ? equipamentos.get(ag.equipamentoId) : null
+    for (const pid of ids) {
+      const refil = produtos.get(pid)
+      if (refil?.tipo !== 'refil') continue
+      // O mesmo critério da conclusão para achar o aparelho da troca.
+      const servidos = [...aparelhosDoRefil(refil).map((a) => a.id), refil.id]
+      const eq = doServico && servidos.includes(doServico.produtoId)
+        ? doServico
+        : equipamentos.list().find((e) => e.clienteId === ag.clienteId && servidos.includes(e.produtoId))
+      // Só desfaz se foi ESTA troca que marcou a data — uma troca antiga
+      // lançada fora de ordem nunca mexeu nela.
+      if (eq && eq.dataUltimaTroca === base) afetados.push({ eq, refil, base })
+    }
+  }
+
   for (const l of lancamentos.list().filter((l) => l.agendamentoId === id)) {
     await lancamentos.remove(l.id)
   }
   await agendamentos.remove(id)
+
+  for (const { eq, refil, base } of afetados) {
+    const anterior = historicoDoEquipamento(eq)
+      .find((item) => item.servico?.tipo === 'troca_refil')?.quando || ''
+    await equipamentos.update(eq.id, { dataUltimaTroca: anterior })
+    await moverTrocaAberta({
+      clienteId: ag.clienteId,
+      refil,
+      de: base,
+      para: anterior || eq.dataInstalacao,
+      meses: Number(ag.intervaloTrocaMeses) || Number(eq.intervaloTrocaMeses) || 0,
+    })
+  }
 }
 
 // Move um serviço para outro dia. Passa pela sincronização do financeiro

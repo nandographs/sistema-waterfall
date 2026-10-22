@@ -6,6 +6,7 @@ import {
   aparelhosDoRefil,
   refilDoAparelho,
   registrarEquipamento, historicoDoEquipamento, registrarServicoDoEquipamento, refilDoEquipamento,
+  excluirServico,
   SERVICOS_DO_EQUIPAMENTO, definirFotoPerfil, removerFotoPerfil, resolverPagamentos,
   explicarColunaFaltante,
   proximoPasso, linhaDoTempoDoCliente, oportunidadesDoCliente, conversaDoCliente,
@@ -82,6 +83,10 @@ export default function ClienteDetalhe() {
   const [historicoEquipId, setHistoricoEquipId] = useState('')
   const [servicoEquipForm, setServicoEquipForm] = useState(null)
   const [salvandoServicoEquip, setSalvandoServicoEquip] = useState(false)
+  // { servico, voltarPara } — voltarPara é o aparelho cujo histórico estava
+  // aberto, para a confirmação devolver você a ele em vez de largar na ficha.
+  const [servicoExcluir, setServicoExcluir] = useState(null)
+  const [excluindoServico, setExcluindoServico] = useState(false)
   const [pagamentos, setPagamentos] = useState([])
 
   if (!cliente) {
@@ -314,6 +319,30 @@ export default function ClienteDetalhe() {
   function fecharHistoricoEquip() {
     setHistoricoEquipId('')
     setServicoEquipForm(null)
+  }
+
+  function pedirExcluirServico(servico) {
+    setServicoExcluir({ servico, voltarPara: historicoEquipId })
+    fecharHistoricoEquip()
+  }
+
+  function fecharExcluirServico() {
+    if (servicoExcluir?.voltarPara) setHistoricoEquipId(servicoExcluir.voltarPara)
+    setServicoExcluir(null)
+  }
+
+  async function confirmarExcluirServico() {
+    setExcluindoServico(true)
+    try {
+      await excluirServico(servicoExcluir.servico.id)
+      notificar('Serviço apagado.')
+      fecharExcluirServico()
+      refresh()
+    } catch (erro) {
+      notificar('Não foi possível apagar o serviço: ' + (erro?.message || erro), 'erro')
+    } finally {
+      setExcluindoServico(false)
+    }
   }
 
   async function receber(lancamentoId) {
@@ -683,7 +712,7 @@ export default function ClienteDetalhe() {
                         {a.osNumero ? ` · OS Nº ${a.osNumero}` : ''}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <Badge color={cor}>{rotulo}</Badge>
                       <Button variant="ghost" onClick={() => setAgDetalhe(a)} title="Ver informações">
                         <IconEye size={15} /> Ver
@@ -699,6 +728,9 @@ export default function ClienteDetalhe() {
                           </Button>
                         </>
                       )}
+                      <Button variant="danger" onClick={() => pedirExcluirServico(a)} title="Apagar serviço">
+                        <IconTrash size={15} />
+                      </Button>
                     </div>
                   </li>
                 )
@@ -843,6 +875,60 @@ export default function ClienteDetalhe() {
           }}
         />
       )}
+
+      {/* Diz, antes de apagar, tudo o que sai junto — o dinheiro e o que a
+          conclusão tinha mudado no aparelho. Apagar às cegas um serviço com
+          baixa dada era o jeito de sumir com dinheiro do caixa sem perceber. */}
+      <Modal title="Apagar serviço" open={!!servicoExcluir} onClose={fecharExcluirServico}>
+        {servicoExcluir && (() => {
+          const s = servicoExcluir.servico
+          const contas = lancamentos.list().filter((l) => l.agendamentoId === s.id)
+          const recebidas = contas.filter((l) => l.status === 'realizado')
+          const somaRecebida = recebidas.reduce((soma, l) => soma + Number(l.valor || 0), 0)
+          const concluido = s.status === 'concluido'
+          return (
+            <div className="space-y-4">
+              <p className="text-sm text-slate-600">
+                Apagar <span className="font-semibold text-slate-900">{TIPOS_AGENDAMENTO[s.tipo] ?? s.tipo}</span>{' '}
+                de <span className="font-semibold text-slate-900">{formatData(s.concluidoEm || s.data)}</span>?
+                Ele some da ficha, da agenda e do histórico do aparelho. Não dá para desfazer.
+              </p>
+              <ul className="space-y-1.5 text-sm text-slate-600 list-disc pl-5">
+                {contas.length > 0 && (
+                  <li>
+                    {contas.length === 1 ? 'A conta a receber dele sai' : `As ${contas.length} contas a receber dele saem`} do financeiro
+                    {recebidas.length > 0 && (
+                      <span className="font-semibold text-red-600">
+                        {' '}— incluindo {formatBRL(somaRecebida)} já recebido{recebidas.length > 1 ? 's' : ''}
+                      </span>
+                    )}.
+                  </li>
+                )}
+                {concluido && s.tipo === 'troca_refil' && (
+                  <li>
+                    A última troca do aparelho volta para a troca anterior (ou para a
+                    instalação), e a próxima troca é recalculada a partir dela.
+                  </li>
+                )}
+                {concluido && s.tipo === 'instalacao' && (
+                  <li>
+                    O aparelho continua na ficha. Se ele também foi um engano, use
+                    “Remover da ficha” em Equipamentos.
+                  </li>
+                )}
+              </ul>
+              <div className="flex justify-end gap-2 pt-1">
+                <Button type="button" variant="secondary" onClick={fecharExcluirServico} disabled={excluindoServico}>
+                  Cancelar
+                </Button>
+                <Button type="button" variant="danger" onClick={confirmarExcluirServico} disabled={excluindoServico}>
+                  {excluindoServico ? 'Apagando…' : 'Apagar serviço'}
+                </Button>
+              </div>
+            </div>
+          )
+        })()}
+      </Modal>
 
       {agForm && (
         <AgendamentoFormModal
@@ -1146,13 +1232,18 @@ export default function ClienteDetalhe() {
                       </div>
                     </div>
                     {servico && (
-                      <Button
-                        variant="ghost"
-                        title="Ver informações"
-                        onClick={() => { fecharHistoricoEquip(); setAgDetalhe(servico) }}
-                      >
-                        <IconEye size={15} /> Ver
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="ghost"
+                          title="Ver informações"
+                          onClick={() => { fecharHistoricoEquip(); setAgDetalhe(servico) }}
+                        >
+                          <IconEye size={15} /> Ver
+                        </Button>
+                        <Button variant="danger" onClick={() => pedirExcluirServico(servico)} title="Apagar do histórico">
+                          <IconTrash size={15} />
+                        </Button>
+                      </div>
                     )}
                   </li>
                   )
