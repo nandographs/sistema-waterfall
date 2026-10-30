@@ -270,7 +270,8 @@ function makeStore(tabela) {
 
 // Cliente: { nome, telefone, email, cpfCnpj, endereco, numeroComplemento,
 //            bairro, cidade, uf, cep, observacoes,
-//            criadoPor (nome de usuário de quem cadastrou; ver lib/auth.js) }
+//            criadoPor (nome de usuário de quem cadastrou; ver lib/auth.js),
+//            inativoEm, motivoInativacao, obsInativacao (ver inativarCliente) }
 export const clientes = makeStore('clientes')
 
 // Produto: { nome, codigo (SKU/referência, opcional — usado na busca),
@@ -522,6 +523,136 @@ export function enderecoCompleto(cliente) {
   return partes.join(' — ')
 }
 
+// ---- Cliente inativo ----
+
+// Por que o cliente deixou de ser atendido. Vocabulário fechado, como
+// MOTIVOS_PERDA: é o que, somado, diz quantos dá para reconquistar
+// ("concorrente", "mudou" para perto) e quantos não ("faleceu").
+export const MOTIVOS_INATIVACAO = {
+  mudou: 'Mudou-se',
+  concorrente: 'Trocou de marca',
+  retirou: 'Retirou o aparelho',
+  sem_contato: 'Não quer mais contato',
+  faleceu: 'Faleceu',
+  outro: 'Outro',
+}
+
+// A negociação aberta de quem foi inativado fecha como perdida — com o motivo
+// de perda mais próximo do motivo da inativação, para o relatório do funil
+// continuar dizendo alguma coisa.
+const PERDA_DA_INATIVACAO = {
+  mudou: 'fora_area',
+  concorrente: 'concorrente',
+  sem_contato: 'sem_interesse',
+}
+
+// Inativo é quem tem data de inativação; o resto (inclusive todo cadastro
+// anterior à migração 028) é ativo.
+export const clienteInativo = (cliente) => !!cliente?.inativoEm
+
+export function textoInativacao(cliente) {
+  if (!clienteInativo(cliente)) return ''
+  const motivo = MOTIVOS_INATIVACAO[cliente.motivoInativacao] || cliente.motivoInativacao
+  return [`Inativo desde ${formatData(cliente.inativoEm)}`, motivo].filter(Boolean).join(' · ')
+}
+
+// O que ainda está em aberto no nome do cliente. É o que o modal de inativação
+// mostra ANTES de confirmar: inativar quem tem visita marcada amanhã sem
+// resolver a visita deixa o técnico batendo numa porta que não é mais cliente.
+// O "a receber" é só informativo — dívida não some porque o cliente saiu.
+export function pendenciasDoCliente(clienteId) {
+  return {
+    servicos: agendamentos
+      .list()
+      .filter((a) => a.clienteId === clienteId && a.status === 'agendado')
+      .sort((a, b) => String(a.data || '').localeCompare(String(b.data || ''))),
+    negociacoes: oportunidades
+      .list()
+      .filter((o) => o.clienteId === clienteId && ETAPAS_ABERTAS.includes(o.etapa)),
+    tarefas: atividades
+      .list()
+      .filter((a) => a.clienteId === clienteId && a.status === 'pendente'),
+    aReceber: lancamentos
+      .list()
+      .filter((l) => l.clienteId === clienteId && l.tipo === 'entrada' && l.status === 'previsto')
+      .reduce((soma, l) => soma + Number(l.valor || 0), 0),
+  }
+}
+
+// Já existe algo no nome do cliente? É o que decide se "Excluir" ainda é uma
+// opção honesta ou se apagaria história — a mesma regra de excluirFuncionario.
+export function clienteTemHistorico(clienteId) {
+  const doCliente = (x) => x.clienteId === clienteId
+  return (
+    vendas.list().some(doCliente) ||
+    agendamentos.list().some(doCliente) ||
+    equipamentos.list().some(doCliente) ||
+    lancamentos.list().some(doCliente) ||
+    oportunidades.list().some(doCliente)
+  )
+}
+
+// Inativa o cliente e, conforme a escolha de quem inativa, resolve o que estava
+// em aberto: cancela os serviços agendados (o que também tira do caixa as
+// parcelas ainda não pagas deles), fecha as negociações como perdidas e
+// cancela as tarefas. Nada é apagado, e o fato fica no diário do cliente.
+export async function inativarCliente(id, {
+  motivo, observacao = '', cancelarServicos = true, perderNegociacoes = true, cancelarTarefas = true,
+} = {}) {
+  if (!motivo) {
+    throw new Error('Escolha o motivo: é ele que diz, mais tarde, se vale tentar trazer o cliente de volta.')
+  }
+  const pendencias = pendenciasDoCliente(id)
+
+  // O cliente primeiro: se a migração 028 não rodou, a gravação falha aqui,
+  // antes de cancelar serviço de quem acabaria continuando ativo.
+  const cliente = await clientes.update(id, {
+    inativoEm: hojeISO(),
+    motivoInativacao: motivo,
+    obsInativacao: String(observacao || '').trim(),
+  }).catch(explicarColunaFaltante)
+
+  if (cancelarServicos) {
+    for (const ag of pendencias.servicos) await mudarStatusAgendamento(ag.id, 'cancelado')
+  }
+  if (perderNegociacoes) {
+    for (const o of pendencias.negociacoes) {
+      await perderOportunidade(o.id, { motivo: PERDA_DA_INATIVACAO[motivo] || 'outro' })
+    }
+  }
+  if (cancelarTarefas) {
+    for (const t of pendencias.tarefas) await cancelarAtividade(t.id)
+  }
+
+  await salvarAtividade({
+    tipo: 'nota',
+    status: 'concluida',
+    resultado: 'sucesso',
+    clienteId: id,
+    data: hojeISO(),
+    titulo: 'Cliente inativado',
+    descricao: [MOTIVOS_INATIVACAO[motivo], String(observacao || '').trim()].filter(Boolean).join(' — '),
+  })
+
+  return cliente
+}
+
+// Volta o cliente à ativa. A inativação anterior fica registrada no diário;
+// o que foi cancelado ao inativar continua cancelado — reabrir serviço ou
+// negociação é decisão de cada caso, não efeito colateral.
+export async function reativarCliente(id) {
+  const cliente = await clientes.update(id, { inativoEm: '', motivoInativacao: '', obsInativacao: '' })
+  await salvarAtividade({
+    tipo: 'nota',
+    status: 'concluida',
+    resultado: 'sucesso',
+    clienteId: id,
+    data: hojeISO(),
+    titulo: 'Cliente reativado',
+  })
+  return cliente
+}
+
 // ---- Caixa: sincronia ----
 
 // Reconcilia os lançamentos de uma origem (venda ou agendamento) com o plano
@@ -597,6 +728,9 @@ const MIGRACAO_DA_COLUNA = {
   reagendado_de_id: 'sql/024_reagendamento.sql',
   motivo_reagendamento: 'sql/024_reagendamento.sql',
   equipamento_id: 'sql/026_servico_do_equipamento.sql',
+  inativo_em: 'sql/028_cliente_inativo.sql',
+  motivo_inativacao: 'sql/028_cliente_inativo.sql',
+  obs_inativacao: 'sql/028_cliente_inativo.sql',
 }
 
 export function explicarColunaFaltante(erro) {

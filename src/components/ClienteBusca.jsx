@@ -3,6 +3,7 @@ import { inputCls } from './ui.jsx'
 import { IconSearch, IconX } from './icons.jsx'
 import { semAcento, casaPalavras } from '../lib/texto.js'
 import { telefonesDoCliente } from '../lib/telefone.js'
+import { clienteInativo } from '../data/repository.js'
 
 // Busca tolerante a acento e caixa ("João" casa com "joao"). A implementação
 // mora em lib/texto.js, compartilhada com as buscas de Clientes e de Vendas —
@@ -62,8 +63,12 @@ export default function ClienteBusca({ clientes, value, onChange, required, plac
 
   const q = normalizar(query)
   const digitos = /^[\d\s()+-]+$/.test(query) ? query.replace(/\D/g, '') : ''
+  // Inativo continua achável — às vezes ele volta, e a venda nova é dele —
+  // mas vai para o fim da lista, com selo: quem procura "Maria" quer a Maria
+  // que é cliente hoje, não a homônima que se mudou há dois anos.
   const opcoes = useMemo(() => {
-    if (!q) return clientes
+    const ativosPrimeiro = (a, b) => Number(clienteInativo(a)) - Number(clienteInativo(b))
+    if (!q) return [...clientes].sort(ativosPrimeiro)
     // Cada palavra pode estar em qualquer lugar do nome ("maria silva" acha
     // "Maria da Silva"). Também pelo cônjuge e pelos telefones: quem monta a
     // venda às vezes só tem o número que ligou, ou o nome de quem atendeu.
@@ -79,7 +84,7 @@ export default function ClienteBusca({ clientes, value, onChange, required, plac
     return casam.sort((a, b) => {
       const na = normalizar(a.nome).startsWith(q) ? 0 : 1
       const nb = normalizar(b.nome).startsWith(q) ? 0 : 1
-      return na - nb || a.nome.localeCompare(b.nome)
+      return ativosPrimeiro(a, b) || na - nb || a.nome.localeCompare(b.nome)
     })
   }, [clientes, q, digitos])
 
@@ -180,6 +185,7 @@ export default function ClienteBusca({ clientes, value, onChange, required, plac
                 >
                   {c.nome}
                   {telefonesDoCliente(c)[0] && <span className="text-xs text-slate-400 ml-2">{telefonesDoCliente(c)[0].numero}</span>}
+                  {clienteInativo(c) && <span className="text-xs text-slate-400 ml-2">· inativo</span>}
                 </button>
               </li>
             ))

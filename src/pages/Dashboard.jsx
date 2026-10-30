@@ -5,7 +5,7 @@ import {
   eventosDoDia, eventosPorDia, pendenciasAtrasadas, assinarDados,
   concluirAtividade, mudarStatusAgendamento,
   proximaTroca, agendamentoEncerrado, formatBRL, formatData, FORMAS_PAGAMENTO, TIPOS_AGENDAMENTO,
-  resumoDoFunil, oportunidadesParadas, ETAPAS_ABERTAS, ETAPAS_FUNIL,
+  resumoDoFunil, oportunidadesParadas, ETAPAS_ABERTAS, ETAPAS_FUNIL, clienteInativo,
 } from '../data/repository.js'
 import { hojeISO, mesAtual, mesDe, gradeDoMes, diaExtenso } from '../lib/datas.js'
 import { Card, Badge, Empty, Button, Aviso, corpoDoNumero, notificar } from '../components/ui.jsx'
@@ -103,8 +103,11 @@ export default function Dashboard() {
     .list()
     .filter((a) => a.data?.startsWith(mesCorrente) && !agendamentoEncerrado(a))
 
+  // Aparelho de cliente inativo continua na ficha (é histórico), mas não
+  // tem troca para fazer — contá-lo aqui seria alarme para ninguém.
   const trocasPrevistas = equipamentos
     .list()
+    .filter((eq) => !clienteInativo(clientes.get(eq.clienteId)))
     .map((eq) => ({ eq, prevista: proximaTroca(eq) }))
     .filter(({ prevista }) => prevista && prevista <= mesCorrente + '-31')
     .sort((a, b) => a.prevista.localeCompare(b.prevista))

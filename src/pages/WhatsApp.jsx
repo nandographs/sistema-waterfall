@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Page, Badge, Empty, Button, Modal, notificar } from '../components/ui.jsx'
 import { IconMessage, IconAlert } from '../components/icons.jsx'
 import { formatHora, rotuloRelativo, diaCurto } from '../lib/datas.js'
@@ -8,7 +8,7 @@ import {
   marcarConversaLida, enviarMensagemWhatsapp, assinarWhatsapp, statusWhatsapp,
   vincularConversaACliente, oportunidadesDoCliente, atualizarAvatares,
   arquivarConversa, cadastrarClienteDaConversa, conversaDoCliente, conversaDoNumero,
-  garantirOportunidadeDoCliente,
+  garantirOportunidadeDoCliente, clienteInativo, textoInativacao,
   ETAPAS_FUNIL, ETAPAS_ABERTAS,
 } from '../data/repository.js'
 import { formatarE164, paraE164 } from '../lib/telefone.js'
@@ -413,6 +413,11 @@ export default function WhatsApp() {
                             sem cadastro
                           </span>
                         )}
+                        {clienteInativo(cliente) && (
+                          <span className="inline-block rounded-md bg-slate-100 border border-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
+                            inativo
+                          </span>
+                        )}
                       </div>
                     </div>
                   </button>
@@ -446,6 +451,17 @@ export default function WhatsApp() {
                   cumpre o papel de avisar. Quem abre a conversa esbarra nele
                   antes de começar a atender, que é o momento em que ele
                   importa. */}
+              {/* Inativo que volta a escrever é a chance de reativar — ou o
+                  aviso de não oferecer nada a quem pediu para não ser procurado.
+                  Nos dois casos, quem atende precisa saber antes de responder. */}
+              {clienteInativo(clientes.get(conversaAberta.clienteId)) && (
+                <p className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-slate-200 bg-slate-100 px-4 py-2 text-xs text-slate-600">
+                  <span className="font-semibold">{textoInativacao(clientes.get(conversaAberta.clienteId))}</span>
+                  <Link to={`/clientes/${conversaAberta.clienteId}`} className="font-medium text-blue-600 hover:underline">
+                    Abrir ficha
+                  </Link>
+                </p>
+              )}
               <NotasDaConversa conversa={conversaAberta} aoMudar={recarregar} />
               {carregando ? (
                 <p className="flex-1 text-sm text-slate-500 text-center py-10">Carregando a conversa…</p>

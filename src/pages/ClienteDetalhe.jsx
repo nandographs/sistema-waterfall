@@ -13,6 +13,8 @@ import {
   proximaTroca, badgeDoAgendamento, mudarStatusAgendamento, formatBRL, formatData, enderecoCompleto,
   FORMAS_PAGAMENTO, STATUS_VENDA, RESULTADOS_ATIVIDADE, ETAPAS_FUNIL, ETAPAS_FECHADAS,
   TIPOS_AGENDAMENTO,
+  clienteInativo, textoInativacao, pendenciasDoCliente, clienteTemHistorico, inativarCliente, reativarCliente,
+  MOTIVOS_INATIVACAO,
 } from '../data/repository.js'
 import { hojeISO, formatHora, diaCurto } from '../lib/datas.js'
 import { Card, Page, PageTitle, Button, Field, inputCls, InputNumero, Empty, Modal, Badge, notificar } from '../components/ui.jsx'
@@ -88,6 +90,11 @@ export default function ClienteDetalhe() {
   const [servicoExcluir, setServicoExcluir] = useState(null)
   const [excluindoServico, setExcluindoServico] = useState(false)
   const [pagamentos, setPagamentos] = useState([])
+  // { motivo, observacao, cancelarServicos, perderNegociacoes, cancelarTarefas,
+  //   viaExcluir } — viaExcluir: chegou aqui pelo botão Excluir de quem já tem
+  // histórico, e o modal explica por que inativar é o caminho.
+  const [inativacao, setInativacao] = useState(null)
+  const [salvandoInativacao, setSalvandoInativacao] = useState(false)
 
   if (!cliente) {
     return (
@@ -99,6 +106,7 @@ export default function ClienteDetalhe() {
   }
 
   const hoje = hojeISO()
+  const inativo = clienteInativo(cliente)
   const meusEquipamentos = equipamentos.list().filter((e) => e.clienteId === id)
   const minhasVendas = vendas
     .list()
@@ -375,6 +383,47 @@ export default function ClienteDetalhe() {
     }
   }
 
+  function abrirInativacao(viaExcluir = false) {
+    setInativacao({
+      motivo: '', observacao: '',
+      cancelarServicos: true, perderNegociacoes: true, cancelarTarefas: true,
+      viaExcluir,
+    })
+  }
+
+  async function confirmarInativacao(e) {
+    e.preventDefault()
+    setSalvandoInativacao(true)
+    try {
+      await inativarCliente(id, inativacao)
+      setInativacao(null)
+      notificar('Cliente inativado.')
+      refresh()
+    } catch (erro) {
+      notificar('Não foi possível inativar: ' + (erro?.message || erro), 'erro')
+    } finally {
+      setSalvandoInativacao(false)
+    }
+  }
+
+  async function reativar() {
+    try {
+      await reativarCliente(id)
+      notificar('Cliente reativado.')
+      refresh()
+    } catch (erro) {
+      notificar('Não foi possível reativar: ' + (erro?.message || erro), 'erro')
+    }
+  }
+
+  // Quem já tem venda, serviço ou dinheiro no caixa não é cadastro errado:
+  // excluir apagaria história. O botão leva à inativação, que guarda tudo — e
+  // o "excluir mesmo assim" continua lá, para a duplicata que também comprou.
+  function pedirExclusao() {
+    if (clienteTemHistorico(id)) abrirInativacao(true)
+    else excluirCliente()
+  }
+
   async function excluirCliente() {
     if (confirm(`Excluir o cliente "${cliente.nome}"? Os registros dele deixarão de aparecer.`)) {
       await clientes.remove(id)
@@ -403,12 +452,30 @@ export default function ClienteDetalhe() {
         action={
           <div className="flex gap-2">
             <Button variant="secondary" onClick={() => setEditando({ ...CLIENTE_VAZIO, ...cliente })}>Editar dados</Button>
-            <Button variant="danger" onClick={excluirCliente}>Excluir</Button>
+            {inativo
+              ? <Button variant="secondary" onClick={reativar}>Reativar</Button>
+              : <Button variant="secondary" onClick={() => abrirInativacao()}>Inativar</Button>}
+            <Button variant="danger" onClick={pedirExclusao}>Excluir</Button>
           </div>
         }
       >
         {cliente.nome}
       </PageTitle>
+
+      {/* A faixa é o que impede uma ficha inativa de passar por ativa: sem ela,
+          quem abre pela busca liga para quem pediu para não ser procurado. */}
+      {inativo && (
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-100 px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-slate-900">{textoInativacao(cliente)}</p>
+            {cliente.obsInativacao && <p className="text-sm text-slate-600 mt-0.5">{cliente.obsInativacao}</p>}
+            <p className="text-xs text-slate-500 mt-1">
+              Fora da lista de clientes e das trocas previstas. O histórico e o financeiro continuam aqui.
+            </p>
+          </div>
+          <Button variant="secondary" onClick={reativar}>Reativar cliente</Button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="space-y-6">
@@ -539,6 +606,8 @@ export default function ClienteDetalhe() {
                   )}
                 </div>
               </div>
+            ) : inativo ? (
+              <p className="text-sm text-slate-500">Cliente inativo — sem acompanhamento.</p>
             ) : (
               <div>
                 <p className="flex items-center gap-2 text-sm text-amber-600 bg-slate-100 border border-slate-200 rounded-lg px-3 py-2.5">
@@ -976,6 +1045,116 @@ export default function ClienteDetalhe() {
           onConfirmada={refresh}
         />
       )}
+
+      <Modal
+        title={inativacao?.viaExcluir ? 'Excluir ou inativar?' : 'Inativar cliente'}
+        open={!!inativacao}
+        onClose={() => setInativacao(null)}
+      >
+        {inativacao && (() => {
+          const { servicos, negociacoes, tarefas, aReceber } = pendenciasDoCliente(id)
+          const setI = (k, v) => setInativacao((atual) => ({ ...atual, [k]: v }))
+          const opcao = (chave, texto) => (
+            <label className="flex items-start gap-2 text-sm text-slate-700 bg-slate-100 border border-slate-200 rounded-lg px-3 py-2.5">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={inativacao[chave]}
+                onChange={(e) => setI(chave, e.target.checked)}
+              />
+              <span>{texto}</span>
+            </label>
+          )
+          return (
+            <form onSubmit={confirmarInativacao} className="space-y-4">
+              {inativacao.viaExcluir ? (
+                <p className="text-sm text-slate-600">
+                  <span className="font-semibold text-slate-900">{cliente.nome}</span> já tem vendas, serviços ou
+                  contas no caixa. Excluir apaga esse histórico; <span className="font-semibold text-slate-900">inativar</span>{' '}
+                  guarda tudo e só tira o cliente da lista e das trocas previstas.
+                </p>
+              ) : (
+                <p className="text-sm text-slate-600">
+                  O cliente sai da lista de clientes e das trocas de refil previstas. Vendas, serviços e
+                  financeiro continuam na ficha, e dá para reativar quando quiser.
+                </p>
+              )}
+
+              <Field label="Motivo">
+                <select
+                  className={inputCls + ' cursor-pointer'}
+                  value={inativacao.motivo}
+                  onChange={(e) => setI('motivo', e.target.value)}
+                  required
+                >
+                  <option value="">Escolha…</option>
+                  {Object.entries(MOTIVOS_INATIVACAO).map(([valor, rotulo]) => (
+                    <option key={valor} value={valor}>{rotulo}</option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label="Observação (opcional)">
+                <input
+                  className={inputCls}
+                  value={inativacao.observacao}
+                  onChange={(e) => setI('observacao', e.target.value)}
+                  placeholder="Ex.: foi morar em Curitiba"
+                />
+              </Field>
+
+              {(servicos.length > 0 || negociacoes.length > 0 || tarefas.length > 0) && (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-slate-500">Em aberto no nome dele</p>
+                  {servicos.length > 0 && opcao(
+                    'cancelarServicos',
+                    servicos.length === 1
+                      ? `Cancelar o serviço agendado (${TIPOS_AGENDAMENTO[servicos[0].tipo] ?? servicos[0].tipo}, ${formatData(servicos[0].data)})`
+                      : `Cancelar os ${servicos.length} serviços agendados`,
+                  )}
+                  {negociacoes.length > 0 && opcao(
+                    'perderNegociacoes',
+                    negociacoes.length === 1
+                      ? 'Fechar a negociação aberta como perdida'
+                      : `Fechar as ${negociacoes.length} negociações abertas como perdidas`,
+                  )}
+                  {tarefas.length > 0 && opcao(
+                    'cancelarTarefas',
+                    tarefas.length === 1 ? 'Cancelar a tarefa pendente' : `Cancelar as ${tarefas.length} tarefas pendentes`,
+                  )}
+                </div>
+              )}
+
+              {aReceber > 0 && (
+                <p className="flex items-start gap-2 text-sm text-amber-600">
+                  <IconAlert size={16} className="shrink-0 mt-0.5" />
+                  Ainda há {formatBRL(aReceber)} a receber dele. Isso continua no financeiro.
+                </p>
+              )}
+
+              <div className="flex flex-wrap justify-end gap-2 pt-1">
+                {inativacao.viaExcluir && (
+                  <Button
+                    type="button"
+                    variant="danger"
+                    className="mr-auto"
+                    onClick={() => { setInativacao(null); excluirCliente() }}
+                    disabled={salvandoInativacao}
+                  >
+                    Excluir mesmo assim
+                  </Button>
+                )}
+                <Button type="button" variant="secondary" onClick={() => setInativacao(null)} disabled={salvandoInativacao}>
+                  Cancelar
+                </Button>
+                <Button type="submit" disabled={salvandoInativacao}>
+                  {salvandoInativacao ? 'Inativando…' : 'Inativar cliente'}
+                </Button>
+              </div>
+            </form>
+          )
+        })()}
+      </Modal>
 
       <Modal title="Excluir venda" open={!!vendaExcluir} onClose={() => setVendaExcluir(null)}>
         {vendaExcluir && (() => {

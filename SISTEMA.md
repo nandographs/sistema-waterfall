@@ -129,6 +129,16 @@ Pontos-chave:
   O webhook do WhatsApp reconhece o cliente por QUALQUER um dos telefones
   (`clienteTemNumero`), não só pelo principal — senão quem escreve do segundo
   número entra como lead, com cartão novo ao lado da ficha que já existe.
+  Cliente **inativo** (`sql/028`) é quem tem `inativo_em` preenchido, com
+  `motivo_inativacao` (`MOTIVOS_INATIVACAO`) e uma observação. Inativar ≠
+  excluir: o histórico e o financeiro ficam; o que sai é o alarme — a lista de
+  Clientes (filtro "Situação", ativos por padrão), as trocas de refil previstas
+  do Painel e o selo "Troca de refil". Ele continua achável na busca de cliente
+  (no fim, com selo) e no WhatsApp a conversa avisa que é inativo.
+  `inativarCliente` resolve na hora o que estava em aberto, conforme a escolha:
+  cancela os serviços agendados, fecha as negociações como perdidas e cancela
+  as tarefas; o fato vira uma anotação no diário. Excluir quem já tem histórico
+  (`clienteTemHistorico`) abre a inativação, com "excluir mesmo assim" ao lado.
 - **`equipamentos`** = o aparelho instalado na casa do cliente; dele sai a
   previsão da próxima troca (`proximaTroca`). Cada um tem histórico próprio
   (`historicoDoEquipamento`): os serviços concluídos com `equipamento_id`

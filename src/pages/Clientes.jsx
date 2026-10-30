@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   clientes, agendamentos, equipamentos, lancamentos, proximaTroca, formatData,
-  explicarColunaFaltante,
+  explicarColunaFaltante, clienteInativo,
 } from '../data/repository.js'
 import { Card, Page, PageTitle, Button, inputCls, Empty, Modal, Badge, notificar, usePaginacao, Paginacao } from '../components/ui.jsx'
 import { IconPlus, IconSearch, IconUser, IconFilter, IconFileText } from '../components/icons.jsx'
@@ -60,6 +60,9 @@ export default function Clientes() {
   const [somenteTroca, setSomenteTroca] = useState(false)
   const [somentePendente, setSomentePendente] = useState(false)
   const [visita, setVisita] = useState('todos') // 'todos' | 'com' | 'sem'
+  // Inativo sai da lista por padrão — é para isso que se inativa. 'ativos' é o
+  // estado de repouso e não conta como filtro ligado.
+  const [situacao, setSituacao] = useState('ativos') // 'ativos' | 'inativos' | 'todos'
   // O cache vem do banco em ordem de cadastro crescente, o que deixava quem
   // acabou de ser cadastrado no fim da lista — justamente quem você mais procura.
   const [ordem, setOrdem] = useState('recentes')
@@ -84,7 +87,10 @@ export default function Clientes() {
       .sort((a, b) => a.data.localeCompare(b.data))[0]
   }
 
+  // Inativo não tem troca prevista: o aparelho pode até estar lá, mas ninguém
+  // vai trocar refil de quem deixou de ser cliente.
   function temTrocaPrevista(clienteId) {
+    if (clienteInativo(clientes.get(clienteId))) return false
     const limite = new Date()
     limite.setDate(limite.getDate() + JANELA_TROCA_DIAS)
     const limiteStr = limite.toISOString().slice(0, 10)
@@ -120,7 +126,7 @@ export default function Clientes() {
     return [...set].sort()
   }, [lista])
 
-  const qtdFiltros = [cidade, uf, somenteTroca, somentePendente, visita !== 'todos'].filter(Boolean).length
+  const qtdFiltros = [cidade, uf, somenteTroca, somentePendente, visita !== 'todos', situacao !== 'ativos'].filter(Boolean).length
   const filtrosAtivos = qtdFiltros > 0
 
   function limparFiltros() {
@@ -129,30 +135,45 @@ export default function Clientes() {
     setSomenteTroca(false)
     setSomentePendente(false)
     setVisita('todos')
+    setSituacao('ativos')
+  }
+
+  // Todos os filtros menos o de situação — separado para saber quantos
+  // inativos a busca acharia e avisar, em vez de dizer "nenhum cliente" para
+  // quem procurou alguém que só está inativo.
+  function passaFiltros(c) {
+    // A busca olha o nome, TODOS os telefones e o cônjuge — quem liga muitas
+    // vezes é a esposa, e quem procura a ficha só lembra do nome dela.
+    // Sem acento e sem caixa: "joao" acha João.
+    if (!combina(
+      busca,
+      c.nome,
+      c.conjugeNome,
+      c.conjugeTelefone,
+      ...telefonesDoCliente(c).map((t) => t.numero),
+    )) return false
+    if (cidade && normalizar(c.cidade) !== normalizar(cidade)) return false
+    if (uf && (c.uf || '').toUpperCase() !== uf) return false
+    if (somenteTroca && !temTrocaPrevista(c.id)) return false
+    if (somentePendente && !temPagamentoPendente(c.id)) return false
+    if (visita === 'com' && !proximaVisita(c.id)) return false
+    if (visita === 'sem' && proximaVisita(c.id)) return false
+    return true
+  }
+
+  function passaSituacao(c) {
+    if (situacao === 'ativos') return !clienteInativo(c)
+    if (situacao === 'inativos') return clienteInativo(c)
+    return true
   }
 
   // `filter` já devolve um array novo, então o `sort` aqui não mexe no cache.
   const filtrados = lista
-    .filter((c) => {
-      // A busca olha o nome, TODOS os telefones e o cônjuge — quem liga muitas
-      // vezes é a esposa, e quem procura a ficha só lembra do nome dela.
-      // Sem acento e sem caixa: "joao" acha João.
-      if (!combina(
-        busca,
-        c.nome,
-        c.conjugeNome,
-        c.conjugeTelefone,
-        ...telefonesDoCliente(c).map((t) => t.numero),
-      )) return false
-      if (cidade && normalizar(c.cidade) !== normalizar(cidade)) return false
-      if (uf && (c.uf || '').toUpperCase() !== uf) return false
-      if (somenteTroca && !temTrocaPrevista(c.id)) return false
-      if (somentePendente && !temPagamentoPendente(c.id)) return false
-      if (visita === 'com' && !proximaVisita(c.id)) return false
-      if (visita === 'sem' && proximaVisita(c.id)) return false
-      return true
-    })
+    .filter((c) => passaFiltros(c) && passaSituacao(c))
     .sort(compararClientes(ordem))
+  const inativosOcultos = situacao === 'ativos'
+    ? lista.filter((c) => clienteInativo(c) && passaFiltros(c)).length
+    : 0
 
   // Só o desenho é paginado. O PDF e a contagem continuam usando `filtrados`
   // inteiro: quem pede "baixar PDF" quer a lista que filtrou, não a página.
@@ -170,6 +191,8 @@ export default function Clientes() {
     if (visita === 'sem') partes.push('Sem visita agendada')
     if (somenteTroca) partes.push('Troca de refil prevista')
     if (somentePendente) partes.push('Pagamento pendente')
+    if (situacao === 'inativos') partes.push('Só inativos')
+    if (situacao === 'todos') partes.push('Ativos e inativos')
     return partes
   }
 
@@ -187,6 +210,7 @@ export default function Clientes() {
             conjugeNome: c.conjugeNome,
             criadoEm: c.criadoEm,
             situacao: [
+              clienteInativo(c) ? 'Inativo' : '',
               temPagamentoPendente(c.id) ? 'A receber' : '',
               temTrocaPrevista(c.id) ? 'Troca de refil' : '',
               prox ? `Próx. visita ${formatData(prox.data)}` : 'Sem visita marcada',
@@ -274,6 +298,14 @@ export default function Clientes() {
           {painelAberto && (
             <div className="absolute right-0 z-20 mt-2 w-72 max-w-[calc(100vw-3rem)] rounded-2xl superficie-flutuante p-4 space-y-4">
               <div>
+                <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Situação</label>
+                <select className={selectCls} value={situacao} onChange={(e) => setSituacao(e.target.value)}>
+                  <option value="ativos">Ativos</option>
+                  <option value="inativos">Inativos</option>
+                  <option value="todos">Ativos e inativos</option>
+                </select>
+              </div>
+              <div>
                 <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Cidade</label>
                 <select className={selectCls} value={cidade} onChange={(e) => setCidade(e.target.value)}>
                   <option value="">Todas as cidades</option>
@@ -325,6 +357,18 @@ export default function Clientes() {
       <Card>
         <p className="text-xs text-slate-400 mb-3">
           {filtrados.length} cliente{filtrados.length === 1 ? '' : 's'}
+          {inativosOcultos > 0 && (
+            <>
+              {' · '}
+              <button
+                type="button"
+                className="font-medium text-blue-600 hover:underline cursor-pointer"
+                onClick={() => setSituacao('todos')}
+              >
+                {inativosOcultos === 1 ? 'ver 1 inativo' : `ver ${inativosOcultos} inativos`}
+              </button>
+            </>
+          )}
         </p>
         {filtrados.length === 0 && (
           <Empty>{busca || filtrosAtivos ? 'Nenhum cliente encontrado.' : 'Nenhum cliente cadastrado ainda.'}</Empty>
@@ -332,6 +376,7 @@ export default function Clientes() {
         <ul className="divide-y divide-slate-100">
           {visiveis.map((c) => {
             const prox = proximaVisita(c.id)
+            const inativo = clienteInativo(c)
             return (
               <li key={c.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3">
                 <div className="flex items-center gap-3 min-w-0">
@@ -366,7 +411,9 @@ export default function Clientes() {
                 <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 pl-13 sm:pl-0 sm:shrink-0">
                   {temPagamentoPendente(c.id) && <Badge color="amber">A receber</Badge>}
                   {temTrocaPrevista(c.id) && <Badge color="red">Troca de refil</Badge>}
-                  {prox ? <Badge color="sky">Próx. visita: {formatData(prox.data)}</Badge> : <Badge>Sem visita marcada</Badge>}
+                  {inativo
+                    ? <Badge>Inativo</Badge>
+                    : prox ? <Badge color="sky">Próx. visita: {formatData(prox.data)}</Badge> : <Badge>Sem visita marcada</Badge>}
                 </div>
               </li>
             )
