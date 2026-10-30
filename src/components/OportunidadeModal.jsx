@@ -10,7 +10,7 @@ import ClienteBusca from './ClienteBusca.jsx'
 import ProdutoBusca from './ProdutoBusca.jsx'
 
 const OPORTUNIDADE_VAZIA = {
-  clienteId: '', titulo: '', etapa: 'novo', valorEstimado: '', produtoId: '',
+  clienteId: '', titulo: '', etapa: 'contato', valorEstimado: '', produtoId: '',
   canal: '', dataPrevista: '', observacoes: '',
 }
 

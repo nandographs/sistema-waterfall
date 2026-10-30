@@ -157,7 +157,8 @@ Pontos-chave:
   em momentos diferentes, para não existirem duas listas que desandam.
   Resultado `retornar` **obriga** marcar a data do follow-up.
 - **`oportunidades`** = a negociação (o cartão do funil). Tem `etapa`
-  (novo → contato → proposta → negociacao → ganho/perdido), `valor_estimado`,
+  (contato → agendado → sem_resposta → adiado → proposta → negociacao →
+  ganho/perdido; ver `sql/027`), `valor_estimado`,
   `ordem` (posição na coluna) e o vínculo com a `venda` que a fechou. Existe
   como tabela própria — e não como uma coluna `etapa` em `clientes` — porque o
   mesmo cliente negocia várias vezes ao longo dos anos e cada negociação precisa

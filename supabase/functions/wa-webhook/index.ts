@@ -228,7 +228,7 @@ async function acharCliente(numero: string): Promise<string | null> {
 // É a trava contra duplicata, e ela pergunta pelo `conversa_id` — não pelo
 // telefone nem pelo nome, que mudam. Vale para cartão de qualquer etapa,
 // inclusive `ganho` e `perdido`: negócio que já foi trabalhado e fechado não
-// volta para "novo" porque a pessoa mandou "bom dia" seis meses depois.
+// volta para "em contato" porque a pessoa mandou "bom dia" seis meses depois.
 async function temCartao(conversaId: string): Promise<boolean> {
   const { data, error } = await supabase
     .from('oportunidades')
@@ -253,11 +253,11 @@ async function abrirLead(
   { conversaId, numero, nome, texto }:
   { conversaId: string; numero: string; nome: string; texto: string },
 ) {
-  // Entra no fim da coluna "novo", como qualquer cartão criado à mão.
+  // Entra no fim da coluna "em contato", como qualquer cartão criado à mão.
   const { data: ultima } = await supabase
     .from('oportunidades')
     .select('ordem')
-    .eq('etapa', 'novo')
+    .eq('etapa', 'contato')
     .order('ordem', { ascending: false })
     .limit(1)
     .maybeSingle()
@@ -268,7 +268,7 @@ async function abrirLead(
     contato_nome: nome || null,
     contato_telefone: numero,
     titulo: nome ? `${nome} (WhatsApp)` : `Contato novo ${numero}`,
-    etapa: 'novo',
+    etapa: 'contato',
     canal: 'whatsapp',
     // A primeira mensagem é o melhor resumo que existe do que a pessoa quer.
     observacoes: texto ? `Primeira mensagem: "${texto}"` : null,

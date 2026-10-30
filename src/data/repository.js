@@ -305,7 +305,7 @@ export const nomeCompletoProduto = (produto) =>
 export const equipamentos = makeStore('equipamentos')
 
 // Oportunidade (a negociação — o cartão do funil): { clienteId, titulo,
-//          etapa: 'novo'|'contato'|'proposta'|'negociacao'|'ganho'|'perdido',
+//          etapa: 'contato'|'agendado'|'sem_resposta'|'adiado'|'proposta'|'negociacao'|'ganho'|'perdido',
 //          valorEstimado, produtoId, canal, responsavel, dataPrevista, observacoes,
 //          ordem (posição na coluna), motivoPerda, fechadaEm,
 //          vendaId (a venda que fechou o negócio),
@@ -443,16 +443,18 @@ export const STATUS_VENDA = {
 // tela inteira sem entregar nada. Se um dia houver mais de um funil, a coluna
 // `etapa` já é texto e a migração é direta.
 export const ETAPAS_FUNIL = {
-  novo: 'Novo',
   contato: 'Em contato',
-  proposta: 'Proposta',
-  negociacao: 'Negociação',
-  ganho: 'Ganho',
-  perdido: 'Perdido',
+  agendado: 'Agendado',
+  sem_resposta: 'Sem resposta',
+  adiado: 'Adiado',
+  proposta: 'Em proposta',
+  negociacao: 'Em negociação',
+  ganho: 'Venda fechada',
+  perdido: 'Venda perdida',
 }
 
 // `ganho` e `perdido` são terminais: saem do fluxo do quadro e viram histórico.
-export const ETAPAS_ABERTAS = ['novo', 'contato', 'proposta', 'negociacao']
+export const ETAPAS_ABERTAS = ['contato', 'agendado', 'sem_resposta', 'adiado', 'proposta', 'negociacao']
 export const ETAPAS_FECHADAS = ['ganho', 'perdido']
 
 export const CANAIS_OPORTUNIDADE = {
@@ -1112,7 +1114,7 @@ export async function garantirOportunidadeDoCliente(clienteId, conversaId) {
     clienteId,
     conversaId: conversaId || null,
     titulo: cliente?.nome ? `${cliente.nome} (WhatsApp)` : 'Contato pelo WhatsApp',
-    etapa: 'novo',
+    etapa: 'contato',
     canal: 'whatsapp',
   })
 }
@@ -1321,7 +1323,7 @@ function tituloPadraoDaOportunidade(dados) {
 }
 
 export async function salvarOportunidade(form) {
-  const etapa = form.etapa || 'novo'
+  const etapa = form.etapa || 'contato'
   const dados = {
     ...form,
     etapa,
