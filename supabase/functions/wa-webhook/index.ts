@@ -11,9 +11,13 @@
 //
 // TRÊS REGRAS QUE ESTA FUNÇÃO SEGUE, e o motivo de cada uma:
 //
-//   1. SEMPRE responde 200, mesmo quando não entende o evento. Webhook que
-//      devolve 500 entra na fila de retentativa da Evolution e atrasa tudo que
-//      vem depois. O que deu errado vira log, não erro HTTP.
+//   1. Responde 200 para o que ENTENDEU ou decidiu ignorar, e 500 quando falhou
+//      ao GRAVAR. Antes respondia 200 sempre, supondo que um 500 travaria a fila
+//      da Evolution — e o código dela mostra que não trava: cada entrega tem a
+//      própria rotina, com 5 tentativas a cada 30 s
+//      (pkg/events/webhook/webhook_producer.go). O 200 incondicional só servia
+//      para uma coisa: transformar qualquer soluço do banco em mensagem perdida
+//      para sempre. Como tudo aqui é idempotente (regra 2), repetir é seguro.
 //
 //   2. IDEMPOTÊNCIA pelo `wa_message_id` (unique no banco). Reentrega é o
 //      comportamento normal de qualquer webhook; sem isso a conversa duplica
@@ -33,9 +37,11 @@ import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { jidParaNumero, ehGrupo, ehStatus, ehLid, soDigitos, clienteTemNumero } from '../_compartilhado/telefone.ts'
 import { sincronizarAvatar } from '../_compartilhado/avatar.ts'
 import { guardarMidiaDaMensagem, temMidia } from '../_compartilhado/midia.ts'
+import { textoDaMensagem, tipoDaMensagem, temConteudo, alteracaoDe, previaDe, desembrulhar } from '../_compartilhado/conteudo.ts'
+import { INSTANCIA, gravarEstado } from '../_compartilhado/conexao.ts'
+import { importarHistorico } from '../_compartilhado/historico.ts'
 
 const TOKEN_ESPERADO = Deno.env.get('WEBHOOK_TOKEN') ?? ''
-const INSTANCIA = Deno.env.get('EVOLUTION_INSTANCIA') ?? 'waterfall'
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -45,41 +51,47 @@ const supabase = createClient(
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
 )
 
-// O texto pode vir em vários lugares conforme o tipo da mensagem.
-function textoDaMensagem(mensagem: any): string {
-  if (!mensagem) return ''
-  return (
-    mensagem.conversation ??
-    mensagem.extendedTextMessage?.text ??
-    mensagem.imageMessage?.caption ??
-    mensagem.videoMessage?.caption ??
-    mensagem.documentMessage?.caption ??
-    ''
-  )
+const ok = () => new Response('ok', { status: 200 })
+// Para a Evolution tentar de novo (ver regra 1).
+const deNovo = (motivo: string) => new Response(motivo, { status: 500 })
+
+// Conectou, caiu, deslogou. É o que a faixa de aviso da tela lê.
+//
+// `Disconnected` não marca o número como desconectado: a Evolution reconecta
+// sozinha logo depois (é a queda do websocket, não da sessão). Quem diz se
+// voltou é a próxima verificação do `wa-status`. Já `LoggedOut` e
+// `TemporaryBan` são sérios — o primeiro exige ler o QR de novo, o segundo é o
+// WhatsApp segurando o número.
+async function tratarConexao(nomeEvento: string, dados: any) {
+  const motivo = String(dados?.Reason ?? dados?.reason ?? '') || null
+  if (nomeEvento === 'connected' || nomeEvento === 'pairsuccess') {
+    await gravarEstado(supabase, { conectado: true, motivo: null })
+  } else if (nomeEvento === 'loggedout') {
+    await gravarEstado(supabase, { conectado: false, motivo: `desconectado do celular${motivo ? ` (${motivo})` : ''}` })
+  } else if (nomeEvento === 'temporaryban') {
+    await gravarEstado(supabase, { conectado: false, motivo: 'o WhatsApp bloqueou o número temporariamente' })
+  } else if (nomeEvento === 'connectfailure') {
+    await gravarEstado(supabase, { conectado: false, motivo: `falha ao conectar${motivo ? ` (${motivo})` : ''}` })
+  } else if (nomeEvento === 'disconnected') {
+    await gravarEstado(supabase, { motivo: 'conexão oscilou; a Evolution está reconectando' })
+  }
 }
 
-const TIPOS: Record<string, string> = {
-  text: 'texto', image: 'imagem', audio: 'audio',
-  video: 'video', document: 'documento', ptt: 'audio',
-}
-
-function tipoDaMensagem(info: any, mensagem: any): string {
-  const bruto = String(info?.MediaType || info?.Type || '').toLowerCase()
-  if (TIPOS[bruto]) return TIPOS[bruto]
-  if (mensagem?.imageMessage) return 'imagem'
-  // Figurinha é uma imagem (webp) para quem está lendo — tratá-la como "outro"
-  // deixava um balão vazio no meio da conversa.
-  if (mensagem?.stickerMessage) return 'imagem'
-  if (mensagem?.audioMessage) return 'audio'
-  if (mensagem?.videoMessage) return 'video'
-  if (mensagem?.documentMessage || mensagem?.documentWithCaptionMessage) return 'documento'
-  return textoDaMensagem(mensagem) ? 'texto' : 'outro'
-}
-
-// O que a lista da caixa de entrada mostra quando a mensagem não tem texto. É o
-// vocabulário do próprio WhatsApp, para ninguém precisar aprender outro.
-const PREVIA_DE_MIDIA: Record<string, string> = {
-  imagem: '📷 Foto', audio: '🎤 Áudio', video: '🎥 Vídeo', documento: '📄 Documento',
+// "Apagar para todos" e "editar" mexem na mensagem ORIGINAL — e não viram um
+// balão novo, que era o que acontecia antes ("tipo que o sistema não mostra").
+async function aplicarAlteracao(mensagemBruta: any): Promise<boolean> {
+  const alteracao = alteracaoDe(mensagemBruta)
+  if (!alteracao) return false
+  const agora = new Date().toISOString()
+  const campos = alteracao.tipo === 'editar'
+    ? { texto: alteracao.texto, editada_em: agora }
+    : { apagada_em: agora }
+  const { error } = await supabase.from('mensagens').update(campos).eq('wa_message_id', alteracao.waId)
+  // Antes da migração 029 as colunas não existem; a edição ainda vale.
+  if (error && alteracao.tipo === 'editar') {
+    await supabase.from('mensagens').update({ texto: alteracao.texto }).eq('wa_message_id', alteracao.waId)
+  }
+  return true
 }
 
 // O TELEFONE de quem está do outro lado — que nem sempre é o que está em `Chat`.
@@ -317,17 +329,51 @@ Deno.serve(async (req) => {
       } : undefined,
     }))
 
+    // O batimento: a Evolution falou com o sistema agora. É o que o `wa-status`
+    // compara com o último envio para descobrir um webhook mudo — o defeito que
+    // passou um mês sem ninguém ver.
+    await gravarEstado(supabase, { ultimo_evento_em: new Date().toISOString() })
+
     // Recibo de entrega/leitura: é o que mantém o sistema em dia com o celular.
     // O nome do evento varia entre versões; os três já apareceram.
     if (nomeEvento === 'receipt' || nomeEvento === 'read_receipt' || nomeEvento === 'readreceipt') {
       await tratarRecibo(evento?.data)
-      return new Response('ok', { status: 200 })
+      return ok()
     }
 
-    if (nomeEvento !== 'message' && nomeEvento !== 'send_message') {
-      // Conexão, presença, histórico: ainda não tratados. Responder 200 evita
-      // retentativa de algo que nunca vamos processar.
-      return new Response('ok', { status: 200 })
+    if (['connected', 'pairsuccess', 'loggedout', 'temporaryban', 'connectfailure', 'disconnected'].includes(nomeEvento)) {
+      await tratarConexao(nomeEvento, evento?.data)
+      return ok()
+    }
+
+    // As conversas que já existiam no celular, ao parear. Falha aqui devolve
+    // 500 de propósito: o lote volta, e o que já tinha entrado não duplica.
+    if (nomeEvento === 'historysync') {
+      try {
+        const { conversas, mensagens } = await importarHistorico(supabase, evento?.data)
+        console.log(`histórico: ${mensagens} mensagens novas em ${conversas} conversas`)
+        if (mensagens) {
+          const { data: estado } = await supabase
+            .from('whatsapp_estado').select('historico_mensagens').eq('instancia', INSTANCIA).maybeSingle()
+          await gravarEstado(supabase, { historico_mensagens: Number(estado?.historico_mensagens ?? 0) + mensagens })
+        }
+        return ok()
+      } catch (falha) {
+        console.error('falha no histórico:', (falha as Error)?.message)
+        return deNovo('historico')
+      }
+    }
+
+    // `SendMessage` é o eco do que o sistema enviou pela API — com ele, o
+    // envio feito por OUTRO caminho (o painel da Evolution, uma automação)
+    // também entra no histórico. O que saiu pela `wa-enviar` já está gravado e
+    // o unique do wa_message_id descarta a repetição.
+    //
+    // O nome com sublinhado nunca existiu: era um palpite desta função, e por
+    // isso o eco era jogado fora desde o primeiro dia.
+    if (nomeEvento !== 'message' && nomeEvento !== 'sendmessage') {
+      // Presença, etiquetas, chamadas: não tratados. 200 para não reentregar.
+      return ok()
     }
 
     const info = evento?.data?.Info ?? {}
@@ -335,7 +381,14 @@ Deno.serve(async (req) => {
 
     // Grupo e status ficam de fora: não são atendimento a cliente, e entrariam
     // na caixa de entrada empurrando o que importa para baixo.
-    if (ehGrupo(chat) || ehStatus(chat)) return new Response('ok', { status: 200 })
+    if (ehGrupo(chat) || ehStatus(chat) || chat.includes('@newsletter')) return ok()
+
+    // Editar e apagar mudam a mensagem original. Reação, voto em enquete e o
+    // tráfego de criptografia não têm o que mostrar — e não podem abrir
+    // conversa nem lead: um "👍" de um número novo não é contato comercial.
+    const mensagemBruta = desembrulhar(evento?.data?.Message ?? {})
+    if (await aplicarAlteracao(mensagemBruta)) return ok()
+    if (!temConteudo(mensagemBruta)) return ok()
 
     const daGente = info.IsFromMe === true
 
@@ -345,17 +398,16 @@ Deno.serve(async (req) => {
     const { lid } = resolvido
     let numero = resolvido.numero
     if (!numero && lid) {
-      // LID sem o telefone junto. NÃO descarta: este webhook responde 200 sempre,
-      // então a Evolution nunca reenviaria — a mensagem estaria perdida para
+      // LID sem o telefone junto. NÃO descarta: a Evolution não tem como mandar
+      // de novo com o telefone, então descartar é perder a mensagem para
       // sempre. Grava sob o LID, como antes desta correção; na primeira mensagem
       // dessa pessoa que trouxer o telefone, `corrigirConversaDoLid` renomeia a
       // conversa e o histórico fica inteiro.
       console.warn(`mensagem de LID ${lid} sem telefone alternativo; gravada sob o LID`)
       numero = lid
     }
-    if (!numero) return new Response('ok', { status: 200 })
+    if (!numero) return ok()
     if (lid && numero !== lid) await corrigirConversaDoLid(lid, numero)
-    const mensagemBruta = evento?.data?.Message ?? {}
     const texto = textoDaMensagem(mensagemBruta)
     const tipo = tipoDaMensagem(info, mensagemBruta)
     const waId = String(info.ID ?? '')
@@ -400,7 +452,7 @@ Deno.serve(async (req) => {
         conversaId = criada?.id ?? null
       }
     }
-    if (!conversaId) return new Response('ok', { status: 200 })
+    if (!conversaId) return deNovo('conversa')
 
     // Número desconhecido que escreveu é um lead: abre uma negociação na etapa
     // `novo`, para ele aparecer no CRM em vez de depender de alguém reparar na
@@ -455,9 +507,9 @@ Deno.serve(async (req) => {
     const duplicada = erroMensagem?.code === '23505'
     if (erroMensagem && !duplicada) {
       console.error('falha ao gravar mensagem:', erroMensagem.message)
-      return new Response('ok', { status: 200 })
+      return deNovo('mensagem')
     }
-    if (duplicada) return new Response('ok', { status: 200 })
+    if (duplicada) return ok()
 
     // 3b. A mídia, FORA do caminho da resposta — como a foto de perfil.
     //
@@ -479,10 +531,9 @@ Deno.serve(async (req) => {
 
     // 4. O espelho na conversa, para a lista da caixa de entrada não precisar
     // varrer as mensagens. Só mensagem recebida soma não lidas.
-    const previa = (texto || PREVIA_DE_MIDIA[tipo] || `[${tipo}]`).slice(0, 120)
     const atualizacao: Record<string, unknown> = {
       ultima_em: ocorridoEm,
-      ultima_previa: previa,
+      ultima_previa: previaDe(texto, tipo),
     }
     if (!daGente) {
       atualizacao.nao_lidas = (existente?.nao_lidas ?? 0) + 1
@@ -495,10 +546,11 @@ Deno.serve(async (req) => {
     }
     await supabase.from('conversas').update(atualizacao).eq('id', conversaId)
 
-    return new Response('ok', { status: 200 })
+    return ok()
   } catch (falha) {
-    // Regra 1: o erro é nosso, não da Evolution. Logar e responder 200.
+    // Regra 1: falhou ao processar — a Evolution tenta de novo, e o que já
+    // tinha sido gravado não duplica.
     console.error('erro no webhook:', (falha as Error)?.message)
-    return new Response('ok', { status: 200 })
+    return deNovo('erro')
   }
 })

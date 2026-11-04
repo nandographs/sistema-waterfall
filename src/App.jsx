@@ -13,6 +13,7 @@ import Vendas from './pages/Vendas.jsx'
 import Financeiro from './pages/Financeiro.jsx'
 import TopNav, { BottomNav } from './components/TopNav.jsx'
 import Sidebar from './components/Sidebar.jsx'
+import { AvisoWhatsapp } from './components/ConexaoWhatsapp.jsx'
 import { supabase } from './lib/supabaseClient.js'
 import { carregarDados } from './data/repository.js'
 import { definirUsuarioAtual } from './lib/auth.js'
@@ -78,6 +79,7 @@ function AppLayout({ onSair }) {
 
       <div className="flex-1 min-w-0 flex flex-col bg-transparent">
         <TopNav tema={tema} onAlternarTema={alternarTema} />
+        <AvisoWhatsapp />
 
         <main className="flex-1">
           <Routes>

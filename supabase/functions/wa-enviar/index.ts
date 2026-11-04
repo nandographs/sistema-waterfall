@@ -116,8 +116,22 @@ Deno.serve(async (req) => {
     ocorrido_em: new Date().toISOString(),
   }
 
-  const { data: mensagem, error: falhaGravacao } = await supabase
+  let { data: mensagem, error: falhaGravacao } = await supabase
     .from('mensagens').insert(registro).select('id').single()
+
+  // O eco chegou primeiro. A Evolution dispara o evento SendMessage assim que a
+  // mensagem sai — às vezes antes de esta função receber a resposta — e o
+  // webhook grava a linha sem saber quem enviou nem de qual negociação. Aqui
+  // ela é completada, em vez de o envio aparecer como "não gravado".
+  if (falhaGravacao?.code === '23505' && waId) {
+    const completada = await supabase
+      .from('mensagens')
+      .update({ enviado_por: registro.enviado_por, oportunidade_id: registro.oportunidade_id })
+      .eq('wa_message_id', waId)
+      .select('id').single()
+    mensagem = completada.data
+    falhaGravacao = completada.error
+  }
 
   if (resposta.ok) {
     await supabase.from('conversas').update({

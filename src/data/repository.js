@@ -1330,9 +1330,31 @@ export async function enviarMensagemWhatsapp({ conversaId, clienteId, numero, te
   return data
 }
 
+// O motivo real que a Edge Function devolveu, em vez do "non-2xx status code"
+// genérico do cliente do Supabase.
+async function motivoDaFuncao(error, padrao) {
+  try {
+    const corpo = await error.context?.json?.()
+    return corpo?.erro || corpo?.detalhe || error.message || padrao
+  } catch {
+    return error.message || padrao
+  }
+}
+
+// Estado da conexão, e se o webhook está mudo. A própria verificação regrava o
+// webhook na Evolution quando o número está conectado — ver wa-status.
 export async function statusWhatsapp() {
-  const { data, error } = await supabase.functions.invoke('wa-status')
-  if (error) throw new Error(error.message || 'não foi possível falar com o WhatsApp')
+  const { data, error } = await supabase.functions.invoke('wa-status', { body: { acao: 'verificar' } })
+  if (error) throw new Error(await motivoDaFuncao(error, 'não foi possível falar com o WhatsApp'))
+  return data
+}
+
+// Liga a instância já com o webhook configurado e devolve o QR. É o ÚNICO jeito
+// certo de parear: pelo painel da Evolution, o número conecta sem webhook e
+// nada chega ao sistema (foi o que aconteceu em setembro de 2026).
+export async function conectarWhatsapp() {
+  const { data, error } = await supabase.functions.invoke('wa-status', { body: { acao: 'conectar' } })
+  if (error) throw new Error(await motivoDaFuncao(error, 'não foi possível iniciar a conexão'))
   return data
 }
 

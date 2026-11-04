@@ -5,7 +5,7 @@ import { IconMessage, IconAlert } from '../components/icons.jsx'
 import { formatHora, rotuloRelativo, diaCurto } from '../lib/datas.js'
 import {
   clientes, conversasRecentes, carregarMensagens, mensagensDaConversa,
-  marcarConversaLida, enviarMensagemWhatsapp, assinarWhatsapp, statusWhatsapp,
+  marcarConversaLida, enviarMensagemWhatsapp, assinarWhatsapp,
   vincularConversaACliente, oportunidadesDoCliente, atualizarAvatares,
   arquivarConversa, cadastrarClienteDaConversa, conversaDoCliente, conversaDoNumero,
   garantirOportunidadeDoCliente, clienteInativo, textoInativacao,
@@ -17,6 +17,7 @@ import ConversaWhatsApp, { CabecalhoConversa, AvatarConversa } from '../componen
 import EtapaOportunidade from '../components/EtapaOportunidade.jsx'
 import NotasDaConversa from '../components/NotasDaConversa.jsx'
 import ClienteBusca from '../components/ClienteBusca.jsx'
+import { useConexaoWhatsapp, problemaDaConexao, ModalConectar } from '../components/ConexaoWhatsapp.jsx'
 
 // A caixa de entrada do WhatsApp.
 //
@@ -59,7 +60,11 @@ export default function WhatsApp() {
   const [abertaId, setAbertaId] = useState(null)
   const [carregando, setCarregando] = useState(false)
   const [enviando, setEnviando] = useState(false)
-  const [conexao, setConexao] = useState(null)
+  // O estado da conexão: ao abrir a tela e a cada 5 minutos (ver
+  // useConexaoWhatsapp). Cada verificação também regrava o webhook.
+  const [conexao, verificarConexao] = useConexaoWhatsapp()
+  const problema = problemaDaConexao(conexao)
+  const [conectando, setConectando] = useState(false)
   const [vincular, setVincular] = useState(null)
   const [cadastro, setCadastro] = useState(null)
 
@@ -124,17 +129,6 @@ export default function WhatsApp() {
     })
   }, [parametros])
 
-  // O estado da conexão é consultado uma vez ao abrir a tela: é informação de
-  // rodapé, não vale ficar batendo na Evolution a cada segundo.
-  useEffect(() => {
-    statusWhatsapp()
-      .then(setConexao)
-      // Falha ao PERGUNTAR não é o mesmo que estar desconectado, e tratar as
-      // duas como iguais esconde o problema real — foi exatamente o que
-      // aconteceu quando faltava CORS nas funções: o número estava conectado e
-      // a tela dizia o contrário.
-      .catch((falha) => setConexao({ indisponivel: true, erro: falha?.message || String(falha) }))
-  }, [])
 
   // As fotos de perfil dos contatos, também uma vez ao abrir.
   //
@@ -290,21 +284,26 @@ export default function WhatsApp() {
           etiqueta de conexão. A etiqueta desceu para o rodapé (ver o fim deste
           arquivo) e a faixa deixou de ter motivo para existir. */}
 
-      {conexao && !conexao.conectado && (
-        <p className={`mb-4 flex items-start gap-2 text-sm rounded-xl px-3.5 py-3 border ${
-          conexao.indisponivel
-            ? 'text-amber-600 bg-slate-100 border-slate-200'
-            : 'text-red-600 bg-slate-100 border-slate-200'
+      {problema && (
+        <div className={`mb-4 flex flex-wrap items-start gap-x-3 gap-y-2 text-sm rounded-xl px-3.5 py-3 border bg-slate-100 border-slate-200 ${
+          problema.grave ? 'text-red-600' : 'text-amber-600'
         }`}>
           <IconAlert size={16} className="shrink-0 mt-0.5" />
-          <span>
-            {conexao.indisponivel
-              ? 'Não consegui falar com o servidor do WhatsApp para saber o estado da conexão. As mensagens que já chegaram continuam aqui.'
-              : 'O WhatsApp está desconectado — nada entra nem sai até religar o número.'}
-            {conexao.erro ? ` (${conexao.erro})` : ''}
-          </span>
-        </p>
+          <span className="min-w-0 flex-1">{problema.texto}</span>
+          {/* Conectar só faz sentido quando a Evolution respondeu. Se nem ela
+              responde (token trocado, servidor fora), o QR não viria. */}
+          {!conexao.indisponivel && (
+            <Button className="shrink-0" onClick={() => setConectando(true)}>
+              {conexao.conectado ? 'Reconectar o número' : 'Conectar o número'}
+            </Button>
+          )}
+        </div>
       )}
+
+      <ModalConectar
+        open={conectando}
+        onClose={() => { setConectando(false); verificarConexao() }}
+      />
 
       {/* Duas colunas no desktop; no celular, a lista dá lugar à conversa
           escolhida — o painel lado a lado não cabe em 375px. */}

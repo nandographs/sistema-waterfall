@@ -125,6 +125,19 @@ function Midia({ mensagem, saiu }) {
 
 function Balao({ mensagem }) {
   const saiu = mensagem.direcao === 'saida'
+
+  // Apagada para todos: o balão fica — saber que algo foi dito, e quando,
+  // continua valendo para quem atende —, mas o conteúdo some, como no WhatsApp.
+  if (mensagem.apagadaEm) {
+    return (
+      <div className={`flex ${saiu ? 'justify-end' : 'justify-start'}`}>
+        <p className="rounded-2xl border border-slate-200 px-3.5 py-2 text-xs italic text-slate-500">
+          Mensagem apagada · <span className="tnum">{formatHora(String(mensagem.ocorridoEm).slice(11, 16))}</span>
+        </p>
+      </div>
+    )
+  }
+
   const temMidia = TIPOS_COM_MIDIA.includes(mensagem.tipo)
   return (
     <div className={`flex ${saiu ? 'justify-end' : 'justify-start'}`}>
@@ -151,6 +164,7 @@ function Balao({ mensagem }) {
           </p>
         )}
         <div className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${saiu ? 'opacity-80' : 'text-slate-400'}`}>
+          {mensagem.editadaEm && <span>editada ·</span>}
           <span className="tnum">{formatHora(String(mensagem.ocorridoEm).slice(11, 16))}</span>
           {saiu && <StatusEntrega status={mensagem.status} />}
         </div>
