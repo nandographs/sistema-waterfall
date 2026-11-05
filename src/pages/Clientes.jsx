@@ -2,12 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   clientes, agendamentos, equipamentos, lancamentos, proximaTroca, formatData,
-  explicarColunaFaltante, clienteInativo,
+  explicarColunaFaltante, clienteInativo, unidades, haDistribuidores, unidadeForaDaCasa,
 } from '../data/repository.js'
 import { Card, Page, PageTitle, Button, inputCls, Empty, Modal, Badge, notificar, usePaginacao, Paginacao } from '../components/ui.jsx'
 import { IconPlus, IconSearch, IconUser, IconFilter, IconFileText } from '../components/icons.jsx'
 import ClienteFormFields from '../components/ClienteFormFields.jsx'
-import { usuarioAtual } from '../lib/auth.js'
+import { usuarioAtual, ehGestao } from '../lib/auth.js'
 import { telefonesDoCliente, comTelefonePrincipal } from '../lib/telefone.js'
 import { combina } from '../lib/texto.js'
 import { gerarClientesPdf } from '../relatorio/clientes.js'
@@ -63,6 +63,10 @@ export default function Clientes() {
   // Inativo sai da lista por padrão — é para isso que se inativa. 'ativos' é o
   // estado de repouso e não conta como filtro ligado.
   const [situacao, setSituacao] = useState('ativos') // 'ativos' | 'inativos' | 'todos'
+  // De qual unidade (migração 031). Só a gestão enxerga mais de uma, e só
+  // quando já existe distribuidor — antes disso o filtro não teria escolha.
+  const [unidade, setUnidade] = useState('')
+  const mostrarUnidade = ehGestao() && haDistribuidores()
   // O cache vem do banco em ordem de cadastro crescente, o que deixava quem
   // acabou de ser cadastrado no fim da lista — justamente quem você mais procura.
   const [ordem, setOrdem] = useState('recentes')
@@ -126,10 +130,11 @@ export default function Clientes() {
     return [...set].sort()
   }, [lista])
 
-  const qtdFiltros = [cidade, uf, somenteTroca, somentePendente, visita !== 'todos', situacao !== 'ativos'].filter(Boolean).length
+  const qtdFiltros = [unidade, cidade, uf, somenteTroca, somentePendente, visita !== 'todos', situacao !== 'ativos'].filter(Boolean).length
   const filtrosAtivos = qtdFiltros > 0
 
   function limparFiltros() {
+    setUnidade('')
     setCidade('')
     setUf('')
     setSomenteTroca(false)
@@ -152,6 +157,7 @@ export default function Clientes() {
       c.conjugeTelefone,
       ...telefonesDoCliente(c).map((t) => t.numero),
     )) return false
+    if (unidade && c.unidadeId !== unidade) return false
     if (cidade && normalizar(c.cidade) !== normalizar(cidade)) return false
     if (uf && (c.uf || '').toUpperCase() !== uf) return false
     if (somenteTroca && !temTrocaPrevista(c.id)) return false
@@ -185,6 +191,7 @@ export default function Clientes() {
   function descricaoDosFiltros() {
     const partes = []
     if (busca.trim()) partes.push(`Busca: ${busca.trim()}`)
+    if (unidade) partes.push(`Unidade: ${unidades.get(unidade)?.nome || ''}`)
     if (cidade) partes.push(`Cidade: ${cidade}`)
     if (uf) partes.push(`UF: ${uf}`)
     if (visita === 'com') partes.push('Com visita agendada')
@@ -297,6 +304,17 @@ export default function Clientes() {
 
           {painelAberto && (
             <div className="absolute right-0 z-20 mt-2 w-72 max-w-[calc(100vw-3rem)] rounded-2xl superficie-flutuante p-4 space-y-4">
+              {mostrarUnidade && (
+                <div>
+                  <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Unidade</label>
+                  <select className={selectCls} value={unidade} onChange={(e) => setUnidade(e.target.value)}>
+                    <option value="">Todas as unidades</option>
+                    {unidades.list().map((u) => (
+                      <option key={u.id} value={u.id}>{u.nome}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Situação</label>
                 <select className={selectCls} value={situacao} onChange={(e) => setSituacao(e.target.value)}>
@@ -409,6 +427,7 @@ export default function Clientes() {
                 {/* shrink-0 sem wrap somava ~300px de badges ao lado do nome e
                     estourava o card no celular; agora quebram na linha de baixo. */}
                 <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 pl-13 sm:pl-0 sm:shrink-0">
+                  {mostrarUnidade && unidadeForaDaCasa(c) && <Badge color="sky">{unidadeForaDaCasa(c).nome}</Badge>}
                   {temPagamentoPendente(c.id) && <Badge color="amber">A receber</Badge>}
                   {temTrocaPrevista(c.id) && <Badge color="red">Troca de refil</Badge>}
                   {inativo

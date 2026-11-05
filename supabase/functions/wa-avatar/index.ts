@@ -17,6 +17,7 @@
 
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { configuracaoAusente, json, erro, preflight } from '../_compartilhado/evolution.ts'
+import { exigirGestao } from '../_compartilhado/acesso.ts'
 import { sincronizarVarios, VALIDADE_DIAS } from '../_compartilhado/avatar.ts'
 
 // Quantas conversas por chamada.
@@ -42,6 +43,9 @@ Deno.serve(async (req) => {
 
   const faltando = configuracaoAusente()
   if (faltando) return erro(faltando, 500)
+
+  const recusa = await exigirGestao(req)
+  if (recusa) return recusa
 
   let corpo: any = {}
   try {

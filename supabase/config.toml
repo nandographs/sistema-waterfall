@@ -30,3 +30,8 @@ verify_jwt = true
 # WhatsApp da empresa.
 [functions.wa-avatar]
 verify_jwt = true
+
+# Criar login e trocar senha de quem usa o sistema. Exige login, e a função
+# ainda confere se quem pediu é da gestão — ver functions/usuarios/index.ts.
+[functions.usuarios]
+verify_jwt = true

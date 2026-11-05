@@ -8,6 +8,7 @@ import { IconPlus, IconImage, IconSearch } from '../components/icons.jsx'
 import FotoUnica from '../components/FotoUnica.jsx'
 import ProdutoBusca from '../components/ProdutoBusca.jsx'
 import { combina } from '../lib/texto.js'
+import { ehGestao } from '../lib/auth.js'
 
 // Cor e badge por tipo: aparelho e refil são o miolo do serviço (troca
 // agendada); acessório e "outro" só entram na venda.
@@ -163,7 +164,8 @@ export default function Produtos() {
     <Page>
       <PageTitle
         subtitle="Aparelhos, refis, acessórios e serviços — valores, cores e intervalos de troca"
-        action={<Button onClick={() => { setErro(''); setForm({ ...FORM_VAZIO }) }}><IconPlus size={16} /> Novo produto</Button>}
+        // O catálogo é um só e o preço é da gestão: os outros papéis consultam.
+        action={ehGestao() && <Button onClick={() => { setErro(''); setForm({ ...FORM_VAZIO }) }}><IconPlus size={16} /> Novo produto</Button>}
       >
         Produtos
       </PageTitle>
@@ -252,8 +254,12 @@ export default function Produtos() {
                       {nomesCompativeis(p) || <span className="text-slate-500">—</span>}
                     </td>
                     <td className="py-3 text-right whitespace-nowrap">
-                      <Button variant="ghost" onClick={() => abrirEdicao(p)}>Editar</Button>
-                      <Button variant="danger" onClick={() => excluir(p.id)}>Excluir</Button>
+                      {ehGestao() && (
+                        <>
+                          <Button variant="ghost" onClick={() => abrirEdicao(p)}>Editar</Button>
+                          <Button variant="danger" onClick={() => excluir(p.id)}>Excluir</Button>
+                        </>
+                      )}
                     </td>
                   </tr>
                 ))}

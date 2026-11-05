@@ -11,6 +11,7 @@
 
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { chamarEvolution, configuracaoAusente, json, erro, preflight } from '../_compartilhado/evolution.ts'
+import { exigirGestao } from '../_compartilhado/acesso.ts'
 import { paraE164 } from '../_compartilhado/telefone.ts'
 
 const INSTANCIA = Deno.env.get('EVOLUTION_INSTANCIA') ?? 'waterfall'
@@ -28,6 +29,9 @@ Deno.serve(async (req) => {
 
   const faltando = configuracaoAusente()
   if (faltando) return erro(faltando, 500)
+
+  const recusa = await exigirGestao(req)
+  if (recusa) return recusa
 
   let corpo: any
   try {

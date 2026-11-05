@@ -324,10 +324,39 @@ mesma carteira que ele.
   **sem papel** por trigger, e sem papel não vê nada quando o filtro chegar;
   nunca nasce como gestão. Um trigger impede ficar sem nenhum gestor ativo.
 - `eh_gestao()` e `minha_unidade()` são as funções que as políticas usarão.
-- Por enquanto **nada é filtrado**: as tabelas de dados seguem com a
-  `acesso_autenticado` da 007, e todos os usuários existentes viraram gestão
-  da Waterfall. `criado_por` continua texto de exibição — não serve para
-  segurança.
+- Todos os usuários que existiam viraram gestão da Waterfall. `criado_por`
+  continua texto de exibição — não serve para segurança.
+
+**O filtro (`sql/031`)**: clientes, equipamentos, agendamentos, oportunidades,
+vendas, venda_itens, lançamentos, atividades e fotos têm `unidade_id`, e a
+política `por_unidade` deixa a gestão ver tudo e os outros só a própria
+unidade. Quem preenche a coluna é o trigger `definir_unidade`, nunca o app: o
+registro é da unidade do **cliente** (agendar para o cliente do distribuidor
+põe o serviço na agenda dele); sem cliente, segue a venda ou o agendamento, e
+por fim quem criou — e, nas Edge Functions, que não têm usuário, a Waterfall.
+Mudar a unidade de um cliente leva junto tudo que é dele
+(`levar_dados_do_cliente`).
+
+- `funcionarios`, `conversas`, `mensagens` e `whatsapp_estado` são só da
+  gestão: o WhatsApp é um número só, o da Waterfall. `wa-enviar`, `wa-status`
+  e `wa-avatar` também recusam quem não é gestão (`_compartilhado/acesso.ts`)
+  — o `verify_jwt` só prova que a pessoa está logada.
+- `produtos`: quem tem papel lê, só a gestão escreve.
+- Storage: o caminho diz de quem é o arquivo (`<cliente>/…`, `perfil/<cliente>.jpg`,
+  `produto/…`), e `arquivo_permitido()` confere a unidade do cliente.
+
+**Na interface**: `navegacao.js` marca `soGestao` em WhatsApp, Financeiro e
+Equipe — somem do menu e a rota volta para o início (`SoGestao` em App.jsx).
+O distribuidor também não vê os atalhos de WhatsApp (ficha do cliente, cartão
+do CRM) nem os botões de editar o catálogo. Quando existe distribuidor, a
+gestão ganha o filtro e o selo de unidade na lista de clientes e escolhe a
+unidade no cadastro — trocar ali leva a ficha inteira junto.
+
+**Equipe** (`/equipe`, `pages/Equipe.jsx`): unidades de distribuidor e os
+acessos (papel, unidade, ativo, senha). Criar login e trocar senha exigem a
+chave de administrador, então passam pela Edge Function `usuarios`, que
+confere `eh_gestao()` antes. O nome de login fica copiado em
+`perfis.usuario` (`sql/032`), porque o navegador não lê `auth.users`.
 - No app, `carregarPerfil()` roda junto com a carga e alimenta `papelAtual()`,
   `ehGestao()` e `unidadeAtual()` de `lib/auth.js`. Se falhar (migração não
   rodada), o login segue e o papel fica vazio. O papel na tela é só ajuste de
@@ -340,7 +369,7 @@ mesma carteira que ele.
 - Layout com **sidebar** fixa no desktop (colapso persistido em `localStorage`),
   `TopNav` e `BottomNav` no mobile — a navegação foi separada por tamanho de tela.
 - Rotas: `/` dashboard, `/clientes`, `/clientes/:id`, `/produtos`, `/agenda`,
-  `/agendamentos`, `/crm`, `/whatsapp`, `/vendas`, `/financeiro`.
+  `/agendamentos`, `/crm`, `/whatsapp`, `/vendas`, `/financeiro`, `/equipe`.
 - A tela `/crm` se chama **CRM** no menu; no código ela continua sendo o "funil"
   (`pages/Funil.jsx`, `ETAPAS_FUNIL`, `resumoDoFunil`) — mesma separação de
   "Serviços", cuja rota e tabela seguem como `agendamentos`.

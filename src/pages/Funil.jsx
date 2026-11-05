@@ -13,6 +13,7 @@ import ConversaClienteModal from '../components/ConversaClienteModal.jsx'
 import ConverterLeadModal from '../components/ConverterLeadModal.jsx'
 import ConfirmarVendaModal from '../components/ConfirmarVendaModal.jsx'
 import { assinarWhatsapp } from '../data/repository.js'
+import { ehGestao } from '../lib/auth.js'
 
 // Remove acentos e caixa, como no ClienteBusca — "joão" tem que casar com "Joao".
 const normalizar = (s) =>
@@ -207,7 +208,8 @@ export default function Funil() {
                 onDragEnd={limparArrasto}
                 onAbrir={() => setForm(oportunidade)}
                 onMover={(destino) => mover(oportunidade, destino, null)}
-                onConversar={setConversaAberta}
+                // Sem conversar para quem não é gestão: o WhatsApp é o da Waterfall.
+                onConversar={ehGestao() ? setConversaAberta : undefined}
                 onConverter={setConvertendo}
                 onConfirmarVenda={setConfirmandoVenda}
               />

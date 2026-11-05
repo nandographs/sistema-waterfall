@@ -15,6 +15,7 @@ import {
   TIPOS_AGENDAMENTO,
   clienteInativo, textoInativacao, pendenciasDoCliente, clienteTemHistorico, inativarCliente, reativarCliente,
   MOTIVOS_INATIVACAO,
+  recarregarTabelas, TABELAS_DO_CLIENTE,
 } from '../data/repository.js'
 import { hojeISO, formatHora, diaCurto } from '../lib/datas.js'
 import { Card, Page, PageTitle, Button, Field, inputCls, InputNumero, Empty, Modal, Badge, notificar } from '../components/ui.jsx'
@@ -32,6 +33,7 @@ import ClienteFormFields from '../components/ClienteFormFields.jsx'
 import PagamentosVenda, { pagamentosIniciais } from '../components/PagamentosVenda.jsx'
 import FotosCliente from '../components/FotosCliente.jsx'
 import FotoUnica from '../components/FotoUnica.jsx'
+import { ehGestao } from '../lib/auth.js'
 import ProdutoBusca from '../components/ProdutoBusca.jsx'
 
 const CLIENTE_VAZIO = {
@@ -136,7 +138,13 @@ export default function ClienteDetalhe() {
   async function salvarEdicao(e) {
     e.preventDefault()
     try {
+      const unidadeAntes = clientes.get(id)?.unidadeId
       await clientes.update(id, comTelefonePrincipal(editando)).catch(explicarColunaFaltante)
+      // Mudar a unidade leva a ficha inteira junto, no banco (migração 031);
+      // o cache só fica sabendo se buscar de novo.
+      if (editando.unidadeId && editando.unidadeId !== unidadeAntes) {
+        await recarregarTabelas(TABELAS_DO_CLIENTE)
+      }
       setEditando(null)
       refresh()
     } catch (erro) {
@@ -514,7 +522,7 @@ export default function ClienteDetalhe() {
                 histórico, é como se manda a mensagem errada.
                 A conversa não é criada agora: se você abrir e desistir, nada
                 fica para trás (ver o rascunho em WhatsApp.jsx). */}
-            {temTelefone && (
+            {temTelefone && ehGestao() && (
               <Link
                 to={`/whatsapp?cliente=${id}`}
                 className="mb-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-700 hover:border-slate-300 hover-superficie"

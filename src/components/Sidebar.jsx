@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom'
 import { IconLogOut, IconChevronLeft, IconChevronRight } from './icons.jsx'
-import { LINKS } from './navegacao.js'
+import { linksDoMenu } from './navegacao.js'
 import logo from '../assets/logo.svg'
 
 // Sidebar do desktop: 248px, colapsa para 80px só com ícones. O item ativo é
@@ -23,7 +23,7 @@ export default function Sidebar({ colapsada, onAlternar, onSair }) {
       </div>
 
       <nav className="flex-1 overflow-y-auto sem-barra py-4 px-3 space-y-0.5">
-        {LINKS.map(({ to, label, Icon }) => (
+        {linksDoMenu().map(({ to, label, Icon }) => (
           <NavLink
             key={to}
             to={to}

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { IconLogOut, IconUser, IconMais, IconX, IconSol, IconLua } from './icons.jsx'
-import { NA_BARRA, NO_MAIS, tituloDaRota } from './navegacao.js'
+import { naBarra, noMais, tituloDaRota } from './navegacao.js'
 import { usuarioAtual, papelAtual, PAPEIS } from '../lib/auth.js'
 import logo from '../assets/logo.svg'
 
@@ -65,7 +65,7 @@ export function BottomNav({ onSair }) {
         className="lg:hidden fixed bottom-0 inset-x-0 z-40 grid grid-cols-6 bg-[var(--nav-blur-bg)] backdrop-blur-xl border-t border-slate-200 pb-[env(safe-area-inset-bottom)]"
         aria-label="Navegação principal"
       >
-        {NA_BARRA.map(({ to, label, Icon }) => (
+        {naBarra().map(({ to, label, Icon }) => (
           <NavLink key={to} to={to} end={to === '/'} className={celula}>
             <Icon size={20} />
             <span>{label}</span>
@@ -104,7 +104,7 @@ export function BottomNav({ onSair }) {
                 <IconX size={18} />
               </button>
             </div>
-            {NO_MAIS.map(({ to, label, Icon }) => (
+            {noMais().map(({ to, label, Icon }) => (
               <NavLink
                 key={to}
                 to={to}

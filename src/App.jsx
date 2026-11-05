@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import Login from './pages/Login.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import Clientes from './pages/Clientes.jsx'
@@ -11,12 +11,14 @@ import Funil from './pages/Funil.jsx'
 import WhatsApp from './pages/WhatsApp.jsx'
 import Vendas from './pages/Vendas.jsx'
 import Financeiro from './pages/Financeiro.jsx'
+import Equipe from './pages/Equipe.jsx'
+import { rotaPermitida } from './components/navegacao.js'
 import TopNav, { BottomNav } from './components/TopNav.jsx'
 import Sidebar from './components/Sidebar.jsx'
 import { AvisoWhatsapp } from './components/ConexaoWhatsapp.jsx'
 import { supabase } from './lib/supabaseClient.js'
 import { carregarDados } from './data/repository.js'
-import { definirUsuarioAtual } from './lib/auth.js'
+import { definirUsuarioAtual, ehGestao } from './lib/auth.js'
 import { Toasts } from './components/ui.jsx'
 import { lerTema, salvarTema } from './lib/tema.js'
 
@@ -43,6 +45,13 @@ function TelaErro({ mensagem, onSair }) {
       </div>
     </div>
   )
+}
+
+// Tela que não é do papel de quem está logado volta para o início — melhor do
+// que abrir vazia, que pareceria defeito. Quem protege os dados é o RLS.
+function SoGestao({ children }) {
+  const { pathname } = useLocation()
+  return rotaPermitida(pathname) ? children : <Navigate to="/" replace />
 }
 
 function AppLayout({ onSair }) {
@@ -79,7 +88,8 @@ function AppLayout({ onSair }) {
 
       <div className="flex-1 min-w-0 flex flex-col bg-transparent">
         <TopNav tema={tema} onAlternarTema={alternarTema} />
-        <AvisoWhatsapp />
+        {/* O WhatsApp é o número da Waterfall: só a gestão usa (migração 031). */}
+        {ehGestao() && <AvisoWhatsapp />}
 
         <main className="flex-1">
           <Routes>
@@ -90,9 +100,10 @@ function AppLayout({ onSair }) {
             <Route path="/agenda" element={<Agenda />} />
             <Route path="/agendamentos" element={<Agendamentos />} />
             <Route path="/crm" element={<Funil />} />
-            <Route path="/whatsapp" element={<WhatsApp />} />
+            <Route path="/whatsapp" element={<SoGestao><WhatsApp /></SoGestao>} />
             <Route path="/vendas" element={<Vendas />} />
-            <Route path="/financeiro" element={<Financeiro />} />
+            <Route path="/financeiro" element={<SoGestao><Financeiro /></SoGestao>} />
+            <Route path="/equipe" element={<SoGestao><Equipe /></SoGestao>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>

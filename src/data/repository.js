@@ -35,7 +35,7 @@ export {
 const TABELAS = [
   'clientes', 'produtos', 'equipamentos', 'agendamentos',
   'oportunidades', 'vendas', 'venda_itens', 'lancamentos', 'atividades',
-  'conversas', 'funcionarios',
+  'conversas', 'funcionarios', 'unidades',
 ]
 
 const cache = {
@@ -50,6 +50,7 @@ const cache = {
   atividades: [],
   conversas: [],
   funcionarios: [],
+  unidades: [],
 }
 
 // As MENSAGENS ficam fora do cache principal, guardadas por conversa e trazidas
@@ -119,6 +120,7 @@ const MIGRACAO_DA_TABELA = {
   conversas: 'sql/010_whatsapp.sql',
   mensagens: 'sql/010_whatsapp.sql',
   funcionarios: 'sql/019_conta_salario.sql',
+  unidades: 'sql/030_perfis_e_unidades.sql',
 }
 
 // O PostgREST corta toda resposta num teto de linhas (o `max-rows` do projeto,
@@ -375,6 +377,89 @@ export const lancamentos = makeStore('lancamentos')
 // calculado a partir deles (contaSalario, em financeiro.js). Não existe saldo
 // guardado — ver o comentário da migração 019.
 export const funcionarios = makeStore('funcionarios')
+
+// Unidade (de quem são os dados; migração 030): { nome, tipo: 'casa'|'distribuidor', ativa }
+// A gestão recebe todas; os outros papéis, só a própria — é o RLS que decide.
+export const unidades = makeStore('unidades')
+
+export const TIPOS_UNIDADE = { casa: 'Waterfall', distribuidor: 'Distribuidor' }
+
+export const nomeDaUnidade = (id) => unidades.get(id)?.nome || ''
+
+// Só faz sentido mostrar "de qual unidade é" quando existe mais de uma. Com a
+// Waterfall sozinha, o filtro e o selo seriam ruído em toda tela.
+export const haDistribuidores = () => unidades.list().some((u) => u.tipo === 'distribuidor')
+
+// O selo vai só no que NÃO é da Waterfall: é a exceção que precisa aparecer.
+export function unidadeForaDaCasa(registro) {
+  const unidade = unidades.get(registro?.unidadeId)
+  return unidade && unidade.tipo !== 'casa' ? unidade : null
+}
+
+// O que muda de unidade junto com o cliente — o que `levar_dados_do_cliente`
+// (migração 031) atualiza no banco, para o cache rebuscar.
+export const TABELAS_DO_CLIENTE = [
+  'equipamentos', 'agendamentos', 'oportunidades', 'vendas', 'venda_itens', 'lancamentos', 'atividades',
+]
+
+export async function salvarUnidade(form) {
+  const dados = { nome: String(form.nome || '').trim(), tipo: 'distribuidor', ativa: form.ativa !== false }
+  if (!dados.nome) throw new Error('Dê um nome à unidade.')
+  return form.id ? unidades.update(form.id, dados) : unidades.create(dados)
+}
+
+// ---- Equipe: quem usa o sistema (perfis, migração 030) ----
+//
+// Fora do cache: só a tela de Equipe precisa, e só a gestão consegue ler os
+// perfis dos outros. A chave é `user_id`, não `id` — por isso não é um makeStore.
+
+export async function listarPerfis() {
+  const { data, error } = await supabase.from('perfis').select('*').order('nome')
+  if (error) throw error
+  return data.map(paraApp)
+}
+
+export async function salvarPerfil(userId, { nome, papel, unidadeId, ativo }) {
+  const { error } = await supabase
+    .from('perfis')
+    .update(paraColuna({ nome, papel, unidadeId, ativo }))
+    .eq('user_id', userId)
+  if (error) throw traduzirErroDoPerfil(error)
+}
+
+// Criar login e trocar senha precisam da chave de administrador do Supabase,
+// que não pode vir para o navegador — quem faz é a Edge Function `usuarios`,
+// que antes confere se quem pediu é da gestão.
+export async function criarUsuario({ usuario, senha, nome, papel, unidadeId }) {
+  return chamarUsuarios({ acao: 'criar', usuario, senha, nome, papel, unidadeId })
+}
+
+export async function trocarSenha(userId, senha) {
+  return chamarUsuarios({ acao: 'senha', userId, senha })
+}
+
+async function chamarUsuarios(corpo) {
+  const { data, error } = await supabase.functions.invoke('usuarios', { body: corpo })
+  if (error) {
+    // O supabase-js esconde o corpo da resposta de erro no `context`; é lá que
+    // vem o motivo em português ("esse usuário já existe").
+    const detalhe = await error.context?.json?.().catch(() => null)
+    if (detalhe?.erro) throw new Error(detalhe.erro)
+    if (error.name === 'FunctionsFetchError' || error.context?.status === 404) {
+      throw new Error('A função "usuarios" não está publicada. Rode: npx supabase functions deploy usuarios')
+    }
+    throw error
+  }
+  return data
+}
+
+function traduzirErroDoPerfil(error) {
+  if (/pelo menos um usu/i.test(error.message || '')) {
+    return new Error('O sistema precisa de pelo menos um usuário da gestão ativo.')
+  }
+  if (error.code === '23514') return new Error('Quem tem papel precisa ter uma unidade.')
+  return error
+}
 
 // Atividade (o diário de trabalho): { data, hora, duracaoMin,
 //          tipo: 'ligacao'|'whatsapp'|'email'|'visita'|'reuniao'|'tarefa'|'nota',

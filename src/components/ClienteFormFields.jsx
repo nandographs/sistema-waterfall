@@ -3,6 +3,8 @@ import { Field, inputCls } from './ui.jsx'
 import { mascararCpfCnpj, mascararTelefone, mascararCep } from '../lib/mascaras.js'
 import { buscarCep } from '../lib/cep.js'
 import { telefonesDoCliente } from '../lib/telefone.js'
+import { ehGestao } from '../lib/auth.js'
+import { unidades, haDistribuidores } from '../data/repository.js'
 
 // Campos de cadastro de cliente, compartilhados entre a tela de Clientes
 // (novo cliente) e a ficha do cliente (editar dados). Inclui CPF/CNPJ e o
@@ -237,6 +239,23 @@ export default function ClienteFormFields({ form, set, onEnderecoEncontrado }) {
       <Field label="Observações">
         <textarea className={inputCls} rows="3" value={form.observacoes} onChange={set('observacoes')} />
       </Field>
+      {/* De quem é o cliente. Só a gestão escolhe — para os outros papéis o
+          banco põe na unidade de quem cadastrou e recusa qualquer outra.
+          Trocar aqui leva junto a história inteira (migração 031). */}
+      {ehGestao() && haDistribuidores() && (
+        <Field label="Unidade">
+          <select
+            className={inputCls + ' cursor-pointer'}
+            value={form.unidadeId || unidades.list().find((u) => u.tipo === 'casa')?.id || ''}
+            onChange={set('unidadeId')}
+          >
+            {unidades.list().map((u) => (
+              <option key={u.id} value={u.id}>{u.nome}</option>
+            ))}
+          </select>
+          <span className="block text-xs text-slate-400 mt-1">Quem atende este cliente. Serviços, vendas e o resto da ficha vão junto.</span>
+        </Field>
+      )}
     </>
   )
 }

@@ -144,16 +144,21 @@ export default function OportunidadeCard({
 
       {/* Clicar no contato abre a conversa de WhatsApp, ali mesmo: no meio do
           quadro, "falar com a pessoa" não devia custar uma navegação e uma
-          volta. A ficha do cliente continua a um clique, no menu "…". */}
+          volta. A ficha do cliente continua a um clique, no menu "…".
+          Sem `onConversar` (quem não usa o WhatsApp da empresa), o nome fica
+          só como texto. */}
       <button
         type="button"
+        disabled={!onConversar}
         onClick={() => onConversar?.(oportunidade)}
         title={
-          naoLidas
-            ? `${naoLidas} ${naoLidas === 1 ? 'mensagem nova' : 'mensagens novas'} de ${contato.nome}`
-            : `Conversar com ${contato.nome}`
+          !onConversar
+            ? contato.nome
+            : naoLidas
+              ? `${naoLidas} ${naoLidas === 1 ? 'mensagem nova' : 'mensagens novas'} de ${contato.nome}`
+              : `Conversar com ${contato.nome}`
         }
-        className="mt-1 flex items-center gap-1 max-w-full text-xs font-medium text-slate-500 hover:text-blue-600 cursor-pointer"
+        className="mt-1 flex items-center gap-1 max-w-full text-xs font-medium text-slate-500 enabled:hover:text-blue-600 enabled:cursor-pointer"
       >
         <IconMessage size={13} className={`shrink-0 ${naoLidas ? 'text-blue-500' : ''}`} />
         <span className={`truncate ${naoLidas ? 'text-slate-900 font-semibold' : ''}`}>
