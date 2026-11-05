@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { IconLogOut, IconUser, IconMais, IconX, IconSol, IconLua } from './icons.jsx'
 import { NA_BARRA, NO_MAIS, tituloDaRota } from './navegacao.js'
-import { usuarioAtual } from '../lib/auth.js'
+import { usuarioAtual, papelAtual, PAPEIS } from '../lib/auth.js'
 import logo from '../assets/logo.svg'
 
 // Topbar no espírito da "Product Local Navigation" da referência: barra branca,
@@ -32,6 +32,7 @@ export default function TopNav({ tema, onAlternarTema }) {
           title="Usuário logado"
         >
           <IconUser size={15} /> {usuarioAtual()}
+          {papelAtual() && <span className="text-slate-400">· {PAPEIS[papelAtual()]}</span>}
         </span>
       )}
 

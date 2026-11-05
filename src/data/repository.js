@@ -8,7 +8,7 @@ import { supabase } from '../lib/supabaseClient.js'
 import { BUCKET, BUCKET_WHATSAPP, comprimir, assinarUrl, assinarVarias } from '../lib/imagem.js'
 import { somarDias, chaveOrdem, dataBR } from '../lib/datas.js'
 import { formatarE164, mesmoNumero, clienteTemNumero } from '../lib/telefone.js'
-import { usuarioAtual } from '../lib/auth.js'
+import { usuarioAtual, definirPerfilAtual } from '../lib/auth.js'
 import {
   somarMeses, hojeISO, planoDeParcelas, totaisDaVenda, dividirCentavos,
   normalizarPagamentos, pagamentosDaCondicao, planoDePagamentos,
@@ -154,7 +154,10 @@ async function buscarTudo(tabela) {
 // Busca as tabelas no Supabase e popula o cache em memória.
 // Deve ser chamada uma vez após o login, antes de renderizar as telas.
 export async function carregarDados() {
-  const respostas = await Promise.all(TABELAS.map(buscarTudo))
+  const [respostas] = await Promise.all([
+    Promise.all(TABELAS.map(buscarTudo)),
+    carregarPerfil().catch((erro) => console.warn('Perfil não carregado:', erro)),
+  ])
   respostas.forEach((resposta, i) => {
     if (resposta.error) {
       // Tabela não encontrada. São dois casos com a mesma cara:
@@ -188,6 +191,33 @@ export async function carregarDados() {
   // das de cima, com uma diferença: outro bucket, porque é mídia que veio de
   // fora. Uma requisição só para todas as conversas.
   await assinarAvataresDasConversas()
+}
+
+// O perfil de quem logou (migração 030): papel e unidade. Diferente das
+// tabelas acima, NÃO derruba o login quando falha — enquanto os dados não são
+// filtrados por unidade, o sistema funciona inteiro sem ele, e a migração pode
+// muito bem ser rodada depois do deploy. Sem perfil, o papel fica vazio.
+async function carregarPerfil() {
+  definirPerfilAtual(null)
+  const { data: sessao } = await supabase.auth.getSession()
+  const userId = sessao.session?.user?.id
+  if (!userId) return
+  const { data, error } = await supabase
+    .from('perfis')
+    .select('papel, unidade_id, ativo, unidades(nome, tipo)')
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (error) {
+    console.warn('Perfil não carregado (rode sql/030_perfis_e_unidades.sql):', error.message)
+    return
+  }
+  if (!data || !data.ativo) return
+  definirPerfilAtual({
+    papel: data.papel || '',
+    unidadeId: data.unidade_id || '',
+    unidadeNome: data.unidades?.nome || '',
+    unidadeTipo: data.unidades?.tipo || '',
+  })
 }
 
 async function assinarAvataresDasConversas() {

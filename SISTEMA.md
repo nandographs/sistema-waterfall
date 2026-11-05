@@ -312,6 +312,27 @@ baseado em e-mail). Invisível para quem usa; contas com e-mail real continuam
 funcionando. O usuário logado fica em memória para gravar autoria (`criado_por`)
 nos registros.
 
+### Papéis e unidades (`sql/030`)
+
+Fundação dos níveis de acesso, em dois eixos: o **papel** diz o que a pessoa
+pode fazer (`gestao` | `distribuidor`) e a **unidade** diz de quem são os dados
+que ela vê (a Waterfall, `tipo = 'casa'`, ou um distribuidor). Os registros vão
+pertencer à unidade, não ao usuário — o vendedor do distribuidor enxerga a
+mesma carteira que ele.
+
+- `perfis` (um por usuário do Auth) e `unidades`. Conta nova ganha perfil
+  **sem papel** por trigger, e sem papel não vê nada quando o filtro chegar;
+  nunca nasce como gestão. Um trigger impede ficar sem nenhum gestor ativo.
+- `eh_gestao()` e `minha_unidade()` são as funções que as políticas usarão.
+- Por enquanto **nada é filtrado**: as tabelas de dados seguem com a
+  `acesso_autenticado` da 007, e todos os usuários existentes viraram gestão
+  da Waterfall. `criado_por` continua texto de exibição — não serve para
+  segurança.
+- No app, `carregarPerfil()` roda junto com a carga e alimenta `papelAtual()`,
+  `ehGestao()` e `unidadeAtual()` de `lib/auth.js`. Se falhar (migração não
+  rodada), o login segue e o papel fica vazio. O papel na tela é só ajuste de
+  interface; quem protege os dados é o RLS.
+
 ---
 
 ## 8. Interface
