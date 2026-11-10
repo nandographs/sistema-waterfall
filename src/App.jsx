@@ -19,7 +19,7 @@ import { AvisoWhatsapp } from './components/ConexaoWhatsapp.jsx'
 import { supabase } from './lib/supabaseClient.js'
 import { carregarDados } from './data/repository.js'
 import { definirUsuarioAtual, ehGestao } from './lib/auth.js'
-import { Toasts } from './components/ui.jsx'
+import { Toasts, esquecerTelas } from './components/ui.jsx'
 import { lerTema, salvarTema } from './lib/tema.js'
 
 function TelaCarregando() {
@@ -167,6 +167,8 @@ export default function App() {
   }, [usuarioId])
 
   function sair() {
+    // Busca e filtros lembrados são de quem estava logado, não de quem entra.
+    esquecerTelas()
     supabase.auth.signOut()
   }
 

@@ -5,19 +5,17 @@ import {
   formatBRL,
   ETAPAS_FUNIL, ETAPAS_ABERTAS, ETAPAS_FECHADAS,
 } from '../data/repository.js'
-import { PageTitle, Button, Empty, inputCls, notificar } from '../components/ui.jsx'
-import { IconPlus, IconSearch } from '../components/icons.jsx'
+import { PageTitle, Button, Empty, notificar, CampoBusca, useLembrado } from '../components/ui.jsx'
+import { IconPlus } from '../components/icons.jsx'
+import { indexarBusca, prepararBusca, filtrarPorBusca } from '../lib/texto.js'
+import { telefonesDoCliente } from '../lib/telefone.js'
 import OportunidadeCard from '../components/OportunidadeCard.jsx'
 import OportunidadeModal, { FecharOportunidadeModal, oportunidadeNova } from '../components/OportunidadeModal.jsx'
 import ConversaClienteModal from '../components/ConversaClienteModal.jsx'
 import ConverterLeadModal from '../components/ConverterLeadModal.jsx'
 import ConfirmarVendaModal from '../components/ConfirmarVendaModal.jsx'
-import { assinarWhatsapp } from '../data/repository.js'
+import { assinarWhatsapp, assinarDados } from '../data/repository.js'
 import { ehGestao } from '../lib/auth.js'
-
-// Remove acentos e caixa, como no ClienteBusca — "joão" tem que casar com "Joao".
-const normalizar = (s) =>
-  String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase()
 
 // Onde o cartão vai cair. Uma linha fina entre dois cartões responde a pergunta
 // que a coluna inteira destacada não responde: "vai entrar em que posição?".
@@ -67,27 +65,38 @@ export default function Funil() {
   const [arrastando, setArrastando] = useState(null)
   // Onde o cartão cairia agora: { etapa, indice }.
   const [alvo, setAlvo] = useState(null)
-  const [busca, setBusca] = useState('')
+  const [busca, setBusca] = useLembrado('crm:busca', '')
 
   // O contador de mensagens dos cartões vem das conversas. Assinar aqui é o que
   // faz o número aparecer quando a mensagem chega — e sumir no instante em que
   // você a lê, inclusive quando a leitura acontece na tela de WhatsApp.
   useEffect(() => assinarWhatsapp(recarregar), [])
+  // E o que muda por fora (cliente renomeado, negociação salva num modal de
+  // outra tela) entra no quadro e na busca na hora.
+  useEffect(() => assinarDados(recarregar), [])
 
   const quadro = oportunidadesPorEtapa()
   const resumo = resumoDoFunil()
 
-  const q = normalizar(busca)
+  // A mesma busca das outras listas: cada palavra em qualquer campo, telefone
+  // pelos dígitos. Antes era o texto inteiro colado e o telefone só casava se
+  // fosse digitado com a máscara exata do cadastro.
+  const consulta = prepararBusca(busca)
   const filtrar = (cartoes) =>
-    !q
-      ? cartoes
-      : cartoes.filter((o) => {
-          // Busca também pelo contato do lead, que não tem cliente para casar.
-          const contato = contatoDaOportunidade(o)
-          return normalizar(o.titulo).includes(q)
-            || normalizar(contato?.nome).includes(q)
-            || normalizar(contato?.telefone).includes(q)
-        })
+    filtrarPorBusca(cartoes, consulta, (o) => {
+      // Busca também pelo contato do lead, que não tem cliente para casar.
+      const contato = contatoDaOportunidade(o)
+      const cliente = contato?.cliente
+      return indexarBusca({
+        principal: contato?.nome,
+        outros: [o.titulo, o.observacoes, o.responsavel, cliente?.conjugeNome, cliente?.cidade],
+        numeros: [
+          contato?.telefone, o.contatoTelefone,
+          ...(cliente ? telefonesDoCliente(cliente).map((t) => t.numero) : []),
+        ],
+      })
+    })
+  const buscando = !consulta.vazia
 
   const abertas = ETAPAS_ABERTAS.reduce((soma, etapa) => soma + resumo[etapa].quantidade, 0)
   const emJogo = ETAPAS_ABERTAS.reduce((soma, etapa) => soma + resumo[etapa].valor, 0)
@@ -171,8 +180,12 @@ export default function Funil() {
       <section key={etapa} className={`${largura} shrink-0 snap-start flex flex-col h-full min-h-0`}>
         <CabecalhoColuna
           etapa={etapa}
-          quantidade={resumo[etapa].quantidade}
-          valor={resumo[etapa].valor}
+          // Com busca, o cabeçalho conta o que ela achou: "12" em cima de dois
+          // cartões parecia que a coluna tinha perdido negociações.
+          quantidade={buscando ? cartoes.length : resumo[etapa].quantidade}
+          valor={buscando
+            ? cartoes.reduce((soma, o) => soma + Number(o.valorEstimado || 0), 0)
+            : resumo[etapa].valor}
           onNova={fechada ? null : () => setForm(oportunidadeNova({ etapa }))}
         />
 
@@ -187,7 +200,7 @@ export default function Funil() {
         >
           {cartoes.length === 0 && !recebendo && (
             <p className="text-xs text-slate-400 text-center py-6">
-              {fechada ? 'Nada nos últimos 30 dias.' : 'Nenhuma negociação aqui.'}
+              {buscando ? 'Nada com essa busca.' : fechada ? 'Nada nos últimos 30 dias.' : 'Nenhuma negociação aqui.'}
             </p>
           )}
 
@@ -238,16 +251,13 @@ export default function Funil() {
           }
           action={
             <div className="flex flex-wrap items-center gap-2">
-              <div className="relative">
-                <IconSearch size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  className={`${inputCls} pl-9 w-full sm:w-56`}
-                  value={busca}
-                  onChange={(e) => setBusca(e.target.value)}
-                  placeholder="Buscar cliente ou título…"
-                  aria-label="Buscar negociação"
-                />
-              </div>
+              <CampoBusca
+                className="w-full sm:w-64"
+                value={busca}
+                onChange={setBusca}
+                placeholder="Buscar cliente, telefone ou título…"
+                aria-label="Buscar negociação"
+              />
               <Button onClick={() => setForm(oportunidadeNova())}>
                 <IconPlus size={16} /> Nova negociação
               </Button>

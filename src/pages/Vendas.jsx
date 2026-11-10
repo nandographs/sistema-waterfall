@@ -1,16 +1,20 @@
-import { useMemo, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   vendas, vendaItens, clientes, produtos, lancamentos,
   salvarVenda, excluirVenda, itensDaVenda, lancamentosDaVenda, totaisDaVenda,
   formatData, formatBRL, hojeISO, resolverPagamentos, normalizarPagamentos,
   FORMAS_PAGAMENTO, STATUS_VENDA, CANAIS_VENDA, UNIDADES, unidadeDo, nomeCompletoProduto,
-  quantidadeComUnidade, refilDoAparelho,
+  quantidadeComUnidade, refilDoAparelho, assinarDados,
 } from '../data/repository.js'
 import { PERIODOS, dentroDoPeriodo } from '../lib/datas.js'
-import { semAcento } from '../lib/texto.js'
-import { Card, Page, PageTitle, Button, Field, inputCls, InputNumero, Empty, Modal, Badge, notificar, usePaginacao, Paginacao, Segmentos } from '../components/ui.jsx'
-import { IconPlus, IconFileText, IconTrash, IconEye, IconMais, IconSearch, IconCheck } from '../components/icons.jsx'
+import { indexarBusca, prepararBusca, filtrarPorBusca } from '../lib/texto.js'
+import { telefonesDoCliente } from '../lib/telefone.js'
+import {
+  Card, Page, PageTitle, Button, Field, inputCls, InputNumero, Empty, Modal, Badge, notificar, usePaginacao, Paginacao, Segmentos,
+  CampoBusca, SemResultado, useLembrado,
+} from '../components/ui.jsx'
+import { IconPlus, IconFileText, IconTrash, IconEye, IconMais, IconCheck } from '../components/icons.jsx'
 import ClienteBusca from '../components/ClienteBusca.jsx'
 import ProdutoBusca from '../components/ProdutoBusca.jsx'
 import PedidoModal from '../components/PedidoModal.jsx'
@@ -90,16 +94,19 @@ function AcoesVenda({ venda, onVer, onPedido, onProposta, onEditar, onConfirmar,
 export default function Vendas() {
   const [, forceRender] = useState(0)
   const refresh = () => forceRender((n) => n + 1)
+  // Venda confirmada por outra tela (CRM, ficha do cliente) aparece aqui na hora.
+  useEffect(() => assinarDados(refresh), [])
 
   const [form, setForm] = useState(null)
   const [itens, setItens] = useState([])
   const [pagamentos, setPagamentos] = useState([])
-  const [filtro, setFiltro] = useState('todos')
-  const [busca, setBusca] = useState('')
+  // Lembrados na sessão: abrir o cliente de uma venda e voltar mantém a lista.
+  const [filtro, setFiltro] = useLembrado('vendas:situacao', 'todos')
+  const [busca, setBusca] = useLembrado('vendas:busca', '')
   // Começa em "todo o período" de propósito: um recorte padrão esconderia
   // vendas antigas sem ninguém ter pedido, e some com histórico é o tipo de
   // ausência que passa despercebida.
-  const [periodo, setPeriodo] = useState('todos')
+  const [periodo, setPeriodo] = useLembrado('vendas:periodo', 'todos')
   const [pedidoVenda, setPedidoVenda] = useState(null)
   // null = fechado; 'novo' = proposta em branco; uma venda = editando a proposta.
   const [orcamento, setOrcamento] = useState(null)
@@ -126,27 +133,41 @@ export default function Vendas() {
       else produtosPorVenda.set(item.vendaId, [item.descricao])
     }
 
+    // Antes era um texto só, comparado inteiro: "maria purificador" não
+    // achava a venda do purificador para a Maria, e telefone nem entrava.
     const indice = new Map()
     for (const v of vendas.list()) {
       const cliente = clientes.get(v.clienteId)
-      indice.set(v.id, semAcento([
-        cliente?.nome,
-        cliente?.cidade,
-        cliente?.uf,
-        v.numero,
-        ...(produtosPorVenda.get(v.id) || []),
-      ].filter(Boolean).join(' ')))
+      indice.set(v.id, indexarBusca({
+        principal: cliente?.nome,
+        outros: [
+          cliente?.cidade, cliente?.uf, cliente?.conjugeNome,
+          v.numero, v.pedidoNumero, v.consultor, v.distribuidor,
+          // A data como aparece na tela: "29/10" acha a venda daquele dia.
+          formatData(v.data),
+          ...(produtosPorVenda.get(v.id) || []),
+        ],
+        numeros: [
+          ...(cliente ? telefonesDoCliente(cliente).map((t) => t.numero) : []),
+          v.numero, v.pedidoNumero,
+        ],
+      }))
     }
     return indice
   }, [vendas.list(), vendaItens.list(), clientes.list()])
 
-  const termo = semAcento(busca)
-  const lista = vendas
-    .list()
-    .filter((v) => (filtro === 'todos' ? true : v.status === filtro))
-    .filter((v) => dentroDoPeriodo(v.data, periodo))
-    .filter((v) => !termo || (indiceBusca.get(v.id) || '').includes(termo))
-    .sort((a, b) => (b.data || '').localeCompare(a.data || ''))
+  const buscaAdiada = useDeferredValue(busca)
+  const consulta = useMemo(() => prepararBusca(buscaAdiada), [buscaAdiada])
+  const lista = filtrarPorBusca(
+    vendas
+      .list()
+      .filter((v) => (filtro === 'todos' ? true : v.status === filtro))
+      .filter((v) => dentroDoPeriodo(v.data, periodo))
+      .sort((a, b) => (b.data || '').localeCompare(a.data || '') ||
+        String(b.criadoEm || '').localeCompare(String(a.criadoEm || ''))),
+    consulta,
+    (v) => indiceBusca.get(v.id),
+  )
 
   // Quanto o que está na tela representa. Venda CANCELADA fica na lista (você
   // pode querer vê-la) mas fora da soma: ela não é receita, e somá-la faria o
@@ -158,7 +179,12 @@ export default function Vendas() {
 
   // A soma e a contagem acima ficam sobre `lista` inteira de proposito: o
   // rodape responde "quanto e o que esta filtrado", nao "quanto cabe na tela".
-  const { visiveis, barra } = usePaginacao(lista)
+  const { visiveis, barra } = usePaginacao(lista, {
+    lembrarComo: 'vendas',
+    reiniciarCom: JSON.stringify([consulta.texto, filtro, periodo]),
+  })
+  const filtrando = periodo !== 'todos' || filtro !== 'todos'
+  const limparTudo = () => { setBusca(''); setPeriodo('todos'); setFiltro('todos') }
 
   // Totais recalculados a cada tecla, para o rodapé do formulário mostrar
   // exatamente o que será gravado.
@@ -280,15 +306,13 @@ export default function Vendas() {
       </PageTitle>
 
       <div className="flex flex-wrap items-center gap-2 mb-3">
-        <div className="relative flex-1 min-w-[220px] max-w-sm">
-          <IconSearch size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            className={inputCls + ' pl-9'}
-            placeholder="Buscar por cliente, produto ou cidade…"
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-          />
-        </div>
+        <CampoBusca
+          className="flex-1 min-w-[220px] max-w-sm"
+          placeholder="Buscar por cliente, telefone, produto ou nº…"
+          aria-label="Buscar vendas"
+          value={busca}
+          onChange={setBusca}
+        />
         {/* A largura mora no wrapper: `inputCls` já traz `w-full`, e entre duas
             classes de mesma especificidade quem manda é a ordem do CSS gerado. */}
         <div className="w-44 shrink-0">
@@ -318,13 +342,11 @@ export default function Vendas() {
           {canceladasNaLista > 0 && ' (canceladas fora da soma)'}
         </p>
         {lista.length === 0 && (
-          <Empty>
-            {busca || periodo !== 'todos' || filtro !== 'todos'
-              ? 'Nenhuma venda encontrada com esses filtros.'
-              : 'Nenhuma venda por aqui.'}
-          </Empty>
+          buscaAdiada.trim() || filtrando
+            ? <SemResultado busca={buscaAdiada} filtros={filtrando} onLimpar={limparTudo}>Nenhuma venda encontrada</SemResultado>
+            : <Empty>Nenhuma venda por aqui.</Empty>
         )}
-        <ul className="divide-y divide-slate-100">
+        <ul className={`divide-y divide-slate-100 transition-opacity ${busca !== buscaAdiada ? 'opacity-60' : ''}`}>
           {visiveis.map((v) => {
             const itensVenda = itensDaVenda(v.id)
             const nomes = itensVenda.map((i) => i.descricao).filter(Boolean).join(', ')

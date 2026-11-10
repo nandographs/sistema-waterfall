@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   agendamentos, clientes, mudarStatusAgendamento, excluirAgendamento, assinarDados,
@@ -7,8 +7,13 @@ import {
   formatData, formatBRL, TIPOS_AGENDAMENTO,
 } from '../data/repository.js'
 import { formatHora } from '../lib/datas.js'
-import { Card, Page, PageTitle, Button, inputCls, Empty, Modal, Badge, notificar, usePaginacao, Paginacao, Segmentos } from '../components/ui.jsx'
-import { IconPlus, IconFileText, IconTrash, IconEye, IconSearch, IconFilter, IconMais } from '../components/icons.jsx'
+import {
+  Card, Page, PageTitle, Button, inputCls, Empty, Modal, Badge, notificar, usePaginacao, Paginacao, Segmentos,
+  CampoBusca, SemResultado, useLembrado,
+} from '../components/ui.jsx'
+import { IconPlus, IconFileText, IconTrash, IconEye, IconFilter, IconMais } from '../components/icons.jsx'
+import { indexarBusca, prepararBusca, filtrarPorBusca } from '../lib/texto.js'
+import { telefonesDoCliente } from '../lib/telefone.js'
 import OrdemServicoModal from '../components/OrdemServicoModal.jsx'
 import AgendamentoDetalheModal from '../components/AgendamentoDetalheModal.jsx'
 import AgendamentoFormModal from '../components/AgendamentoFormModal.jsx'
@@ -97,10 +102,12 @@ function AcoesAgendamento({ agendamento: a, ocupado, onVer, onGerarOS, onEditar,
 export default function Agendamentos() {
   const [lista, setLista] = useState(agendamentos.list())
   const [form, setForm] = useState(null)
-  const [filtro, setFiltro] = useState('agendado')
-  const [busca, setBusca] = useState('')
-  const [dataDe, setDataDe] = useState('')
-  const [dataAte, setDataAte] = useState('')
+  // Lembrados na sessão: abrir o cliente pelo nome e voltar mantém a lista.
+  const [filtro, setFiltro] = useLembrado('servicos:situacao', 'agendado')
+  const [busca, setBusca] = useLembrado('servicos:busca', '')
+  const [dataDe, setDataDe] = useLembrado('servicos:de', '')
+  const [dataAte, setDataAte] = useLembrado('servicos:ate', '')
+  const buscaAdiada = useDeferredValue(busca)
   const [osAgendamento, setOsAgendamento] = useState(null)
   const [agDetalhe, setAgDetalhe] = useState(null)
   const [agExcluir, setAgExcluir] = useState(null)
@@ -130,18 +137,55 @@ export default function Agendamentos() {
   const filtrosAtivos = qtdFiltros > 0
   const limparFiltros = () => { setDataDe(''); setDataAte('') }
 
-  const filtrados = lista
-    .filter((a) => (filtro === 'todos' ? true : a.status === filtro))
-    .filter((a) => {
-      const q = busca.trim().toLowerCase()
-      if (!q) return true
-      return (clientes.get(a.clienteId)?.nome ?? '').toLowerCase().includes(q)
-    })
-    .filter((a) => !dataDe || (a.data || '') >= dataDe)
-    .filter((a) => !dataAte || (a.data || '') <= dataAte)
-    .sort((a, b) => (a.data || '').localeCompare(b.data || ''))
+  // O texto pesquisável de cada serviço. Antes só o nome do cliente, e com
+  // acento: "joao" não achava João, e procurar pelo telefone, pela cidade ou
+  // por "troca de refil" não achava nada.
+  const indices = useMemo(() => {
+    const mapa = new Map()
+    for (const a of lista) {
+      const c = clientes.get(a.clienteId)
+      mapa.set(a.id, indexarBusca({
+        principal: c?.nome,
+        outros: [
+          c?.conjugeNome, c?.cidade, c?.bairro,
+          TIPOS_AGENDAMENTO[a.tipo] ?? a.tipo,
+          ...produtosDoAgendamento(a).map(({ produto }) => produto?.nome),
+          a.observacoes,
+          // A data como aparece na tela: "29/10" acha o serviço daquele dia.
+          formatData(a.data),
+        ],
+        numeros: c ? [...telefonesDoCliente(c).map((t) => t.numero), c.conjugeTelefone] : [],
+      }))
+    }
+    return mapa
+    // clientes.list() troca de array quando um cliente muda: renomear alguém
+    // tem que valer na busca sem recarregar a página.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lista, clientes.list()])
 
-  const { visiveis, barra } = usePaginacao(filtrados)
+  const consulta = useMemo(() => prepararBusca(buscaAdiada), [buscaAdiada])
+  // O que está por vir, do mais próximo ao mais distante; o que já passou
+  // (concluído, cancelado, todos), do mais recente ao mais antigo — antes a
+  // aba Concluídos abria nos serviços de anos atrás.
+  const crescente = filtro === 'agendado'
+  const filtrados = filtrarPorBusca(
+    lista
+      .filter((a) => (filtro === 'todos' ? true : a.status === filtro))
+      .filter((a) => !dataDe || (a.data || '') >= dataDe)
+      .filter((a) => !dataAte || (a.data || '') <= dataAte)
+      .sort((a, b) => {
+        const ordem = (a.data || '').localeCompare(b.data || '') || (a.hora || '').localeCompare(b.hora || '')
+        return crescente ? ordem : -ordem
+      }),
+    consulta,
+    (a) => indices.get(a.id),
+  )
+
+  const { visiveis, barra } = usePaginacao(filtrados, {
+    lembrarComo: 'servicos',
+    reiniciarCom: JSON.stringify([buscaAdiada.trim(), filtro, dataDe, dataAte]),
+  })
+  const limparTudo = () => { setBusca(''); limparFiltros() }
 
   const abrirForm = (dados = {}) => setForm(dados)
 
@@ -192,15 +236,13 @@ export default function Agendamentos() {
       />
 
       <div className="flex flex-wrap items-center gap-2 mb-4">
-        <div className="relative flex-1 min-w-[220px] max-w-sm">
-          <IconSearch size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            className={inputCls + ' pl-9'}
-            placeholder="Buscar por cliente…"
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-          />
-        </div>
+        <CampoBusca
+          className="flex-1 min-w-[220px] max-w-sm"
+          placeholder="Buscar por cliente, telefone, cidade ou produto…"
+          aria-label="Buscar serviços"
+          value={busca}
+          onChange={setBusca}
+        />
 
         <div className="relative" ref={painelRef}>
           <Button variant="secondary" onClick={() => setPainelAberto((v) => !v)}>
@@ -250,9 +292,11 @@ export default function Agendamentos() {
           {filtrados.length} agendamento{filtrados.length === 1 ? '' : 's'}
         </p>
         {filtrados.length === 0 && (
-          <Empty>{busca || filtrosAtivos ? 'Nenhum agendamento encontrado.' : 'Nenhum agendamento aqui.'}</Empty>
+          buscaAdiada.trim() || filtrosAtivos
+            ? <SemResultado busca={buscaAdiada} filtros={filtrosAtivos} onLimpar={limparTudo}>Nenhum agendamento encontrado</SemResultado>
+            : <Empty>Nenhum agendamento aqui.</Empty>
         )}
-        <ul className="divide-y divide-slate-100">
+        <ul className={`divide-y divide-slate-100 transition-opacity ${busca !== buscaAdiada ? 'opacity-60' : ''}`}>
           {visiveis.map((a) => {
             const [cor, rotulo] = badgeDoAgendamento(a)
             const nomesProdutos = produtosDoAgendamento(a)

@@ -4,7 +4,7 @@
 
 import { useEffect, useId, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import { IconX } from './icons.jsx'
+import { IconX, IconSearch } from './icons.jsx'
 import { tituloDaRota } from './navegacao.js'
 
 export function notificar(mensagem, tipo = 'sucesso') {
@@ -355,6 +355,130 @@ export const menuFlutuante =
 export const itemMenu =
   'flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-sm font-medium text-slate-700 hover:bg-slate-100 cursor-pointer'
 
+// ---- Estado que sobrevive a abrir uma ficha e voltar ----
+//
+// Buscar "maria", abrir a ficha e apertar Voltar devolvia a lista inteira, sem
+// a busca e sem os filtros: era preciso digitar tudo de novo a cada cliente.
+// Este useState guarda o valor na sessão do navegador (some ao fechar a aba e
+// no logout). Sem `chave`, é um useState comum. Se o navegador recusar o
+// armazenamento (aba anônima, bloqueio), segue funcionando, só sem lembrar.
+const PREFIXO_LEMBRADO = 'waterfall:tela:'
+
+function lerLembrado(chave, inicial) {
+  if (!chave) return inicial
+  try {
+    const salvo = sessionStorage.getItem(PREFIXO_LEMBRADO + chave)
+    if (salvo != null) return JSON.parse(salvo)
+  } catch { /* sem armazenamento: começa do zero */ }
+  return inicial
+}
+
+export function useLembrado(chave, inicial) {
+  const [valor, setValor] = useState(() => lerLembrado(chave, inicial))
+  useEffect(() => {
+    if (!chave) return
+    try {
+      sessionStorage.setItem(PREFIXO_LEMBRADO + chave, JSON.stringify(valor))
+    } catch { /* idem */ }
+  }, [chave, valor])
+  return [valor, setValor]
+}
+
+// Chamado no logout: quem entra depois na mesma aba não herda a busca de outro.
+export function esquecerTelas() {
+  try {
+    for (let i = sessionStorage.length - 1; i >= 0; i--) {
+      const k = sessionStorage.key(i)
+      if (k && k.startsWith(PREFIXO_LEMBRADO)) sessionStorage.removeItem(k)
+    }
+  } catch { /* idem */ }
+}
+
+// ---- Campo de busca das listas ----
+//
+// Um só para o sistema inteiro, para todas as buscas se comportarem igual:
+//   * X para limpar, que aparece assim que há texto;
+//   * Esc limpa (e, já vazio, solta o foco);
+//   * "/" em qualquer lugar da tela leva para a busca — o atalho de quem
+//     procura cliente o dia inteiro e não quer tirar a mão do teclado.
+// `atalho={false}` desliga o "/" quando a tela tem mais de um campo.
+export function CampoBusca({
+  value, onChange, placeholder = 'Buscar…', className = '', atalho = true,
+  'aria-label': aria, ...props
+}) {
+  const ref = useRef(null)
+
+  useEffect(() => {
+    if (!atalho) return
+    function aoTeclar(e) {
+      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return
+      const alvo = e.target
+      const digitando = alvo instanceof HTMLElement &&
+        (alvo.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(alvo.tagName))
+      // Com um modal aberto, o "/" é do modal.
+      if (digitando || document.querySelector('[role="dialog"]')) return
+      e.preventDefault()
+      ref.current?.focus()
+      ref.current?.select()
+    }
+    document.addEventListener('keydown', aoTeclar)
+    return () => document.removeEventListener('keydown', aoTeclar)
+  }, [atalho])
+
+  return (
+    <div className={`relative ${className}`}>
+      <IconSearch size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+      <input
+        ref={ref}
+        type="text"
+        inputMode="search"
+        enterKeyHint="search"
+        autoComplete="off"
+        spellCheck={false}
+        className={`${inputCls} pl-9 ${value ? 'pr-10' : ''}`}
+        placeholder={placeholder}
+        aria-label={aria || placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key !== 'Escape') return
+          if (value) { e.preventDefault(); onChange('') } else e.currentTarget.blur()
+        }}
+        {...props}
+      />
+      {value && (
+        <button
+          type="button"
+          onClick={() => { onChange(''); ref.current?.focus() }}
+          className="absolute right-0.5 top-1/2 -translate-y-1/2 inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-400 hover:text-slate-700 cursor-pointer"
+          aria-label="Limpar busca"
+        >
+          <IconX size={16} />
+        </button>
+      )}
+    </div>
+  )
+}
+
+// O que dizer quando a busca não achou nada: o termo entre aspas (para a
+// pessoa ver se digitou errado) e o caminho de volta num clique.
+export function SemResultado({ busca, filtros = false, onLimpar, children = 'Nada encontrado' }) {
+  const termo = String(busca || '').trim()
+  return (
+    <div className="py-10 text-center">
+      <p className="text-sm text-slate-500">
+        {children}{termo ? <> para <span className="font-medium text-slate-700">“{termo}”</span></> : ''}
+        {filtros ? ' com os filtros ligados' : ''}.
+      </p>
+      {onLimpar && (
+        <button type="button" onClick={onLimpar} className="mt-2 text-sm font-medium text-blue-600 hover:underline cursor-pointer">
+          {termo && filtros ? 'Limpar busca e filtros' : termo ? 'Limpar busca' : 'Limpar filtros'}
+        </button>
+      )}
+    </div>
+  )
+}
+
 // ---- Paginação ----
 //
 // As listas do sistema nasceram pequenas e eram desenhadas inteiras. Com 2.600
@@ -368,23 +492,42 @@ export const POR_PAGINA = 50
 // Devolve a fatia visível e o que a barra de navegação precisa saber.
 //
 // A página mora aqui e não na tela porque ela tem uma regra que é fácil de
-// esquecer: filtrou, volta para a primeira. Sem isso, quem está na página 12 e
-// digita uma busca com 3 resultados cai numa página vazia e conclui que o
-// sistema não achou nada.
-export function usePaginacao(itens, porPagina = POR_PAGINA) {
-  const [pagina, setPagina] = useState(1)
+// esquecer: filtrou, volta para a primeira. Antes só havia o clamp, então
+// quem estava na página 12 e digitava uma busca com 3 páginas de resultado
+// caía na página 3 — no meio da lista, sem ver os melhores resultados.
+//
+// `reiniciarCom` é o que, mudando, manda de volta para a página 1: a busca e
+// os filtros da tela, num texto só. `lembrarComo` guarda a página na sessão,
+// para quem abre uma ficha e volta não ser jogado de novo para o começo.
+//
+// (O segundo argumento ainda aceita só o número de itens por página.)
+export function usePaginacao(itens, opcoes = {}) {
+  const {
+    porPagina = POR_PAGINA,
+    reiniciarCom = '',
+    lembrarComo = '',
+  } = typeof opcoes === 'number' ? { porPagina: opcoes } : opcoes
+  const [estado, setEstado] = useLembrado(
+    lembrarComo && `${lembrarComo}:pagina`,
+    { pagina: 1, chave: reiniciarCom },
+  )
   const total = itens.length
   const paginas = Math.max(1, Math.ceil(total / porPagina))
 
-  // Clamp em vez de efeito: o filtro encurtou a lista debaixo dos pés e a
-  // página atual não existe mais. Corrigir aqui evita o quadro vazio que um
-  // useEffect deixaria aparecer por um instante antes de recolocar na página 1.
-  const atual = Math.min(pagina, paginas)
+  // Mudou a busca/filtro desde que a página foi escolhida: é página 1. Feito na
+  // conta, e não num efeito, para a lista nunca aparecer um instante na página
+  // errada antes de ser corrigida.
+  const pedida = estado?.chave === reiniciarCom ? Number(estado.pagina) || 1 : 1
+  // Clamp: a lista encurtou debaixo dos pés e a página não existe mais.
+  const atual = Math.min(Math.max(1, pedida), paginas)
   const de = (atual - 1) * porPagina
 
   return {
     visiveis: itens.slice(de, de + porPagina),
-    barra: { pagina: atual, paginas, total, de, porPagina, irPara: setPagina },
+    barra: {
+      pagina: atual, paginas, total, de, porPagina,
+      irPara: (p) => setEstado({ pagina: p, chave: reiniciarCom }),
+    },
   }
 }
 

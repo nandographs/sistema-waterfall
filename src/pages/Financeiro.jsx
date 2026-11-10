@@ -17,11 +17,16 @@ import {
   rotuloDoRelatorio, periodoEmCurso, somarDias,
 } from '../lib/datas.js'
 import { gerarRelatorioPdf } from '../relatorio/gerarPdf.js'
-import { Page, PageTitle, Button, Field, inputCls, InputNumero, Empty, Modal, Badge, Aviso, Segmentos, corpoDoNumero, notificar, usePaginacao, Paginacao } from '../components/ui.jsx'
+import {
+  Page, PageTitle, Button, Field, inputCls, InputNumero, Empty, Modal, Badge, Aviso, Segmentos, corpoDoNumero, notificar, usePaginacao, Paginacao,
+  CampoBusca, SemResultado, useLembrado,
+} from '../components/ui.jsx'
+import { indexarBusca, prepararBusca, pontuarBusca } from '../lib/texto.js'
+import { telefonesDoCliente } from '../lib/telefone.js'
 import { GraficoSaldo, GraficoFluxo } from '../components/GraficosFinanceiro.jsx'
 import {
   IconPlus, IconWallet, IconAlert, IconCheck,
-  IconChevronLeft, IconChevronRight, IconSearch, IconFileText, IconEntrada, IconSaida,
+  IconChevronLeft, IconChevronRight, IconFileText, IconEntrada, IconSaida,
 } from '../components/icons.jsx'
 
 // A tela é organizada em torno de UM período (semana, mês ou ano), escolhido no
@@ -156,7 +161,7 @@ export default function Financeiro() {
   const refresh = () => forceRender((n) => n + 1)
 
   const [aba, setAba] = useState('movimentos')
-  const [busca, setBusca] = useState('')
+  const [busca, setBusca] = useLembrado('financeiro:busca', '')
   const [filtroTipo, setFiltroTipo] = useState('todos')
   const [filtroSituacao, setFiltroSituacao] = useState('geral')
   const [form, setForm] = useState(null)
@@ -426,21 +431,34 @@ export default function Financeiro() {
   }
 
   // ---- Movimentos do período ----
-  const termo = busca.trim().toLowerCase()
+  // Mesma busca das outras listas: sem acento ("agua" acha Água), cada
+  // palavra em qualquer campo ("aluguel março" acha o aluguel de março) e o
+  // valor de qualquer jeito ("1500", "1.500", "1.500,00").
+  const consulta = prepararBusca(busca)
+  const termo = !consulta.vazia
   const combina = (l) => {
     if (!termo) return true
-    const cliente = l.clienteId ? clientes.get(l.clienteId)?.nome : ''
+    const cliente = l.clienteId ? clientes.get(l.clienteId) : null
     const funcionario = l.funcionarioId ? funcionarios.get(l.funcionarioId)?.nome : ''
-    return [
-      l.descricao,
-      funcionario,
-      nomeCategoria(l.categoria),
-      FORMAS_PAGAMENTO[l.formaPagamento] ?? l.formaPagamento,
-      cliente,
-      l.observacoes,
-      formatBRL(l.valor),
-      String(l.valor ?? ''),
-    ].some((campo) => (campo || '').toString().toLowerCase().includes(termo))
+    const valor = Number(l.valor ?? 0)
+    return pontuarBusca(consulta, indexarBusca({
+      principal: l.descricao,
+      outros: [
+        funcionario,
+        nomeCategoria(l.categoria),
+        FORMAS_PAGAMENTO[l.formaPagamento] ?? l.formaPagamento,
+        cliente?.nome,
+        l.observacoes,
+        formatBRL(l.valor),
+        String(l.valor ?? ''),
+        // 1500 também como "1500,00": quem digita o centavo com vírgula.
+        valor.toFixed(2).replace('.', ','),
+        // As datas como aparecem na tela: "10/11" acha o que vence naquele dia.
+        formatData(l.vencimento),
+        formatData(l.dataPagamento),
+      ],
+      numeros: cliente ? telefonesDoCliente(cliente).map((t) => t.numero) : [],
+    })) >= 0
   }
 
   // A data que conta para a ordem: o dia em que foi pago, ou o vencimento.
@@ -475,7 +493,9 @@ export default function Financeiro() {
       return dataDe(b).localeCompare(dataDe(a)) || registroDe(b).localeCompare(registroDe(a))
     })
 
-  const { visiveis: movimentosDaPagina, barra } = usePaginacao(movimentos)
+  const { visiveis: movimentosDaPagina, barra } = usePaginacao(movimentos, {
+    reiniciarCom: JSON.stringify([consulta.texto, filtroTipo, filtroSituacao, periodo.de, periodo.ate]),
+  })
 
   // O total em aberto do período, com os mesmos filtros de tipo e busca da
   // lista — buscar "carro" mostra quanto ainda falta pagar do carro. Só o que
@@ -700,17 +720,13 @@ export default function Financeiro() {
                     onChange={setFiltroSituacao}
                     opcoes={[['geral', 'Geral'], ['aberto', 'Em aberto'], ['pago', 'Pagos']]}
                   />
-                  <div className="relative flex-1 min-w-[12rem]">
-                    <IconSearch size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                    <input
-                      className={`${inputCls} pl-9`}
-                      type="search"
-                      value={busca}
-                      onChange={(e) => setBusca(e.target.value)}
-                      placeholder="Buscar descrição, cliente, valor…"
-                      aria-label="Buscar nos movimentos"
-                    />
-                  </div>
+                  <CampoBusca
+                    className="flex-1 min-w-[12rem]"
+                    value={busca}
+                    onChange={setBusca}
+                    placeholder="Buscar descrição, cliente, valor…"
+                    aria-label="Buscar nos movimentos"
+                  />
                 </div>
 
                 {/* Soma do que está em aberto. Clicar mostra só essas contas. */}
@@ -771,10 +787,10 @@ export default function Financeiro() {
                 </div>
 
                 {movimentos.length === 0 ? (
-                  <Empty>
-                    {termo
-                      ? `Nada encontrado para “${busca.trim()}”.`
-                      : filtroSituacao === 'geral'
+                  termo ? (
+                    <SemResultado busca={busca} onLimpar={() => setBusca('')} />
+                  ) : <Empty>
+                    {filtroSituacao === 'geral'
                         ? `Nada foi lançado em ${rotuloPeriodo.toLowerCase()}.`
                         : `Nada ${filtroSituacao === 'pago' ? 'pago' : 'em aberto'} em ${rotuloPeriodo.toLowerCase()}.`}
                   </Empty>

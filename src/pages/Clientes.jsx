@@ -1,15 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   clientes, agendamentos, equipamentos, lancamentos, proximaTroca, formatData,
-  explicarColunaFaltante, clienteInativo, unidades, haDistribuidores, unidadeForaDaCasa,
+  explicarColunaFaltante, clienteInativo, unidades, haDistribuidores, unidadeForaDaCasa, assinarDados,
 } from '../data/repository.js'
-import { Card, Page, PageTitle, Button, inputCls, Empty, Modal, Badge, notificar, usePaginacao, Paginacao } from '../components/ui.jsx'
-import { IconPlus, IconSearch, IconUser, IconFilter, IconFileText } from '../components/icons.jsx'
+import {
+  Card, Page, PageTitle, Button, inputCls, Empty, Modal, Badge, notificar, usePaginacao, Paginacao,
+  CampoBusca, SemResultado, useLembrado,
+} from '../components/ui.jsx'
+import { IconPlus, IconUser, IconFilter, IconFileText } from '../components/icons.jsx'
 import ClienteFormFields from '../components/ClienteFormFields.jsx'
 import { usuarioAtual, ehGestao } from '../lib/auth.js'
 import { telefonesDoCliente, comTelefonePrincipal } from '../lib/telefone.js'
-import { combina } from '../lib/texto.js'
+import { indexarBusca, prepararBusca, filtrarPorBusca } from '../lib/texto.js'
 import { gerarClientesPdf } from '../relatorio/clientes.js'
 
 const FORM_VAZIO = {
@@ -51,25 +54,41 @@ function compararClientes(ordem) {
 
 export default function Clientes() {
   const [lista, setLista] = useState(clientes.list())
-  const [busca, setBusca] = useState('')
+  // Agendamentos, equipamentos e lançamentos também mudam por fora (concluir
+  // um serviço, dar baixa): a versão faz os índices abaixo serem refeitos.
+  const [versao, setVersao] = useState(0)
+  useEffect(() => assinarDados(() => {
+    setLista(clientes.list())
+    setVersao((v) => v + 1)
+  }), [])
+
+  // Busca, filtros e ordem são lembrados na sessão: abrir a ficha de um
+  // cliente e voltar devolve a lista como você a deixou.
+  const [busca, setBusca] = useLembrado('clientes:busca', '')
   const [form, setForm] = useState(null)
   const [baixandoPdf, setBaixandoPdf] = useState(false)
 
-  const [cidade, setCidade] = useState('')
-  const [uf, setUf] = useState('')
-  const [somenteTroca, setSomenteTroca] = useState(false)
-  const [somentePendente, setSomentePendente] = useState(false)
-  const [visita, setVisita] = useState('todos') // 'todos' | 'com' | 'sem'
+  const [cidade, setCidade] = useLembrado('clientes:cidade', '')
+  const [uf, setUf] = useLembrado('clientes:uf', '')
+  const [somenteTroca, setSomenteTroca] = useLembrado('clientes:troca', false)
+  const [somentePendente, setSomentePendente] = useLembrado('clientes:pendente', false)
+  const [visita, setVisita] = useLembrado('clientes:visita', 'todos') // 'todos' | 'com' | 'sem'
   // Inativo sai da lista por padrão — é para isso que se inativa. 'ativos' é o
   // estado de repouso e não conta como filtro ligado.
-  const [situacao, setSituacao] = useState('ativos') // 'ativos' | 'inativos' | 'todos'
+  const [situacao, setSituacao] = useLembrado('clientes:situacao', 'ativos') // 'ativos' | 'inativos' | 'todos'
   // De qual unidade (migração 031). Só a gestão enxerga mais de uma, e só
   // quando já existe distribuidor — antes disso o filtro não teria escolha.
-  const [unidade, setUnidade] = useState('')
+  const [unidade, setUnidade] = useLembrado('clientes:unidade', '')
   const mostrarUnidade = ehGestao() && haDistribuidores()
   // O cache vem do banco em ordem de cadastro crescente, o que deixava quem
   // acabou de ser cadastrado no fim da lista — justamente quem você mais procura.
-  const [ordem, setOrdem] = useState('recentes')
+  const [ordem, setOrdem] = useLembrado('clientes:ordem', 'recentes')
+
+  // A digitação fica com o campo; a lista acompanha logo atrás. Com milhares
+  // de clientes, filtrar no mesmo quadro da tecla é o que fazia letras
+  // "sumirem" e o campo travar.
+  const buscaAdiada = useDeferredValue(busca)
+  const consulta = useMemo(() => prepararBusca(buscaAdiada), [buscaAdiada])
 
   // Painel "Filtrar por" (abre/fecha; fecha ao clicar fora)
   const [painelAberto, setPainelAberto] = useState(false)
@@ -83,35 +102,59 @@ export default function Clientes() {
     return () => document.removeEventListener('mousedown', aoClicarFora)
   }, [painelAberto])
 
-  function proximaVisita(clienteId) {
+  // O que cada cliente tem em volta (próxima visita, troca, pendência) e o
+  // texto da busca dele, montados numa passada só por tabela.
+  //
+  // Antes cada uma dessas perguntas varria a tabela inteira POR CLIENTE, e era
+  // feita de novo a cada tecla: 2.600 clientes × milhares de agendamentos por
+  // letra digitada. Agora é uma leitura de Map.
+  const { visitaDe, trocaDe, pendenteDe, indiceDe } = useMemo(() => {
     const hoje = new Date().toISOString().slice(0, 10)
-    return agendamentos
-      .list()
-      .filter((a) => a.clienteId === clienteId && a.status === 'agendado' && a.data >= hoje)
-      .sort((a, b) => a.data.localeCompare(b.data))[0]
-  }
+    const visitas = new Map()
+    for (const a of agendamentos.list()) {
+      if (a.status !== 'agendado' || !a.data || a.data < hoje) continue
+      const atual = visitas.get(a.clienteId)
+      if (!atual || a.data < atual.data) visitas.set(a.clienteId, a)
+    }
 
-  // Inativo não tem troca prevista: o aparelho pode até estar lá, mas ninguém
-  // vai trocar refil de quem deixou de ser cliente.
-  function temTrocaPrevista(clienteId) {
-    if (clienteInativo(clientes.get(clienteId))) return false
     const limite = new Date()
     limite.setDate(limite.getDate() + JANELA_TROCA_DIAS)
     const limiteStr = limite.toISOString().slice(0, 10)
-    return equipamentos
-      .list()
-      .filter((eq) => eq.clienteId === clienteId)
-      .some((eq) => {
-        const prevista = proximaTroca(eq)
-        return prevista && prevista <= limiteStr
-      })
-  }
+    const trocas = new Set()
+    for (const eq of equipamentos.list()) {
+      if (trocas.has(eq.clienteId)) continue
+      const prevista = proximaTroca(eq)
+      if (prevista && prevista <= limiteStr) trocas.add(eq.clienteId)
+    }
 
-  function temPagamentoPendente(clienteId) {
-    return lancamentos
-      .list()
-      .some((l) => l.clienteId === clienteId && l.tipo === 'entrada' && l.status === 'previsto')
-  }
+    const pendentes = new Set()
+    for (const l of lancamentos.list()) {
+      if (l.tipo === 'entrada' && l.status === 'previsto') pendentes.add(l.clienteId)
+    }
+
+    // A busca olha o nome, TODOS os telefones, o cônjuge, a cidade e o bairro.
+    // Quem liga muitas vezes é a esposa, e quem procura a ficha só lembra do
+    // nome dela — ou de que "é aquela de Itapema".
+    const indices = new Map()
+    for (const c of lista) {
+      indices.set(c.id, indexarBusca({
+        principal: c.nome,
+        outros: [c.conjugeNome, c.cidade, c.bairro, c.email],
+        numeros: [...telefonesDoCliente(c).map((t) => t.numero), c.conjugeTelefone, c.cpfCnpj],
+      }))
+    }
+
+    return {
+      visitaDe: (id) => visitas.get(id),
+      // Inativo não tem troca prevista: o aparelho pode até estar lá, mas
+      // ninguém vai trocar refil de quem deixou de ser cliente.
+      trocaDe: (c) => !clienteInativo(c) && trocas.has(c.id),
+      pendenteDe: (id) => pendentes.has(id),
+      indiceDe: (c) => indices.get(c.id),
+    }
+    // `versao` muda quando qualquer tabela do cache muda.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lista, versao])
 
   // Opções dos seletores, deduplicadas ignorando maiúsculas/espaços
   // (cobre cadastros antigos digitados à mão de formas diferentes)
@@ -143,27 +186,22 @@ export default function Clientes() {
     setSituacao('ativos')
   }
 
+  function limparTudo() {
+    setBusca('')
+    limparFiltros()
+  }
+
   // Todos os filtros menos o de situação — separado para saber quantos
   // inativos a busca acharia e avisar, em vez de dizer "nenhum cliente" para
   // quem procurou alguém que só está inativo.
   function passaFiltros(c) {
-    // A busca olha o nome, TODOS os telefones e o cônjuge — quem liga muitas
-    // vezes é a esposa, e quem procura a ficha só lembra do nome dela.
-    // Sem acento e sem caixa: "joao" acha João.
-    if (!combina(
-      busca,
-      c.nome,
-      c.conjugeNome,
-      c.conjugeTelefone,
-      ...telefonesDoCliente(c).map((t) => t.numero),
-    )) return false
     if (unidade && c.unidadeId !== unidade) return false
     if (cidade && normalizar(c.cidade) !== normalizar(cidade)) return false
     if (uf && (c.uf || '').toUpperCase() !== uf) return false
-    if (somenteTroca && !temTrocaPrevista(c.id)) return false
-    if (somentePendente && !temPagamentoPendente(c.id)) return false
-    if (visita === 'com' && !proximaVisita(c.id)) return false
-    if (visita === 'sem' && proximaVisita(c.id)) return false
+    if (somenteTroca && !trocaDe(c)) return false
+    if (somentePendente && !pendenteDe(c.id)) return false
+    if (visita === 'com' && !visitaDe(c.id)) return false
+    if (visita === 'sem' && visitaDe(c.id)) return false
     return true
   }
 
@@ -173,17 +211,27 @@ export default function Clientes() {
     return true
   }
 
-  // `filter` já devolve um array novo, então o `sort` aqui não mexe no cache.
-  const filtrados = lista
-    .filter((c) => passaFiltros(c) && passaSituacao(c))
-    .sort(compararClientes(ordem))
-  const inativosOcultos = situacao === 'ativos'
-    ? lista.filter((c) => clienteInativo(c) && passaFiltros(c)).length
-    : 0
+  // Filtros, depois a ordem escolhida, depois a busca. Com busca, quem tem o
+  // NOME começando pelo que foi digitado sobe para o topo ("ana" traz a Ana
+  // antes da Mariana); dentro de cada faixa, a ordem escolhida continua valendo.
+  const { filtrados, inativosOcultos } = useMemo(() => {
+    const ordenados = lista.filter(passaFiltros).sort(compararClientes(ordem))
+    const achados = filtrarPorBusca(ordenados, consulta, indiceDe, { porRelevancia: true })
+    return {
+      filtrados: achados.filter(passaSituacao),
+      inativosOcultos: situacao === 'ativos' ? achados.filter(clienteInativo).length : 0,
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lista, versao, consulta, ordem, unidade, cidade, uf, somenteTroca, somentePendente, visita, situacao, indiceDe])
 
   // Só o desenho é paginado. O PDF e a contagem continuam usando `filtrados`
   // inteiro: quem pede "baixar PDF" quer a lista que filtrou, não a página.
-  const { visiveis, barra } = usePaginacao(filtrados)
+  const { visiveis, barra } = usePaginacao(filtrados, {
+    lembrarComo: 'clientes',
+    reiniciarCom: JSON.stringify([buscaAdiada.trim(), ordem, unidade, cidade, uf, somenteTroca, somentePendente, visita, situacao]),
+  })
+  // A lista ainda está alcançando o que foi digitado.
+  const atualizando = busca !== buscaAdiada
 
   // O que está ligado na tela, em palavras. Vai no subtítulo do PDF e no nome
   // do arquivo: um relatório de "só Itapema" sem dizer isso na folha vira, uma
@@ -208,7 +256,7 @@ export default function Clientes() {
     try {
       await gerarClientesPdf({
         clientes: filtrados.map((c) => {
-          const prox = proximaVisita(c.id)
+          const prox = visitaDe(c.id)
           return {
             nome: c.nome,
             telefones: telefonesDoCliente(c).map((t) => t.numero),
@@ -218,8 +266,8 @@ export default function Clientes() {
             criadoEm: c.criadoEm,
             situacao: [
               clienteInativo(c) ? 'Inativo' : '',
-              temPagamentoPendente(c.id) ? 'A receber' : '',
-              temTrocaPrevista(c.id) ? 'Troca de refil' : '',
+              pendenteDe(c.id) ? 'A receber' : '',
+              trocaDe(c) ? 'Troca de refil' : '',
               prox ? `Próx. visita ${formatData(prox.data)}` : 'Sem visita marcada',
             ].filter(Boolean),
           }
@@ -268,15 +316,13 @@ export default function Clientes() {
       </PageTitle>
 
       <div className="flex flex-wrap items-center gap-2 mb-4">
-        <div className="relative flex-1 min-w-[220px] max-w-sm">
-          <IconSearch size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            className={inputCls + ' pl-9'}
-            placeholder="Buscar por nome, telefone ou cônjuge…"
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-          />
-        </div>
+        <CampoBusca
+          className="flex-1 min-w-[220px] max-w-sm"
+          placeholder="Buscar por nome, telefone, cônjuge ou cidade…"
+          aria-label="Buscar clientes"
+          value={busca}
+          onChange={setBusca}
+        />
 
         {/* A largura mora no wrapper: `inputCls` já traz `w-full`, e como as
             duas classes têm a mesma especificidade quem manda é a ordem no CSS
@@ -389,11 +435,13 @@ export default function Clientes() {
           )}
         </p>
         {filtrados.length === 0 && (
-          <Empty>{busca || filtrosAtivos ? 'Nenhum cliente encontrado.' : 'Nenhum cliente cadastrado ainda.'}</Empty>
+          buscaAdiada.trim() || filtrosAtivos
+            ? <SemResultado busca={buscaAdiada} filtros={filtrosAtivos} onLimpar={limparTudo}>Nenhum cliente encontrado</SemResultado>
+            : <Empty>Nenhum cliente cadastrado ainda.</Empty>
         )}
-        <ul className="divide-y divide-slate-100">
+        <ul className={`divide-y divide-slate-100 transition-opacity ${atualizando ? 'opacity-60' : ''}`}>
           {visiveis.map((c) => {
-            const prox = proximaVisita(c.id)
+            const prox = visitaDe(c.id)
             const inativo = clienteInativo(c)
             return (
               <li key={c.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3">
@@ -428,8 +476,8 @@ export default function Clientes() {
                     estourava o card no celular; agora quebram na linha de baixo. */}
                 <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 pl-13 sm:pl-0 sm:shrink-0">
                   {mostrarUnidade && unidadeForaDaCasa(c) && <Badge color="sky">{unidadeForaDaCasa(c).nome}</Badge>}
-                  {temPagamentoPendente(c.id) && <Badge color="amber">A receber</Badge>}
-                  {temTrocaPrevista(c.id) && <Badge color="red">Troca de refil</Badge>}
+                  {pendenteDe(c.id) && <Badge color="amber">A receber</Badge>}
+                  {trocaDe(c) && <Badge color="red">Troca de refil</Badge>}
                   {inativo
                     ? <Badge>Inativo</Badge>
                     : prox ? <Badge color="sky">Próx. visita: {formatData(prox.data)}</Badge> : <Badge>Sem visita marcada</Badge>}

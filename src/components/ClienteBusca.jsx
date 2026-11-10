@@ -1,14 +1,16 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { inputCls } from './ui.jsx'
 import { IconSearch, IconX } from './icons.jsx'
-import { semAcento, casaPalavras } from '../lib/texto.js'
+import { indexarBusca, prepararBusca, filtrarPorBusca } from '../lib/texto.js'
 import { telefonesDoCliente } from '../lib/telefone.js'
 import { clienteInativo } from '../data/repository.js'
 
 // Busca tolerante a acento e caixa ("João" casa com "joao"). A implementação
-// mora em lib/texto.js, compartilhada com as buscas de Clientes e de Vendas —
-// três cópias da mesma regra é como elas passam a discordar entre si.
-const normalizar = semAcento
+// mora em lib/texto.js, compartilhada com todas as listas do sistema — cópias
+// da mesma regra é como elas passam a discordar entre si.
+
+// Quantas opções a lista desenha de uma vez.
+const LIMITE = 50
 
 // Campo de seleção de cliente com busca dinâmica: em vez de rolar um <select>
 // gigante, o usuário digita o nome e vê as opções que começam com o texto ou
@@ -61,32 +63,52 @@ export default function ClienteBusca({ clientes, value, onChange, required, plac
     if (value) setAviso('')
   }, [required, value])
 
-  const q = normalizar(query)
-  const digitos = /^[\d\s()+-]+$/.test(query) ? query.replace(/\D/g, '') : ''
+  // O texto de busca de cada cliente, montado quando a lista muda — não a
+  // cada tecla. Cada palavra pode estar no nome, no cônjuge ou na cidade
+  // ("maria silva" acha "Maria da Silva"); o telefone vale digitado com ou
+  // sem máscara: quem monta a venda às vezes só tem o número que ligou.
+  const indices = useMemo(() => {
+    const mapa = new Map()
+    for (const c of clientes) {
+      mapa.set(c.id, indexarBusca({
+        principal: c.nome,
+        outros: [c.conjugeNome, c.cidade, c.bairro],
+        numeros: [...telefonesDoCliente(c).map((t) => t.numero), c.conjugeTelefone, c.cpfCnpj],
+      }))
+    }
+    return mapa
+  }, [clientes])
+
+  // Com o cliente já escolhido, o texto do campo é o nome DELE: filtrar por
+  // isso mostraria só ele. Abrir a lista ali é para trocar — mostra todos.
+  const termo = selecionado && query === selecionado.nome ? '' : query
+  const termoAdiado = useDeferredValue(termo)
+  const consulta = useMemo(() => prepararBusca(termoAdiado), [termoAdiado])
+
   // Inativo continua achável — às vezes ele volta, e a venda nova é dele —
   // mas vai para o fim da lista, com selo: quem procura "Maria" quer a Maria
   // que é cliente hoje, não a homônima que se mudou há dois anos.
-  const opcoes = useMemo(() => {
-    const ativosPrimeiro = (a, b) => Number(clienteInativo(a)) - Number(clienteInativo(b))
-    if (!q) return [...clientes].sort(ativosPrimeiro)
-    // Cada palavra pode estar em qualquer lugar do nome ("maria silva" acha
-    // "Maria da Silva"). Também pelo cônjuge e pelos telefones: quem monta a
-    // venda às vezes só tem o número que ligou, ou o nome de quem atendeu.
-    const casam = clientes.filter((c) =>
-      casaPalavras(q, c.nome) ||
-      casaPalavras(q, c.conjugeNome) ||
-      telefonesDoCliente(c).some((t) =>
-        casaPalavras(q, t.numero) ||
-        // Telefone digitado sem máscara ("49999") acha o gravado com máscara.
-        (digitos.length >= 3 && String(t.numero || '').replace(/\D/g, '').includes(digitos))),
-    )
-    // Quem começa com o texto vem primeiro.
-    return casam.sort((a, b) => {
-      const na = normalizar(a.nome).startsWith(q) ? 0 : 1
-      const nb = normalizar(b.nome).startsWith(q) ? 0 : 1
-      return ativosPrimeiro(a, b) || na - nb || a.nome.localeCompare(b.nome)
-    })
-  }, [clientes, q, digitos])
+  const todas = useMemo(() => {
+    const ordenados = [...clientes].sort((a, b) =>
+      Number(clienteInativo(a)) - Number(clienteInativo(b)) ||
+      String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'))
+    const achados = filtrarPorBusca(ordenados, consulta, (c) => indices.get(c.id), { porRelevancia: true })
+    // A relevância reordenou; o inativo volta para o fim mesmo assim.
+    return [...achados.filter((c) => !clienteInativo(c)), ...achados.filter(clienteInativo)]
+  }, [clientes, indices, consulta])
+
+  // Desenhar 2.600 botões ao focar o campo era o que travava o formulário.
+  // A lista mostra os primeiros; o resto aparece digitando.
+  const opcoes = todas.length > LIMITE ? todas.slice(0, LIMITE) : todas
+  const destaqueValido = Math.min(destaque, Math.max(0, opcoes.length - 1))
+
+  // A opção destacada pelas setas tem que estar à vista: antes ela descia
+  // para fora da caixa e o Enter escolhia alguém que você não estava vendo.
+  const listaRef = useRef(null)
+  useEffect(() => {
+    if (!aberto) return
+    listaRef.current?.querySelector(`[data-indice="${destaqueValido}"]`)?.scrollIntoView({ block: 'nearest' })
+  }, [aberto, destaqueValido])
 
   function selecionar(c) {
     digitandoRef.current = false
@@ -117,22 +139,32 @@ export default function ClienteBusca({ clientes, value, onChange, required, plac
     }
     if (e.key === 'ArrowDown') {
       e.preventDefault()
-      setDestaque((i) => Math.min(i + 1, opcoes.length - 1))
+      setDestaque(Math.min(destaqueValido + 1, opcoes.length - 1))
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
-      setDestaque((i) => Math.max(i - 1, 0))
+      setDestaque(Math.max(destaqueValido - 1, 0))
     } else if (e.key === 'Enter') {
-      if (aberto && opcoes[destaque]) {
+      if (aberto && opcoes[destaqueValido]) {
         e.preventDefault()
-        selecionar(opcoes[destaque])
+        selecionar(opcoes[destaqueValido])
       }
     } else if (e.key === 'Escape') {
+      // Dentro de um modal, o Esc fecha a lista — não o formulário inteiro.
+      if (aberto) e.stopPropagation()
+      setAberto(false)
+    } else if (e.key === 'Tab') {
       setAberto(false)
     }
   }
 
   return (
-    <div ref={wrapRef} className="relative">
+    <div
+      ref={wrapRef}
+      className="relative"
+      // Sair do campo pelo teclado (Tab) também fecha: antes a lista ficava
+      // aberta por cima do campo seguinte.
+      onBlur={(e) => { if (!wrapRef.current?.contains(e.relatedTarget)) setAberto(false) }}
+    >
       <div className="relative">
         <IconSearch size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
         <input
@@ -151,7 +183,7 @@ export default function ClienteBusca({ clientes, value, onChange, required, plac
           aria-expanded={aberto}
           aria-controls={listaId}
           aria-required={required || undefined}
-          aria-activedescendant={aberto && opcoes[destaque] ? `${listaId}-${opcoes[destaque].id}` : undefined}
+          aria-activedescendant={aberto && opcoes[destaqueValido] ? `${listaId}-${opcoes[destaqueValido].id}` : undefined}
         />
         {value && (
           <button
@@ -166,29 +198,43 @@ export default function ClienteBusca({ clientes, value, onChange, required, plac
       </div>
 
       {aberto && (
-        <ul id={listaId} role="listbox" className="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto rounded-2xl superficie-flutuante divide-y divide-slate-200">
+        <ul ref={listaRef} id={listaId} role="listbox" className="absolute z-10 mt-1 w-full max-h-64 overflow-y-auto rounded-2xl superficie-flutuante divide-y divide-slate-200">
           {opcoes.length === 0 ? (
-            <li className="px-3 py-2.5 text-sm text-slate-400">Nenhum cliente encontrado.</li>
+            <li className="px-3 py-2.5 text-sm text-slate-400">
+              {termoAdiado.trim() ? `Nenhum cliente encontrado para “${termoAdiado.trim()}”.` : 'Nenhum cliente cadastrado.'}
+            </li>
           ) : (
             opcoes.map((c, i) => (
               <li key={c.id} role="none">
                 <button
                   id={`${listaId}-${c.id}`}
+                  data-indice={i}
+                  tabIndex={-1}
+                  // O foco fica no campo: no Safari o botão não recebe foco ao ser
+                  // clicado, e a lista fecharia antes do clique chegar.
+                  onMouseDown={(e) => e.preventDefault()}
                   role="option"
                   aria-selected={c.id === value}
                   type="button"
                   onMouseEnter={() => setDestaque(i)}
                   onClick={() => selecionar(c)}
                   className={`w-full min-h-11 text-left px-3 py-2 text-sm cursor-pointer ${
-                    i === destaque ? 'bg-blue-50 text-blue-600' : 'text-slate-700 hover-superficie'
+                    i === destaqueValido ? 'bg-blue-50 text-blue-600' : 'text-slate-700 hover-superficie'
                   } ${c.id === value ? 'font-semibold' : ''}`}
                 >
                   {c.nome}
                   {telefonesDoCliente(c)[0] && <span className="text-xs text-slate-400 ml-2">{telefonesDoCliente(c)[0].numero}</span>}
+                  {/* A cidade separa os homônimos: duas "Maria Silva" é comum. */}
+                  {c.cidade && <span className="text-xs text-slate-400 ml-2">· {c.cidade}</span>}
                   {clienteInativo(c) && <span className="text-xs text-slate-400 ml-2">· inativo</span>}
                 </button>
               </li>
             ))
+          )}
+          {todas.length > opcoes.length && (
+            <li role="none" className="px-3 py-2 text-xs text-slate-400">
+              Mostrando {opcoes.length} de {todas.length.toLocaleString('pt-BR')}. Continue digitando para achar os outros.
+            </li>
           )}
         </ul>
       )}

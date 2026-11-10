@@ -137,20 +137,30 @@ function consultar(tabela, de, ate) {
     const desde = somarDias(hojeISO(), -JANELA_ATIVIDADES_DIAS)
     consulta.or(`data.gte.${desde},status.eq.pendente`)
   }
-  return consulta.order('criado_em', { ascending: true }).range(de, ate)
+  // O `id` desempata. A importação das fichas gravou centenas de clientes no
+  // MESMO instante, e entre empates o Postgres não garante ordem nenhuma: cada
+  // página vinha com um sorteio diferente, então uns clientes chegavam duas
+  // vezes e outros não chegavam — sumiam da lista e da busca sem erro algum.
+  return consulta
+    .order('criado_em', { ascending: true })
+    .order('id', { ascending: true })
+    .range(de, ate)
 }
 
 // Uma tabela inteira, página a página. Devolve no mesmo formato do
 // supabase-js ({ data, error }) para o tratamento de erro continuar um só.
 async function buscarTudo(tabela) {
-  const linhas = []
+  // Por id: se um registro for gravado no meio da leitura e empurrar a página
+  // seguinte, a mesma linha pode vir duas vezes. Repetida na lista, ela
+  // quebrava o desenho (duas linhas com a mesma chave) e a contagem.
+  const porId = new Map()
   for (let de = 0; ; de += PAGINA) {
     const resposta = await consultar(tabela, de, de + PAGINA - 1)
     if (resposta.error) return resposta
-    linhas.push(...resposta.data)
+    for (const linha of resposta.data) porId.set(linha.id ?? `sem-id-${porId.size}`, linha)
     if (resposta.data.length < PAGINA) break
   }
-  return { data: linhas, error: null }
+  return { data: [...porId.values()], error: null }
 }
 
 // Busca as tabelas no Supabase e popula o cache em memória.

@@ -3,11 +3,14 @@ import {
   produtos, salvarProduto, compativeisDe, definirFotoProduto, removerFotoProduto,
   formatBRL, TIPOS_PRODUTO, UNIDADES, unidadeDo,
 } from '../data/repository.js'
-import { Card, Page, PageTitle, Button, Field, inputCls, InputNumero, Badge, Empty, Modal, usePaginacao, Paginacao } from '../components/ui.jsx'
-import { IconPlus, IconImage, IconSearch } from '../components/icons.jsx'
+import {
+  Card, Page, PageTitle, Button, Field, inputCls, InputNumero, Badge, Empty, Modal, usePaginacao, Paginacao,
+  CampoBusca, SemResultado, useLembrado,
+} from '../components/ui.jsx'
+import { IconPlus, IconImage } from '../components/icons.jsx'
 import FotoUnica from '../components/FotoUnica.jsx'
 import ProdutoBusca from '../components/ProdutoBusca.jsx'
-import { combina } from '../lib/texto.js'
+import { indexarBusca, prepararBusca, filtrarPorBusca } from '../lib/texto.js'
 import { ehGestao } from '../lib/auth.js'
 
 // Cor e badge por tipo: aparelho e refil são o miolo do serviço (troca
@@ -106,7 +109,7 @@ function Compatibilidade({ tipoAlvo, candidatos, escolhidos, onChange }) {
 
 export default function Produtos() {
   const [lista, setLista] = useState(produtos.list())
-  const [busca, setBusca] = useState('')
+  const [busca, setBusca] = useLembrado('produtos:busca', '')
   const [form, setForm] = useState(null) // null = fechado; {id?} = criando/editando
   const [erro, setErro] = useState('')
   const [salvando, setSalvando] = useState(false)
@@ -122,10 +125,23 @@ export default function Produtos() {
   // enxergando a lista inteira, senão o filtro esconderia justo o vínculo a
   // escolher. O par vinculado entra na busca porque procurar pelo aparelho é a
   // forma natural de chegar no refil dele — e vice-versa.
-  const filtrados = lista.filter((p) =>
-    combina(busca, p.nome, p.codigo, p.cor, TIPOS_PRODUTO[p.tipo], nomesCompativeis(p)))
+  //
+  // Cada palavra em qualquer campo ("purificador branco" acha o purificador
+  // de cor branca); antes era o texto inteiro colado. Quem tem o nome
+  // começando pelo que foi digitado vem primeiro.
+  const consulta = prepararBusca(busca)
+  const filtrados = filtrarPorBusca(
+    lista,
+    consulta,
+    (p) => indexarBusca({
+      principal: p.nome,
+      outros: [p.codigo, p.cor, TIPOS_PRODUTO[p.tipo], nomesCompativeis(p)],
+      numeros: [p.codigo],
+    }),
+    { porRelevancia: true },
+  )
 
-  const { visiveis, barra } = usePaginacao(filtrados)
+  const { visiveis, barra } = usePaginacao(filtrados, { lembrarComo: 'produtos', reiniciarCom: consulta.texto })
 
   function abrirEdicao(p) {
     setErro('')
@@ -171,20 +187,20 @@ export default function Produtos() {
       </PageTitle>
 
       <div className="flex flex-wrap items-center gap-2 mb-3">
-        <div className="relative flex-1 min-w-[220px] max-w-sm">
-          <IconSearch size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            className={inputCls + ' pl-9'}
-            placeholder="Buscar por nome, código, cor ou tipo…"
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-          />
-        </div>
+        <CampoBusca
+          className="flex-1 min-w-[220px] max-w-sm"
+          placeholder="Buscar por nome, código, cor ou tipo…"
+          aria-label="Buscar produtos"
+          value={busca}
+          onChange={setBusca}
+        />
       </div>
 
       <Card>
         {filtrados.length === 0 && (
-          <Empty>{busca ? 'Nenhum produto encontrado.' : 'Nenhum produto cadastrado ainda.'}</Empty>
+          busca.trim()
+            ? <SemResultado busca={busca} onLimpar={() => setBusca('')}>Nenhum produto encontrado</SemResultado>
+            : <Empty>Nenhum produto cadastrado ainda.</Empty>
         )}
         {filtrados.length > 0 && (
           <div className="overflow-x-auto">

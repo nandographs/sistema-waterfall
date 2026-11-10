@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node scripts/testar-datas.mjs && node scripts/testar-telefone.mjs && node scripts/testar-gemeos-telefone.mjs && node scripts/testar-financeiro.mjs && node scripts/testar-relatorio.mjs && node scripts/testar-importacao.mjs && node scripts/testar-os.mjs && node scripts/testar-pedido.mjs && node scripts/testar-orcamento.mjs"
+    "test": "node scripts/testar-datas.mjs && node scripts/testar-busca.mjs && node scripts/testar-telefone.mjs && node scripts/testar-gemeos-telefone.mjs && node scripts/testar-financeiro.mjs && node scripts/testar-relatorio.mjs && node scripts/testar-importacao.mjs && node scripts/testar-os.mjs && node scripts/testar-pedido.mjs && node scripts/testar-orcamento.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.7",

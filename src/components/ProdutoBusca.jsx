@@ -1,16 +1,14 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { inputCls } from './ui.jsx'
 import { IconSearch, IconX } from './icons.jsx'
-import { formatBRL, unidadeDo } from '../data/repository.js'
-import { casaPalavras } from '../lib/texto.js'
+import { formatBRL, unidadeDo, TIPOS_PRODUTO } from '../data/repository.js'
+import { indexarBusca, prepararBusca, pontuarBusca, semAcento } from '../lib/texto.js'
 
-// Remove acentos e caixa para busca tolerante ("Purificador" casa com "purificador").
-const normalizar = (s) =>
-  String(s || '')
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .trim()
-    .toLowerCase()
+const normalizar = semAcento
+const SEM_OCULTOS = []
+
+// Quantas opções a lista desenha de uma vez.
+const LIMITE = 50
 
 // Campo de seleção de produto com busca dinâmica, no mesmo espírito do
 // ClienteBusca: em vez de rolar uma lista gigante, digita-se parte do nome OU
@@ -27,7 +25,7 @@ export default function ProdutoBusca({
   value,
   onChange,
   required,
-  ocultarIds = [],
+  ocultarIds = SEM_OCULTOS,
   limparAoSelecionar = false,
   placeholder = 'Busque por nome ou código…',
 }) {
@@ -74,27 +72,46 @@ export default function ProdutoBusca({
     return () => document.removeEventListener('mousedown', aoClicarFora)
   }, [])
 
-  const q = normalizar(query)
-  const opcoes = useMemo(() => {
-    const disponiveis = produtos.filter((p) => !ocultarIds.includes(p.id))
-    if (!q) return disponiveis
+  // Com o produto já escolhido, o texto do campo é o nome DELE: filtrar por
+  // isso mostraria só ele. Abrir a lista ali é para trocar — mostra todos.
+  const termo = selecionado && query === selecionado.nome ? '' : query
+  const q = normalizar(termo)
+  const todas = useMemo(() => {
+    const disponiveis = produtos
+      .filter((p) => !ocultarIds.includes(p.id))
+      .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'))
+    const consulta = prepararBusca(termo)
+    if (consulta.vazia) return disponiveis
 
-    // Cada palavra pode estar no nome, no código ou na cor, em qualquer ordem.
-    // A cor entra porque, com o mesmo item em várias cores, é ela que distingue
-    // um do outro ("torneira branca").
-    const casam = disponiveis.filter((p) => casaPalavras(q, p.nome, p.codigo, p.cor))
-
-    // Prioridade: código exato > código começa com > nome começa com > resto.
-    const peso = (p) => {
-      const nome = normalizar(p.nome)
+    // Cada palavra pode estar no nome, no código, na cor ou no tipo, em
+    // qualquer ordem. A cor entra porque, com o mesmo item em várias cores, é
+    // ela que distingue um do outro ("torneira branca").
+    //
+    // Prioridade: código exato > código começa com > relevância pelo nome.
+    const notas = []
+    for (const p of disponiveis) {
+      const nota = pontuarBusca(consulta, indexarBusca({
+        principal: p.nome,
+        outros: [p.codigo, p.cor, TIPOS_PRODUTO[p.tipo]],
+        numeros: [p.codigo],
+      }))
+      if (nota < 0) continue
       const codigo = normalizar(p.codigo)
-      if (codigo && codigo === q) return 0
-      if (codigo && codigo.startsWith(q)) return 1
-      if (nome.startsWith(q)) return 2
-      return 3
+      const peso = codigo && codigo === q ? -2 : codigo && codigo.startsWith(q) ? -1 : nota
+      notas.push([peso, p])
     }
-    return casam.sort((a, b) => peso(a) - peso(b) || a.nome.localeCompare(b.nome))
-  }, [produtos, q, ocultarIds])
+    return notas.sort((a, b) => a[0] - b[0]).map(([, p]) => p)
+  }, [produtos, termo, q, ocultarIds])
+
+  const opcoes = todas.length > LIMITE ? todas.slice(0, LIMITE) : todas
+  const destaqueValido = Math.min(destaque, Math.max(0, opcoes.length - 1))
+
+  // A opção destacada pelas setas tem que estar à vista.
+  const listaRef = useRef(null)
+  useEffect(() => {
+    if (!aberto) return
+    listaRef.current?.querySelector(`[data-indice="${destaqueValido}"]`)?.scrollIntoView({ block: 'nearest' })
+  }, [aberto, destaqueValido])
 
   function selecionar(p) {
     digitandoRef.current = false
@@ -131,17 +148,21 @@ export default function ProdutoBusca({
     }
     if (e.key === 'ArrowDown') {
       e.preventDefault()
-      setDestaque((i) => Math.min(i + 1, opcoes.length - 1))
+      setDestaque(Math.min(destaqueValido + 1, opcoes.length - 1))
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
-      setDestaque((i) => Math.max(i - 1, 0))
+      setDestaque(Math.max(destaqueValido - 1, 0))
     } else if (e.key === 'Enter') {
       // Impede que o Enter envie o formulário quando a intenção era escolher.
-      if (aberto && opcoes[destaque]) {
+      if (aberto && opcoes[destaqueValido]) {
         e.preventDefault()
-        selecionar(opcoes[destaque])
+        selecionar(opcoes[destaqueValido])
       }
     } else if (e.key === 'Escape') {
+      // Dentro de um modal, o Esc fecha a lista — não o formulário inteiro.
+      if (aberto) e.stopPropagation()
+      setAberto(false)
+    } else if (e.key === 'Tab') {
       setAberto(false)
     }
   }
@@ -149,7 +170,12 @@ export default function ProdutoBusca({
   const mostrarLimpar = !!value && !limparAoSelecionar
 
   return (
-    <div ref={wrapRef} className="relative">
+    <div
+      ref={wrapRef}
+      className="relative"
+      // Sair do campo pelo teclado (Tab) também fecha a lista.
+      onBlur={(e) => { if (!wrapRef.current?.contains(e.relatedTarget)) setAberto(false) }}
+    >
       <div className="relative">
         <IconSearch size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
         <input
@@ -168,7 +194,7 @@ export default function ProdutoBusca({
           aria-expanded={aberto}
           aria-controls={listaId}
           aria-required={required || undefined}
-          aria-activedescendant={aberto && opcoes[destaque] ? `${listaId}-${opcoes[destaque].id}` : undefined}
+          aria-activedescendant={aberto && opcoes[destaqueValido] ? `${listaId}-${opcoes[destaqueValido].id}` : undefined}
         />
         {mostrarLimpar && (
           <button
@@ -183,21 +209,28 @@ export default function ProdutoBusca({
       </div>
 
       {aberto && (
-        <ul id={listaId} role="listbox" className="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto rounded-2xl superficie-flutuante divide-y divide-slate-200">
+        <ul ref={listaRef} id={listaId} role="listbox" className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto rounded-2xl superficie-flutuante divide-y divide-slate-200">
           {opcoes.length === 0 ? (
-            <li className="px-3 py-2.5 text-sm text-slate-400">Nenhum produto encontrado.</li>
+            <li className="px-3 py-2.5 text-sm text-slate-400">
+              {termo.trim() ? `Nenhum produto encontrado para “${termo.trim()}”.` : 'Nenhum produto disponível.'}
+            </li>
           ) : (
             opcoes.map((p, i) => (
               <li key={p.id} role="none">
                 <button
                   id={`${listaId}-${p.id}`}
+                  data-indice={i}
+                  tabIndex={-1}
+                  // O foco fica no campo: no Safari o botão não recebe foco ao
+                  // ser clicado, e a lista fecharia antes do clique chegar.
+                  onMouseDown={(e) => e.preventDefault()}
                   role="option"
                   aria-selected={p.id === value}
                   type="button"
                   onMouseEnter={() => setDestaque(i)}
                   onClick={() => selecionar(p)}
                   className={`w-full min-h-11 text-left px-3 py-2 text-sm cursor-pointer flex items-center gap-2 ${
-                    i === destaque ? 'bg-blue-50 text-blue-600' : 'text-slate-700 hover-superficie'
+                    i === destaqueValido ? 'bg-blue-50 text-blue-600' : 'text-slate-700 hover-superficie'
                   } ${p.id === value ? 'font-semibold' : ''}`}
                 >
                   {p.codigo && (
@@ -216,6 +249,11 @@ export default function ProdutoBusca({
                 </button>
               </li>
             ))
+          )}
+          {todas.length > opcoes.length && (
+            <li role="none" className="px-3 py-2 text-xs text-slate-400">
+              Mostrando {opcoes.length} de {todas.length}. Continue digitando para achar os outros.
+            </li>
           )}
         </ul>
       )}
