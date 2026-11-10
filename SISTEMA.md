@@ -343,7 +343,8 @@ Mudar a unidade de um cliente leva junto tudo que é dele
   — o `verify_jwt` só prova que a pessoa está logada.
 - `produtos`: quem tem papel lê, só a gestão escreve.
 - Storage: o caminho diz de quem é o arquivo (`<cliente>/…`, `perfil/<cliente>.jpg`,
-  `produto/…`), e `arquivo_permitido()` confere a unidade do cliente.
+  `produto/…`), e `arquivo_permitido()` confere a unidade do cliente. A `sql/033`
+  tira as regras antigas do painel, que anulavam essa conferência.
 
 **Na interface**: `navegacao.js` marca `soGestao` em WhatsApp, Financeiro e
 Equipe — somem do menu e a rota volta para o início (`SoGestao` em App.jsx).
