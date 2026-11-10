@@ -297,11 +297,20 @@ export default function Equipe() {
                 placeholder="ex.: joao.itajai"
               />
             </Field>
+            {/* Texto à vista, e não `password`: quem digita aqui é a gestão
+                definindo a senha de OUTRA pessoa, e precisa ver o que vai
+                repassar. Campo de senha também atrai o gerenciador do navegador,
+                que pode trocar o que foi digitado pela senha salva de quem está
+                logado — e o acesso novo nasce com uma senha que ninguém conhece. */}
             <Field label="Senha">
               <input
                 className={inputCls}
-                type="password"
-                autoComplete="new-password"
+                type="text"
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                data-1p-ignore
+                data-lpignore="true"
                 value={novoUsuario.senha}
                 onChange={(e) => setNovoUsuario({ ...novoUsuario, senha: e.target.value })}
               />
@@ -333,8 +342,12 @@ export default function Equipe() {
             <Field label="Senha nova (deixe em branco para manter)">
               <input
                 className={inputCls}
-                type="password"
-                autoComplete="new-password"
+                type="text"
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                data-1p-ignore
+                data-lpignore="true"
                 value={editando.novaSenha}
                 onChange={(e) => setEditando({ ...editando, novaSenha: e.target.value })}
               />

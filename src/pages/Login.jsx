@@ -10,6 +10,20 @@ import { usuarioParaEmail } from '../lib/auth.js'
 // convertido para o e-mail interno (ver lib/auth.js). Ao ter sucesso, o
 // listener em App.jsx (onAuthStateChange) percebe a sessão e libera a
 // navegação sozinho.
+
+// Toda falha dizia "usuário ou senha inválidos" — inclusive excesso de
+// tentativas e queda de rede. Com a tela de Equipe criando acessos, saber POR
+// QUE alguém não entra é o que separa senha errada de defeito.
+function motivoDoErro(error) {
+  if (error.code === 'invalid_credentials') return 'Usuário ou senha inválidos.'
+  if (error.code === 'email_not_confirmed') return 'Este acesso ainda não foi confirmado.'
+  if (error.status === 429 || /rate.?limit/i.test(error.code || '')) {
+    return 'Muitas tentativas seguidas. Espere um minuto e tente de novo.'
+  }
+  if (error.name === 'AuthRetryableFetchError') return 'Sem conexão com o servidor. Confira a internet.'
+  return `Não foi possível entrar: ${error.message}`
+}
+
 export default function Login() {
   const [usuario, setUsuario] = useState('')
   const [senha, setSenha] = useState('')
@@ -26,7 +40,7 @@ export default function Login() {
       password: senha,
     })
     setEntrando(false)
-    if (error) setErro('Usuário ou senha inválidos.')
+    if (error) setErro(motivoDoErro(error))
   }
 
   return (
