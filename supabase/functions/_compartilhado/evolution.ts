@@ -14,12 +14,15 @@
 //   * o caminho de envio é `POST /send/text` com { number, text }: a instância
 //     vem do token, e não do caminho como na versão Node.
 
+//
+// UM NÚMERO POR USUÁRIO (migração 034): cada instância tem a sua chave, e quem
+// chama passa a dela em `token`. A chave fixa dos segredos virou só a do número
+// da empresa — ver `_compartilhado/instancias.ts`, que decide qual usar.
+
 const URL_BASE = Deno.env.get('EVOLUTION_URL') ?? ''
-const TOKEN = Deno.env.get('EVOLUTION_TOKEN_INSTANCIA') ?? ''
 
 export function configuracaoAusente(): string | null {
   if (!URL_BASE) return 'EVOLUTION_URL não configurada'
-  if (!TOKEN) return 'EVOLUTION_TOKEN_INSTANCIA não configurado'
   return null
 }
 
@@ -39,8 +42,9 @@ const LIMITE_MS = 20_000
 
 export async function chamarEvolution(
   caminho: string,
-  init: { metodo?: string; corpo?: unknown; limiteMs?: number } = {},
+  init: { metodo?: string; corpo?: unknown; limiteMs?: number; token: string },
 ): Promise<Resposta> {
+  if (!init.token) return { ok: false, status: 0, corpo: { error: 'número sem chave da Evolution' } }
   const url = `${URL_BASE.replace(/\/+$/, '')}${caminho}`
 
   const cancelador = new AbortController()
@@ -51,7 +55,7 @@ export async function chamarEvolution(
     resposta = await fetch(url, {
       method: init.metodo ?? 'GET',
       headers: {
-        'apikey': TOKEN,
+        'apikey': init.token,
         'Content-Type': 'application/json',
       },
       body: init.corpo === undefined ? undefined : JSON.stringify(init.corpo),
@@ -95,6 +99,7 @@ export async function chamarEvolution(
 export async function chamarEvolutionBinario(
   caminho: string,
   corpo: unknown,
+  token: string,
   limiteMs = 45_000,
 ): Promise<{ ok: boolean; status: number; tipo: string; bytes: ArrayBuffer | null; erro?: string }> {
   const url = `${URL_BASE.replace(/\/+$/, '')}${caminho}`
@@ -105,7 +110,7 @@ export async function chamarEvolutionBinario(
   try {
     const resposta = await fetch(url, {
       method: 'POST',
-      headers: { 'apikey': TOKEN, 'Content-Type': 'application/json' },
+      headers: { 'apikey': token, 'Content-Type': 'application/json' },
       body: JSON.stringify(corpo),
       signal: cancelador.signal,
     })

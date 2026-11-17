@@ -1108,11 +1108,41 @@ export const conversas = makeStore('conversas')
 const ordenarPorRecente = (a, b) =>
   String(b.ultimaEm || '').localeCompare(String(a.ultimaEm || ''))
 
-// A caixa de entrada: conversas da mais recente para a mais antiga.
-export function conversasRecentes({ incluirArquivadas = false } = {}) {
+// ---- Qual número está em uso ----
+//
+// Desde a migração 034 cada usuário tem o próprio número, e a gestão escolhe
+// com qual está atendendo — o dela, o da empresa ou o de alguém da equipe. A
+// escolha fica no navegador: é preferência de quem está na frente da tela, e
+// cada pessoa da gestão pode estar num número diferente ao mesmo tempo.
+//
+// O que cada um PODE ver não é decidido aqui, e sim pelo RLS (pode_usar_instancia).
+const CHAVE_NUMERO = 'whatsappNumero'
+let numeroSelecionado = (() => {
+  try { return localStorage.getItem(CHAVE_NUMERO) || '' } catch { return '' }
+})()
+
+export const numeroEmUso = () => numeroSelecionado
+
+export function usarNumero(instancia) {
+  numeroSelecionado = instancia || ''
+  try { localStorage.setItem(CHAVE_NUMERO, numeroSelecionado) } catch { /* modo privado */ }
+}
+
+// Os números que esta pessoa pode usar, com o dono de cada um. Só o banco —
+// nenhuma chamada à Evolution, então pode ser chamado à vontade.
+export async function numerosWhatsapp() {
+  const { data, error } = await supabase.functions.invoke('wa-status', { body: { acao: 'listar' } })
+  if (error) throw new Error(await motivoDaFuncao(error, 'não foi possível listar os números'))
+  return data
+}
+
+// A caixa de entrada: conversas da mais recente para a mais antiga. Com
+// `instancia`, só as daquele número.
+export function conversasRecentes({ incluirArquivadas = false, instancia = '' } = {}) {
   return conversas
     .list()
     .filter((c) => (incluirArquivadas ? true : !c.arquivada))
+    .filter((c) => !instancia || c.instancia === instancia)
     .sort(ordenarPorRecente)
 }
 
@@ -1126,28 +1156,41 @@ export function conversasRecentes({ incluirArquivadas = false } = {}) {
 //
 // Sem a segunda passada, sair da ficha e escrever abriria uma conversa nova ao
 // lado de uma que já existe, partindo o histórico em dois.
-export function conversaDoCliente(clienteId) {
+//
+// `instancia`: só a conversa com aquele número seu. A tela do WhatsApp precisa
+// disso — abrir a conversa que o cliente tem com OUTRO vendedor, estando no seu
+// número, mandaria a resposta pelo número errado. As outras telas (a foto na
+// ficha, o contador do cartão) aceitam qualquer uma, a do número em uso primeiro.
+export function conversaDoCliente(clienteId, { instancia = '' } = {}) {
   if (!clienteId) return null
+  const doNumero = (c) => !instancia || c.instancia === instancia
 
   const vinculada = conversas
     .list()
-    .filter((c) => c.clienteId === clienteId)
-    .sort(ordenarPorRecente)[0]
+    .filter((c) => c.clienteId === clienteId && doNumero(c))
+    .sort(primeiroONumeroEmUso)[0]
   if (vinculada) return vinculada
 
   const cliente = clientes.get(clienteId)
   if (!cliente) return null
   return conversas
     .list()
-    .filter((c) => !c.clienteId && clienteTemNumero(cliente, c.numero))
-    .sort(ordenarPorRecente)[0] ?? null
+    .filter((c) => !c.clienteId && doNumero(c) && clienteTemNumero(cliente, c.numero))
+    .sort(primeiroONumeroEmUso)[0] ?? null
 }
+
+// A do número em uso na frente; entre as do mesmo grupo, a mais recente.
+const primeiroONumeroEmUso = (a, b) =>
+  (b.instancia === numeroSelecionado) - (a.instancia === numeroSelecionado) || ordenarPorRecente(a, b)
 
 // A conversa de um telefone solto — o lead do funil, que ainda não tem cadastro
 // e por isso não tem `clienteId` para procurar.
-export function conversaDoNumero(telefone) {
+export function conversaDoNumero(telefone, { instancia = '' } = {}) {
   if (!telefone) return null
-  return conversas.list().find((c) => mesmoNumero(c.numero, telefone)) ?? null
+  return conversas
+    .list()
+    .filter((c) => (!instancia || c.instancia === instancia) && mesmoNumero(c.numero, telefone))
+    .sort(primeiroONumeroEmUso)[0] ?? null
 }
 
 // ---- Qual foto aparece ----
@@ -1422,12 +1465,16 @@ export async function cadastrarClienteDaConversa(conversaId, dadosDoCliente) {
 
 // Envia pelo WhatsApp. Quem fala com a Evolution é a Edge Function; daqui só
 // sai o texto e o destino, com o JWT da sessão que o Supabase já anexa.
-export async function enviarMensagemWhatsapp({ conversaId, clienteId, numero, texto, oportunidadeId }) {
+//
+// Conversa nova (sem `conversaId`) sai pelo número em uso; a que já existe sai
+// pelo número dela — quem decide é a `wa-enviar`.
+export async function enviarMensagemWhatsapp({ conversaId, clienteId, numero, texto, oportunidadeId, instancia }) {
   const { data, error } = await supabase.functions.invoke('wa-enviar', {
     body: {
       conversaId: conversaId || undefined,
       clienteId: clienteId || undefined,
       numero: numero || undefined,
+      instancia: (conversaId ? '' : (instancia || numeroSelecionado)) || undefined,
       texto,
       oportunidadeId: oportunidadeId || undefined,
       enviadoPor: usuarioAtual(),
@@ -1468,8 +1515,14 @@ async function motivoDaFuncao(error, padrao) {
 
 // Estado da conexão, e se o webhook está mudo. A própria verificação regrava o
 // webhook na Evolution quando o número está conectado — ver wa-status.
-export async function statusWhatsapp() {
-  const { data, error } = await supabase.functions.invoke('wa-status', { body: { acao: 'verificar' } })
+// `comQr`: só a janela de conectar pede. Ler o QR com o número desconectado
+// faz a Evolution subir a instância — não pode acontecer na verificação de rotina.
+//
+// Sem `instancia`, vale o número em uso (e, sem ele, o da pessoa).
+export async function statusWhatsapp({ comQr = false, instancia = '' } = {}) {
+  const { data, error } = await supabase.functions.invoke('wa-status', {
+    body: { acao: comQr ? 'qr' : 'verificar', instancia: instancia || numeroSelecionado || undefined },
+  })
   if (error) throw new Error(await motivoDaFuncao(error, 'não foi possível falar com o WhatsApp'))
   return data
 }
@@ -1477,9 +1530,30 @@ export async function statusWhatsapp() {
 // Liga a instância já com o webhook configurado e devolve o QR. É o ÚNICO jeito
 // certo de parear: pelo painel da Evolution, o número conecta sem webhook e
 // nada chega ao sistema (foi o que aconteceu em setembro de 2026).
-export async function conectarWhatsapp() {
-  const { data, error } = await supabase.functions.invoke('wa-status', { body: { acao: 'conectar' } })
+//
+// `novo`: conectar o PRÓPRIO celular — quem ainda não tem número ganha um.
+// Sem ele, reconecta o número indicado (ou o em uso).
+export async function conectarWhatsapp({ instancia = '', novo = false } = {}) {
+  const { data, error } = await supabase.functions.invoke('wa-status', {
+    body: { acao: 'conectar', novo, instancia: novo ? undefined : (instancia || numeroSelecionado || undefined) },
+  })
   if (error) throw new Error(await motivoDaFuncao(error, 'não foi possível iniciar a conexão'))
+  return data
+}
+
+// Tira o celular do sistema — o mesmo que "sair" em Dispositivos conectados.
+// Para voltar, é ler o QR de novo.
+export async function desconectarWhatsapp(instancia) {
+  const { data, error } = await supabase.functions.invoke('wa-status', { body: { acao: 'desconectar', instancia } })
+  if (error) throw new Error(await motivoDaFuncao(error, 'não foi possível desconectar'))
+  return data
+}
+
+// Derruba e refaz a conexão sem deslogar: para o número que está conectado e
+// parou de receber.
+export async function reiniciarWhatsapp(instancia) {
+  const { data, error } = await supabase.functions.invoke('wa-status', { body: { acao: 'reiniciar', instancia } })
+  if (error) throw new Error(await motivoDaFuncao(error, 'não foi possível reiniciar'))
   return data
 }
 

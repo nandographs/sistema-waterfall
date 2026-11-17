@@ -17,8 +17,9 @@
 
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { configuracaoAusente, json, erro, preflight } from '../_compartilhado/evolution.ts'
-import { exigirGestao } from '../_compartilhado/acesso.ts'
+import { quemChamou } from '../_compartilhado/acesso.ts'
 import { sincronizarVarios, VALIDADE_DIAS } from '../_compartilhado/avatar.ts'
+import { carregarInstancia } from '../_compartilhado/instancias.ts'
 
 // Quantas conversas por chamada.
 //
@@ -44,8 +45,16 @@ Deno.serve(async (req) => {
   const faltando = configuracaoAusente()
   if (faltando) return erro(faltando, 500)
 
-  const recusa = await exigirGestao(req)
+  const { quem, recusa } = await quemChamou(req)
   if (recusa) return recusa
+
+  // Os números que esta pessoa pode usar. A gestão, todos; os outros, o
+  // próprio — e só as conversas dele entram na varredura.
+  let numeros = supabase.from('whatsapp_estado').select('instancia')
+  if (!quem!.gestao) numeros = numeros.eq('dono_id', quem!.userId)
+  const { data: dela } = await numeros
+  const instancias = (dela ?? []).map((n) => n.instancia)
+  if (!instancias.length) return json({ conferidas: 0, atualizadas: 0 })
 
   let corpo: any = {}
   try {
@@ -57,8 +66,9 @@ Deno.serve(async (req) => {
 
   let consulta = supabase
     .from('conversas')
-    .select('id, numero, avatar_id, avatar_path')
+    .select('id, numero, instancia, avatar_id, avatar_path')
     .not('numero', 'is', null)
+    .in('instancia', instancias)
 
   if (Array.isArray(corpo?.conversaIds) && corpo.conversaIds.length) {
     // Pedido específico: "confere a foto desta conversa aqui" — é o que a tela
@@ -83,6 +93,13 @@ Deno.serve(async (req) => {
   if (error) return erro(`não foi possível ler as conversas: ${error.message}`, 500)
   if (!data?.length) return json({ conferidas: 0, atualizadas: 0 })
 
-  const resultado = await sincronizarVarios(data, { forcar })
+  // A foto é pedida pelo número de cada conversa, com a chave dele. Número
+  // desconectado responde erro e a conversa fica para a próxima varredura.
+  const tokens = new Map<string, string>()
+  for (const nome of new Set(data.map((c) => c.instancia))) {
+    const instancia = await carregarInstancia(supabase, nome)
+    if (instancia?.token && instancia.conectado !== false) tokens.set(nome, instancia.token)
+  }
+  const resultado = await sincronizarVarios(data, { forcar, tokenDe: (nome) => tokens.get(nome) ?? '' })
   return json(resultado)
 })

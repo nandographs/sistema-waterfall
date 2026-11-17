@@ -9,6 +9,7 @@ import {
   vincularConversaACliente, oportunidadesDoCliente, atualizarAvatares,
   arquivarConversa, cadastrarClienteDaConversa, conversaDoCliente, conversaDoNumero,
   garantirOportunidadeDoCliente, clienteInativo, textoInativacao,
+  numerosWhatsapp, numeroEmUso, usarNumero, desconectarWhatsapp, reiniciarWhatsapp,
   ETAPAS_FUNIL, ETAPAS_ABERTAS,
 } from '../data/repository.js'
 import { formatarE164, paraE164 } from '../lib/telefone.js'
@@ -17,7 +18,7 @@ import ConversaWhatsApp, { CabecalhoConversa, AvatarConversa } from '../componen
 import EtapaOportunidade from '../components/EtapaOportunidade.jsx'
 import NotasDaConversa from '../components/NotasDaConversa.jsx'
 import ClienteBusca from '../components/ClienteBusca.jsx'
-import { useConexaoWhatsapp, problemaDaConexao, ModalConectar } from '../components/ConexaoWhatsapp.jsx'
+import { useConexaoWhatsapp, problemaDaConexao, ModalConectar, ModalNumeros } from '../components/ConexaoWhatsapp.jsx'
 
 // A caixa de entrada do WhatsApp.
 //
@@ -33,6 +34,11 @@ const FORM_CLIENTE_VAZIO = {
   endereco: '', numeroComplemento: '', bairro: '', cidade: '', uf: '', cep: '',
   observacoes: '',
 }
+
+// Os botões do rodapé, ao lado do estado do número: pequenos como a etiqueta,
+// para não roubar altura do painel de conversas.
+const acaoDoNumero =
+  'shrink-0 rounded-lg px-2 py-1 text-[11px] font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-700 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed'
 
 // Rótulo de quando foi a última mensagem: hora se foi hoje, "Ontem", ou a data.
 function quando(iso) {
@@ -60,10 +66,22 @@ export default function WhatsApp() {
   const [abertaId, setAbertaId] = useState(null)
   const [carregando, setCarregando] = useState(false)
   const [enviando, setEnviando] = useState(false)
+
+  // O NÚMERO em uso (migração 034: um por usuário). A tela inteira olha para
+  // ele: a lista, a conversa nova, o aviso de conexão, desconectar e reiniciar.
+  // A gestão troca de número; os outros só têm o próprio.
+  const [numero, setNumero] = useState(numeroEmUso())
+  const [numeros, setNumeros] = useState(null)
+  const [escolhendo, setEscolhendo] = useState(false)
+  const [mexendo, setMexendo] = useState('')
+  const [confirmarDesconectar, setConfirmarDesconectar] = useState(false)
+  const numeroAtual = numeros?.numeros?.find((n) => n.instancia === numero) ?? null
+
   // O estado da conexão: ao abrir a tela e a cada 5 minutos (ver
   // useConexaoWhatsapp). Cada verificação também regrava o webhook.
-  const [conexao, verificarConexao] = useConexaoWhatsapp()
+  const [conexao, verificarConexao] = useConexaoWhatsapp(numero)
   const problema = problemaDaConexao(conexao)
+  // false | { novo, instancia } — o que a janela do QR vai conectar.
   const [conectando, setConectando] = useState(false)
   const [vincular, setVincular] = useState(null)
   const [cadastro, setCadastro] = useState(null)
@@ -84,15 +102,74 @@ export default function WhatsApp() {
   // sumiria da lista e o "Tirar do arquivo" do menu nunca seria alcançável.
   // Por isso o interruptor no cabeçalho da lista.
   const [verArquivadas, setVerArquivadas] = useState(false)
-  const lista = conversasRecentes({ incluirArquivadas: verArquivadas })
+  const lista = conversasRecentes({ incluirArquivadas: verArquivadas, instancia: numero })
     .filter((c) => (verArquivadas ? c.arquivada : true))
   const aberta = abertaId ? lista.find((c) => c.id === abertaId) ?? null : null
   // Conta sempre as ATIVAS, e não a lista que está na tela: o contador precisa
   // querer dizer a mesma coisa em qualquer aba, senão ele deixa de ser um
   // número em que se confia.
-  const totalNaoLidas = conversasRecentes().reduce((soma, c) => soma + Number(c.naoLidas || 0), 0)
+  const totalNaoLidas = conversasRecentes({ instancia: numero }).reduce((soma, c) => soma + Number(c.naoLidas || 0), 0)
 
   useEffect(() => assinarWhatsapp(recarregar), [])
+
+  // Quais números esta pessoa pode usar, e qual fica em uso. O escolhido da
+  // última vez vale enquanto ela ainda puder usá-lo; senão, o próprio número, e
+  // a gestão sem número próprio fica no da empresa.
+  async function carregarNumeros() {
+    try {
+      const dados = await numerosWhatsapp()
+      setNumeros(dados)
+      const lista = dados?.numeros ?? []
+      const valido = lista.some((n) => n.instancia === numeroEmUso())
+      const escolhido = valido
+        ? numeroEmUso()
+        : (dados?.meu ?? lista.find((n) => n.empresa)?.instancia ?? lista[0]?.instancia ?? '')
+      if (escolhido !== numeroEmUso()) usarNumero(escolhido)
+      setNumero(escolhido)
+    } catch (falha) {
+      notificar(falha?.message || String(falha), 'erro')
+    }
+  }
+  useEffect(() => { carregarNumeros() }, [])
+
+  function escolherNumero(instancia) {
+    usarNumero(instancia)
+    setNumero(instancia)
+    setEscolhendo(false)
+    // A conversa aberta é de outro número: mantê-la aberta faria a resposta
+    // parecer que sai pelo número novo.
+    setAbertaId(null)
+    setRascunho(null)
+  }
+
+  async function reiniciar() {
+    setMexendo('reiniciar')
+    try {
+      const estado = await reiniciarWhatsapp(numero)
+      notificar(estado?.conectado ? 'Conexão reiniciada.' : 'Reiniciado, mas o número continua desconectado.')
+    } catch (falha) {
+      notificar(falha?.message || String(falha), 'erro')
+    } finally {
+      setMexendo('')
+      verificarConexao()
+      carregarNumeros()
+    }
+  }
+
+  async function desconectar() {
+    setConfirmarDesconectar(false)
+    setMexendo('desconectar')
+    try {
+      await desconectarWhatsapp(numero)
+      notificar('Número desconectado. Para voltar, conecte de novo pelo QR.')
+    } catch (falha) {
+      notificar(falha?.message || String(falha), 'erro')
+    } finally {
+      setMexendo('')
+      verificarConexao()
+      carregarNumeros()
+    }
+  }
 
   // Chegada pela ficha do cliente: /whatsapp?cliente=<id>.
   //
@@ -101,9 +178,13 @@ export default function WhatsApp() {
   // a pessoa escreveu antes de existir cadastro, então a conversa está solta.
   // Achando assim, aproveitamos para amarrar as duas coisas: é a mesma pessoa,
   // e deixá-la como "sem cadastro" depois de vir da ficha dela seria absurdo.
+  //
+  // Espera o número em uso estar resolvido: a conversa procurada é a que o
+  // cliente tem com ESTE número — a que ele tem com outro vendedor não aparece
+  // nesta lista, e responder por aqui sairia pelo número errado.
   useEffect(() => {
     const alvo = parametros.get('cliente')
-    if (!alvo) return
+    if (!alvo || !numero) return
 
     const cliente = clientes.get(alvo)
     // A URL some assim que é lida: ela é uma ordem de navegação, não um estado
@@ -113,7 +194,7 @@ export default function WhatsApp() {
 
     // Sem `conversaDoNumero` aqui: `conversaDoCliente` já varre todos os
     // telefones do cadastro, e não só o principal.
-    const existente = conversaDoCliente(alvo)
+    const existente = conversaDoCliente(alvo, { instancia: numero })
     if (existente) {
       setRascunho(null)
       setAbertaId(existente.id)
@@ -127,7 +208,7 @@ export default function WhatsApp() {
       clienteNome: cliente.nome,
       numero: paraE164(cliente.telefone) || cliente.telefone || '',
     })
-  }, [parametros])
+  }, [parametros, numero])
 
 
   // As fotos de perfil dos contatos, também uma vez ao abrir.
@@ -172,7 +253,7 @@ export default function WhatsApp() {
       const resposta = await enviarMensagemWhatsapp(
         aberta
           ? { conversaId: aberta.id, texto }
-          : { clienteId: rascunho.clienteId, numero: rascunho.numero, texto },
+          : { clienteId: rascunho.clienteId, numero: rascunho.numero, texto, instancia: numero },
       )
       if (!aberta && resposta?.conversaId) {
         // A conversa que VOCÊ começou pela ficha do cliente entra no funil.
@@ -220,7 +301,8 @@ export default function WhatsApp() {
   // número e não duplica); o que se perde é a tela fazer sentido.
   useEffect(() => {
     if (!rascunho) return
-    const existente = conversaDoCliente(rascunho.clienteId) ?? conversaDoNumero(rascunho.numero)
+    const existente = conversaDoCliente(rascunho.clienteId, { instancia: numero }) ??
+      conversaDoNumero(rascunho.numero, { instancia: numero })
     if (!existente) return
     setRascunho(null)
     setAbertaId(existente.id)
@@ -292,8 +374,12 @@ export default function WhatsApp() {
           <span className="min-w-0 flex-1">{problema.texto}</span>
           {/* Conectar só faz sentido quando a Evolution respondeu. Se nem ela
               responde (token trocado, servidor fora), o QR não viria. */}
-          {!conexao.indisponivel && (
-            <Button className="shrink-0" onClick={() => setConectando(true)}>
+          {problema.semNumero ? (
+            <Button className="shrink-0" onClick={() => setConectando({ novo: true })}>
+              Conectar o meu número
+            </Button>
+          ) : !conexao.indisponivel && (
+            <Button className="shrink-0" onClick={() => setConectando({ instancia: numero })}>
               {conexao.conectado ? 'Reconectar o número' : 'Conectar o número'}
             </Button>
           )}
@@ -301,9 +387,38 @@ export default function WhatsApp() {
       )}
 
       <ModalConectar
-        open={conectando}
-        onClose={() => { setConectando(false); verificarConexao() }}
+        open={!!conectando}
+        instancia={conectando?.instancia ?? ''}
+        novo={!!conectando?.novo}
+        onConectou={(estado) => {
+          // O número recém-conectado passa a ser o em uso: foi para usá-lo que
+          // a pessoa conectou.
+          if (estado?.instancia && estado.instancia !== numero) escolherNumero(estado.instancia)
+        }}
+        onClose={() => { setConectando(false); verificarConexao(); carregarNumeros() }}
       />
+
+      <ModalNumeros
+        open={escolhendo}
+        emUso={numero}
+        onClose={() => setEscolhendo(false)}
+        onEscolher={escolherNumero}
+        onConectarMeu={() => { setEscolhendo(false); setConectando({ novo: true }) }}
+      />
+
+      <Modal title="Desconectar o número?" open={confirmarDesconectar} onClose={() => setConfirmarDesconectar(false)}>
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600">
+            O celular{numeroAtual?.nome ? ` de ${numeroAtual.nome}` : ''} sai do sistema — é o mesmo que tocar
+            em "Sair" em Dispositivos conectados. As conversas continuam aqui, mas nada entra nem sai
+            até alguém ler o QR de novo.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setConfirmarDesconectar(false)}>Cancelar</Button>
+            <Button variant="danger" onClick={desconectar}>Desconectar</Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Duas colunas no desktop; no celular, a lista dá lugar à conversa
           escolhida — o painel lado a lado não cabe em 375px. */}
@@ -486,13 +601,37 @@ export default function WhatsApp() {
           que importa aqui são as conversas. Quando há problema de verdade, o
           aviso vermelho lá em cima é que chama, e este continua embaixo dizendo
           o mesmo em voz baixa. */}
-      {conexao && (
-        <div className="mt-3 flex justify-end">
+      {/* E as ações do número em uso, ao lado do estado dele: trocar de número
+          (a gestão, ou quem ainda não conectou o seu), reiniciar a conexão que
+          parou de receber, desconectar o celular. */}
+      {conexao && !conexao.semNumero && (
+        <div className="mt-3 flex flex-wrap items-center justify-end gap-x-1 gap-y-2">
           <Badge color={conexao.conectado ? 'green' : (conexao.indisponivel ? 'amber' : 'red')}>
+            {numeroAtual && !numeroAtual.meu ? `${numeroAtual.dono} · ` : ''}
             {conexao.conectado
               ? `Conectado${conexao.nome ? ` — ${conexao.nome}` : ''}`
               : (conexao.indisponivel ? 'Não foi possível verificar' : 'Desconectado')}
           </Badge>
+          {(numeros?.gestao || (numeros?.numeros?.length ?? 0) > 1) && (
+            <button type="button" className={acaoDoNumero} onClick={() => setEscolhendo(true)}>
+              Trocar número
+            </button>
+          )}
+          {conexao.conectado && (
+            <button type="button" className={acaoDoNumero} disabled={!!mexendo} onClick={reiniciar}>
+              {mexendo === 'reiniciar' ? 'Reiniciando…' : 'Reiniciar'}
+            </button>
+          )}
+          {conexao.conectado && (
+            <button
+              type="button"
+              className={`${acaoDoNumero} hover:!text-red-600`}
+              disabled={!!mexendo}
+              onClick={() => setConfirmarDesconectar(true)}
+            >
+              {mexendo === 'desconectar' ? 'Desconectando…' : 'Desconectar'}
+            </button>
+          )}
         </div>
       )}
 

@@ -24,7 +24,8 @@ const TODOS_OS_LINKS = [
   // separação de "Serviços", cujo arquivo e tabela seguem como agendamentos.
   { to: '/crm', label: 'CRM', Icon: IconFunil },
   // O WhatsApp é o número da Waterfall: só a gestão atende por ele.
-  { to: '/whatsapp', label: 'WhatsApp', Icon: IconMessage, soGestao: true },
+  // Desde a migração 034 cada um tem o próprio número — o distribuidor vê o dele.
+  { to: '/whatsapp', label: 'WhatsApp', Icon: IconMessage },
   { to: '/vendas', label: 'Vendas', Icon: IconFileText },
   { to: '/financeiro', label: 'Financeiro', Icon: IconWallet, soGestao: true },
   { to: '/equipe', label: 'Equipe', Icon: IconUsersRound, soGestao: true },

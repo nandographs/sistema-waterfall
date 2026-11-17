@@ -6,15 +6,26 @@
 // sessão — nenhuma credencial da Evolution passa perto do front.
 //
 // Corpo esperado:
-//   { conversaId?, clienteId?, numero?, texto, oportunidadeId?, enviadoPor? }
+//   { conversaId?, clienteId?, numero?, instancia?, texto, oportunidadeId?, enviadoPor? }
 // Pelo menos um entre conversaId / clienteId / numero.
+//
+// POR QUAL NÚMERO SAI (migração 034, um número por usuário): a conversa que já
+// existe sai pelo número dela. Conversa nova sai pelo `instancia` pedido — o
+// que a tela tem selecionado —, senão pelo número de quem enviou, e a gestão
+// sem número próprio usa o da empresa. Quem não é gestão só envia pelo dele.
 
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { chamarEvolution, configuracaoAusente, json, erro, preflight } from '../_compartilhado/evolution.ts'
-import { exigirGestao } from '../_compartilhado/acesso.ts'
+import { quemChamou, podeUsar } from '../_compartilhado/acesso.ts'
 import { paraE164 } from '../_compartilhado/telefone.ts'
+import { INSTANCIA_EMPRESA, carregarInstancia, instanciaDoUsuario } from '../_compartilhado/instancias.ts'
 
-const INSTANCIA = Deno.env.get('EVOLUTION_INSTANCIA') ?? 'waterfall'
+// Só para ler a chave do número (`whatsapp_tokens`), que nenhum usuário lê. O
+// resto desta função usa o token de quem chamou, com o RLS valendo.
+const servico = createClient(
+  Deno.env.get('SUPABASE_URL')!,
+  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+)
 
 function motivo(corpo: any): string {
   if (corpo == null) return ''
@@ -30,7 +41,7 @@ Deno.serve(async (req) => {
   const faltando = configuracaoAusente()
   if (faltando) return erro(faltando, 500)
 
-  const recusa = await exigirGestao(req)
+  const { quem, recusa } = await quemChamou(req)
   if (recusa) return recusa
 
   let corpo: any
@@ -54,12 +65,15 @@ Deno.serve(async (req) => {
   // 1. Descobrir para qual número vai.
   let numero = corpo?.numero ? paraE164(corpo.numero) : ''
   let conversaId: string | null = corpo?.conversaId ?? null
+  let nomeInstancia = corpo?.instancia ? String(corpo.instancia) : ''
 
   if (conversaId) {
+    // O RLS já esconde a conversa de quem não pode usar o número dela.
     const { data } = await supabase
-      .from('conversas').select('id, numero').eq('id', conversaId).maybeSingle()
+      .from('conversas').select('id, numero, instancia').eq('id', conversaId).maybeSingle()
     if (!data) return erro('conversa não encontrada', 404)
     numero = data.numero
+    nomeInstancia = data.instancia
   } else if (!numero && corpo?.clienteId) {
     const { data } = await supabase
       .from('clientes').select('telefone').eq('id', corpo.clienteId).maybeSingle()
@@ -68,19 +82,28 @@ Deno.serve(async (req) => {
 
   if (!numero) return erro('número não encontrado ou inválido')
 
+  // O número que envia.
+  const instancia = nomeInstancia
+    ? await carregarInstancia(servico, nomeInstancia)
+    : (await instanciaDoUsuario(servico, quem!.userId)) ??
+      (quem!.gestao ? await carregarInstancia(servico, INSTANCIA_EMPRESA) : null)
+  if (!instancia) return erro('você ainda não conectou um número de WhatsApp', 409)
+  if (!podeUsar(quem!, instancia)) return erro('este número é de outra pessoa', 403)
+  if (!instancia.token) return erro('este número não tem chave da Evolution guardada no sistema', 500)
+
   // 2. Garantir a conversa ANTES de enviar. Se a mensagem sair e a gravação
   // falhar, o cliente recebe algo que não está no seu histórico — o pior dos
   // dois mundos. Criando antes, o registro sempre existe.
   if (!conversaId) {
     const { data: existente } = await supabase
-      .from('conversas').select('id').eq('numero', numero).maybeSingle()
+      .from('conversas').select('id').eq('instancia', instancia.instancia).eq('numero', numero).maybeSingle()
 
     if (existente) {
       conversaId = existente.id
     } else {
       const { data: criada, error: falha } = await supabase
         .from('conversas')
-        .insert({ numero, cliente_id: corpo?.clienteId ?? null, instancia: INSTANCIA })
+        .insert({ numero, cliente_id: corpo?.clienteId ?? null, instancia: instancia.instancia })
         .select('id').single()
       if (falha) return erro(`não foi possível abrir a conversa: ${falha.message}`, 500)
       conversaId = criada.id
@@ -91,6 +114,7 @@ Deno.serve(async (req) => {
   // token, não do caminho (ver _compartilhado/evolution.ts).
   const resposta = await chamarEvolution('/send/text', {
     metodo: 'POST',
+    token: instancia.token,
     corpo: { number: numero, text: texto },
   })
 
@@ -131,6 +155,7 @@ Deno.serve(async (req) => {
     const completada = await supabase
       .from('mensagens')
       .update({ enviado_por: registro.enviado_por, oportunidade_id: registro.oportunidade_id })
+      .eq('conversa_id', conversaId)
       .eq('wa_message_id', waId)
       .select('id').single()
     mensagem = completada.data

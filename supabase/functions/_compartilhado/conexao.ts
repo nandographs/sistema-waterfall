@@ -16,8 +16,6 @@
 
 import { chamarEvolution } from './evolution.ts'
 
-export const INSTANCIA = Deno.env.get('EVOLUTION_INSTANCIA') ?? 'waterfall'
-
 // Os nomes vêm de pkg/internal/event_types/event_types.go. Nome errado não dá
 // erro: a Evolution descarta em silêncio, e o evento simplesmente nunca chega.
 //
@@ -40,28 +38,13 @@ export function urlDoWebhook(): string | null {
   return `${base.replace(/\/+$/, '')}/functions/v1/wa-webhook?token=${encodeURIComponent(token)}`
 }
 
-export async function regravarWebhook() {
+// Cada número tem a sua chave: quem chama passa a do número a regravar.
+export async function regravarWebhook(token: string) {
   const webhookUrl = urlDoWebhook()
   if (!webhookUrl) return { ok: false, status: 0, corpo: { error: 'WEBHOOK_TOKEN não configurado' } }
   return await chamarEvolution('/instance/connect', {
     metodo: 'POST',
+    token,
     corpo: { webhookUrl, subscribe: EVENTOS_ASSINADOS, immediate: true },
   })
-}
-
-// Grava (ou cria) a linha da instância em `whatsapp_estado`.
-//
-// Silenciosa: o estado é para a tela avisar, e não pode derrubar quem chama.
-// Se a migração 029 ainda não rodou, a tabela não existe e tudo segue igual.
-export async function gravarEstado(supabase: any, campos: Record<string, unknown>) {
-  const { error } = await supabase
-    .from('whatsapp_estado')
-    .upsert({ instancia: INSTANCIA, ...campos }, { onConflict: 'instancia' })
-  if (error) console.warn('whatsapp_estado:', error.message)
-}
-
-export async function lerEstado(supabase: any) {
-  const { data } = await supabase
-    .from('whatsapp_estado').select('*').eq('instancia', INSTANCIA).maybeSingle()
-  return data ?? null
 }

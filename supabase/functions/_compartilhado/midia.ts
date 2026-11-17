@@ -98,8 +98,9 @@ function base64ParaBytes(texto: string): Uint8Array {
 // marcador pela foto ou pelo player. Nunca lança — mídia que falhou é mídia
 // que falta, e a conversa continua.
 export async function guardarMidiaDaMensagem(
-  { mensagemId, conversaId, waId, mensagemBruta }:
-  { mensagemId: string; conversaId: string; waId: string; mensagemBruta: any },
+  { mensagemId, conversaId, waId, mensagemBruta, token }:
+  // `token`: a chave do número que recebeu — é ele que sabe decifrar a mídia.
+  { mensagemId: string; conversaId: string; waId: string; mensagemBruta: any; token: string },
 ): Promise<{ ok: boolean; motivo: string }> {
   try {
     const sub = subMensagem(mensagemBruta)
@@ -111,7 +112,7 @@ export async function guardarMidiaDaMensagem(
       return { ok: false, motivo: 'grande demais' }
     }
 
-    const resposta = await chamarEvolutionBinario('/message/downloadmedia', { message: mensagemBruta })
+    const resposta = await chamarEvolutionBinario('/message/downloadmedia', { message: mensagemBruta }, token)
     if (!resposta.ok || !resposta.bytes) {
       await marcarFalha(mensagemId, `não foi possível baixar (${resposta.status})`)
       return { ok: false, motivo: `evolution ${resposta.status}` }

@@ -18,7 +18,7 @@ import Sidebar from './components/Sidebar.jsx'
 import { AvisoWhatsapp } from './components/ConexaoWhatsapp.jsx'
 import { supabase } from './lib/supabaseClient.js'
 import { carregarDados } from './data/repository.js'
-import { definirUsuarioAtual, ehGestao } from './lib/auth.js'
+import { definirUsuarioAtual } from './lib/auth.js'
 import { Toasts, esquecerTelas } from './components/ui.jsx'
 import { lerTema, salvarTema } from './lib/tema.js'
 
@@ -88,8 +88,8 @@ function AppLayout({ onSair }) {
 
       <div className="flex-1 min-w-0 flex flex-col bg-transparent">
         <TopNav tema={tema} onAlternarTema={alternarTema} />
-        {/* O WhatsApp é o número da Waterfall: só a gestão usa (migração 031). */}
-        {ehGestao() && <AvisoWhatsapp />}
+        {/* Cada um vê o aviso do número que usa (migração 034). */}
+        <AvisoWhatsapp />
 
         <main className="flex-1">
           <Routes>
@@ -100,7 +100,7 @@ function AppLayout({ onSair }) {
             <Route path="/agenda" element={<Agenda />} />
             <Route path="/agendamentos" element={<Agendamentos />} />
             <Route path="/crm" element={<Funil />} />
-            <Route path="/whatsapp" element={<SoGestao><WhatsApp /></SoGestao>} />
+            <Route path="/whatsapp" element={<WhatsApp />} />
             <Route path="/vendas" element={<Vendas />} />
             <Route path="/financeiro" element={<SoGestao><Financeiro /></SoGestao>} />
             <Route path="/equipe" element={<SoGestao><Equipe /></SoGestao>} />

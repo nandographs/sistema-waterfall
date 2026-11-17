@@ -31,7 +31,7 @@
 import { ehGrupo, ehStatus, ehLid, jidParaNumero, soDigitos, clienteTemNumero } from './telefone.ts'
 import { desembrulhar, temConteudo, textoDaMensagem, tipoDaMensagem, previaDe } from './conteudo.ts'
 import { guardarMidiaDaMensagem, temMidia } from './midia.ts'
-import { INSTANCIA } from './conexao.ts'
+import type { ContextoDoNumero } from './instancias.ts'
 
 const campo = (obj: any, ...nomes: string[]) => {
   for (const nome of nomes) if (obj?.[nome] != null) return obj[nome]
@@ -53,13 +53,14 @@ function statusDeSaida(bruto: unknown): string {
 const MIDIA_RECENTE_MS = 3 * 24 * 60 * 60 * 1000
 const MIDIAS_POR_LOTE = 15
 
-async function carregarClientes(supabase: any) {
+async function carregarClientes(supabase: any, ctx: ContextoDoNumero) {
   // Paginado: o Supabase corta em 1000 linhas sem avisar (ver acharCliente no
   // webhook, onde isso já foi bug).
   const todos: any[] = []
   for (let inicio = 0; ; inicio += 1000) {
-    const { data, error } = await supabase
-      .from('clientes').select('id, telefone, telefones').order('id').range(inicio, inicio + 999)
+    let consulta = supabase.from('clientes').select('id, telefone, telefones')
+    if (ctx.soDaUnidade) consulta = consulta.eq('unidade_id', ctx.unidadeId)
+    const { data, error } = await consulta.order('id').range(inicio, inicio + 999)
     if (error) throw new Error(`clientes: ${error.message}`)
     todos.push(...data)
     if (data.length < 1000) return todos
@@ -71,7 +72,11 @@ type Linha = {
   status: string; ocorrido_em: string; bruta: any
 }
 
-export async function importarHistorico(supabase: any, dados: any): Promise<{ conversas: number; mensagens: number }> {
+// `ctx`: o número que está sincronizando. As conversas são DELE — o mesmo
+// cliente pode ter outra conversa com outro número da equipe (migração 034).
+export async function importarHistorico(
+  supabase: any, dados: any, ctx: ContextoDoNumero,
+): Promise<{ conversas: number; mensagens: number }> {
   const hs = campo(dados, 'Data', 'data') ?? dados ?? {}
   const conversasHs: any[] = campo(hs, 'conversations', 'Conversations') ?? []
   if (!conversasHs.length) return { conversas: 0, mensagens: 0 }
@@ -141,6 +146,7 @@ export async function importarHistorico(supabase: any, dados: any): Promise<{ co
   for (let i = 0; i < numeros.length; i += 200) {
     const { data, error } = await supabase
       .from('conversas').select('id, numero, ultima_em, nome_whatsapp')
+      .eq('instancia', ctx.instancia)
       .in('numero', numeros.slice(i, i + 200))
     if (error) throw new Error(`conversas: ${error.message}`)
     for (const c of data) existentes.set(c.numero, c)
@@ -151,7 +157,7 @@ export async function importarHistorico(supabase: any, dados: any): Promise<{ co
   // importado não paga essa consulta.
   const novas = numeros.filter((n) => !existentes.has(n))
   if (novas.length) {
-    const clientes = await carregarClientes(supabase)
+    const clientes = await carregarClientes(supabase, ctx)
     const registros = novas.map((numero) => {
       const { nome, naoLidas, linhas } = porNumero.get(numero)!
       const ultima = linhas.reduce((a, b) => (a.ocorrido_em > b.ocorrido_em ? a : b))
@@ -159,19 +165,20 @@ export async function importarHistorico(supabase: any, dados: any): Promise<{ co
         numero,
         cliente_id: clientes.find((c) => clienteTemNumero(c, numero))?.id ?? null,
         nome_whatsapp: nome || null,
-        instancia: INSTANCIA,
+        instancia: ctx.instancia,
         ultima_em: ultima.ocorrido_em,
         ultima_previa: previaDe(ultima.texto, ultima.tipo),
         nao_lidas: naoLidas ?? 0,
       }
     })
     const { error } = await supabase
-      .from('conversas').upsert(registros, { onConflict: 'numero', ignoreDuplicates: true })
+      .from('conversas').upsert(registros, { onConflict: 'instancia,numero', ignoreDuplicates: true })
     if (error) throw new Error(`criar conversas: ${error.message}`)
 
     for (let i = 0; i < novas.length; i += 200) {
       const { data } = await supabase
         .from('conversas').select('id, numero, ultima_em, nome_whatsapp')
+        .eq('instancia', ctx.instancia)
         .in('numero', novas.slice(i, i + 200))
       for (const c of data ?? []) existentes.set(c.numero, { ...c, recemCriada: true })
     }
@@ -191,7 +198,7 @@ export async function importarHistorico(supabase: any, dados: any): Promise<{ co
     const bloco = todas.slice(i, i + 500).map(({ bruta: _bruta, ...linha }) => linha)
     const { data, error } = await supabase
       .from('mensagens')
-      .upsert(bloco, { onConflict: 'wa_message_id', ignoreDuplicates: true })
+      .upsert(bloco, { onConflict: 'conversa_id,wa_message_id', ignoreDuplicates: true })
       .select('id, wa_message_id, conversa_id')
     if (error) throw new Error(`mensagens: ${error.message}`)
     inseridas.push(...(data ?? []))
@@ -231,6 +238,7 @@ export async function importarHistorico(supabase: any, dados: any): Promise<{ co
       for (const m of comMidia) {
         await guardarMidiaDaMensagem({
           mensagemId: m.id, conversaId: m.conversa_id, waId: m.wa_message_id, mensagemBruta: m.linha.bruta,
+          token: ctx.token,
         })
       }
     })()

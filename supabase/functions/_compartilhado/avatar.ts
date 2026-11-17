@@ -93,7 +93,9 @@ type Resultado = { mudou: boolean; motivo: string }
 // iniciais — que é o que já acontecia antes desta funcionalidade existir.
 export async function sincronizarAvatar(
   conversa: { id: string; numero: string; avatar_id?: string | null; avatar_path?: string | null },
-  { forcar = false }: { forcar?: boolean } = {},
+  // `token`: a chave do número que pergunta — a foto é pedida pelo número da
+  // conversa (migração 034, um número por usuário).
+  { forcar = false, token }: { forcar?: boolean; token: string },
 ): Promise<Resultado> {
   const { id, numero } = conversa
   if (!id || !numero) return { mudou: false, motivo: 'conversa sem número' }
@@ -110,6 +112,7 @@ export async function sincronizarAvatar(
       // ficaria borrada na ficha do cliente, que mostra a foto a 96px em tela
       // retina — ou seja, 192 pixels de verdade.
       corpo: { number: jid, preview: false },
+      token,
     })
 
     // "Não tem foto" chega como ERRO HTTP, e não como resposta vazia: a
@@ -196,12 +199,14 @@ export async function sincronizarAvatar(
 // vez é lento e é o certo — e ninguém está esperando na frente da tela, porque
 // isto roda em segundo plano.
 export async function sincronizarVarios(
-  lista: Array<{ id: string; numero: string; avatar_id?: string | null; avatar_path?: string | null }>,
-  { forcar = false }: { forcar?: boolean } = {},
+  lista: Array<{ id: string; numero: string; instancia?: string; avatar_id?: string | null; avatar_path?: string | null }>,
+  { forcar = false, tokenDe }: { forcar?: boolean; tokenDe: (instancia: string) => string },
 ) {
   let atualizadas = 0
   for (const conversa of lista) {
-    const { mudou } = await sincronizarAvatar(conversa, { forcar })
+    const token = tokenDe(conversa.instancia ?? '')
+    if (!token) continue
+    const { mudou } = await sincronizarAvatar(conversa, { forcar, token })
     if (mudou) atualizadas++
   }
   return { conferidas: lista.length, atualizadas }

@@ -38,7 +38,9 @@ import { jidParaNumero, ehGrupo, ehStatus, ehLid, soDigitos, clienteTemNumero } 
 import { sincronizarAvatar } from '../_compartilhado/avatar.ts'
 import { guardarMidiaDaMensagem, temMidia } from '../_compartilhado/midia.ts'
 import { textoDaMensagem, tipoDaMensagem, temConteudo, alteracaoDe, previaDe, desembrulhar } from '../_compartilhado/conteudo.ts'
-import { INSTANCIA, gravarEstado } from '../_compartilhado/conexao.ts'
+import {
+  carregarInstancia, contextoDoNumero, gravarEstado, nomeDaInstanciaDoEvento, type ContextoDoNumero,
+} from '../_compartilhado/instancias.ts'
 import { importarHistorico } from '../_compartilhado/historico.ts'
 
 const TOKEN_ESPERADO = Deno.env.get('WEBHOOK_TOKEN') ?? ''
@@ -62,18 +64,18 @@ const deNovo = (motivo: string) => new Response(motivo, { status: 500 })
 // voltou é a próxima verificação do `wa-status`. Já `LoggedOut` e
 // `TemporaryBan` são sérios — o primeiro exige ler o QR de novo, o segundo é o
 // WhatsApp segurando o número.
-async function tratarConexao(nomeEvento: string, dados: any) {
+async function tratarConexao(ctx: ContextoDoNumero, nomeEvento: string, dados: any) {
   const motivo = String(dados?.Reason ?? dados?.reason ?? '') || null
   if (nomeEvento === 'connected' || nomeEvento === 'pairsuccess') {
-    await gravarEstado(supabase, { conectado: true, motivo: null })
+    await gravarEstado(supabase, ctx.instancia, { conectado: true, motivo: null })
   } else if (nomeEvento === 'loggedout') {
-    await gravarEstado(supabase, { conectado: false, motivo: `desconectado do celular${motivo ? ` (${motivo})` : ''}` })
+    await gravarEstado(supabase, ctx.instancia, { conectado: false, motivo: `desconectado do celular${motivo ? ` (${motivo})` : ''}` })
   } else if (nomeEvento === 'temporaryban') {
-    await gravarEstado(supabase, { conectado: false, motivo: 'o WhatsApp bloqueou o número temporariamente' })
+    await gravarEstado(supabase, ctx.instancia, { conectado: false, motivo: 'o WhatsApp bloqueou o número temporariamente' })
   } else if (nomeEvento === 'connectfailure') {
-    await gravarEstado(supabase, { conectado: false, motivo: `falha ao conectar${motivo ? ` (${motivo})` : ''}` })
+    await gravarEstado(supabase, ctx.instancia, { conectado: false, motivo: `falha ao conectar${motivo ? ` (${motivo})` : ''}` })
   } else if (nomeEvento === 'disconnected') {
-    await gravarEstado(supabase, { motivo: 'conexão oscilou; a Evolution está reconectando' })
+    await gravarEstado(supabase, ctx.instancia, { motivo: 'conexão oscilou; a Evolution está reconectando' })
   }
 }
 
@@ -133,14 +135,14 @@ function contatoDoEvento(fonte: any, daGente: boolean): { numero: string; lid: s
 // Só renomeia se ainda não existir conversa com o telefone real: se existir,
 // juntar as duas exigiria mover mensagens, cartões e anotações, e isso não é
 // coisa para um webhook fazer às cegas. Nesse caso fica registrado no log.
-async function corrigirConversaDoLid(lid: string, numero: string) {
+async function corrigirConversaDoLid(ctx: ContextoDoNumero, lid: string, numero: string) {
   if (!lid || !numero || lid === numero) return
   const { data: fantasma } = await supabase
-    .from('conversas').select('id').eq('numero', lid).maybeSingle()
+    .from('conversas').select('id').eq('instancia', ctx.instancia).eq('numero', lid).maybeSingle()
   if (!fantasma) return
 
   const { data: verdadeira } = await supabase
-    .from('conversas').select('id').eq('numero', numero).maybeSingle()
+    .from('conversas').select('id').eq('instancia', ctx.instancia).eq('numero', numero).maybeSingle()
   if (verdadeira) {
     console.warn(`conversa do LID ${lid} e do número ${numero} coexistem; não juntei automaticamente`)
     return
@@ -164,7 +166,7 @@ async function corrigirConversaDoLid(lid: string, numero: string) {
 //
 // O formato vem do whatsmeow (events.Receipt): os campos de origem da mensagem
 // no mesmo nível de `MessageIDs` e `Type`.
-async function tratarRecibo(dados: any) {
+async function tratarRecibo(ctx: ContextoDoNumero, dados: any) {
   const recibo = dados?.Receipt ?? dados ?? {}
   const tipo = String(recibo.Type ?? '').toLowerCase()
   const ids: string[] = (Array.isArray(recibo.MessageIDs) ? recibo.MessageIDs : []).map(String)
@@ -175,7 +177,7 @@ async function tratarRecibo(dados: any) {
   if (tipo === 'read-self' || tipo === 'played-self') {
     const { numero } = contatoDoEvento(recibo, true)
     if (!numero) return
-    await supabase.from('conversas').update({ nao_lidas: 0 }).eq('numero', numero)
+    await supabase.from('conversas').update({ nao_lidas: 0 }).eq('instancia', ctx.instancia).eq('numero', numero)
     return
   }
 
@@ -201,7 +203,7 @@ async function tratarRecibo(dados: any) {
 // versão: o cadastro guarda "(47) 99233-0354" e o WhatsApp entrega
 // "554792330354" (sem o nono dígito), e comparar o número local cru contra o
 // internacional nunca casa. Ver scripts/testar-telefone.mjs.
-async function acharCliente(numero: string): Promise<string | null> {
+async function acharCliente(ctx: ContextoDoNumero, numero: string): Promise<string | null> {
   if (!numero) return null
 
   // O cadastro guarda o telefone com máscara, então a busca não pode ser feita
@@ -221,9 +223,11 @@ async function acharCliente(numero: string): Promise<string | null> {
   // clientes ("Ver todos os clientes, não só os mil primeiros").
   const PAGINA = 1000
   for (let inicio = 0; ; inicio += PAGINA) {
-    const { data, error } = await supabase
-      .from('clientes')
-      .select('id, telefone, telefones')
+    // Número de distribuidor reconhece só os clientes da unidade dele (ver
+    // ContextoDoNumero).
+    let consulta = supabase.from('clientes').select('id, telefone, telefones')
+    if (ctx.soDaUnidade) consulta = consulta.eq('unidade_id', ctx.unidadeId)
+    const { data, error } = await consulta
       .order('id')
       .range(inicio, inicio + PAGINA - 1)
     if (error || !data) return null
@@ -262,6 +266,7 @@ async function temCartao(conversaId: string): Promise<boolean> {
 // migração 011. O nome e o telefone ficam na própria negociação, para o cartão
 // ter identidade mesmo antes de existir cadastro.
 async function abrirLead(
+  ctx: ContextoDoNumero,
   { conversaId, numero, nome, texto }:
   { conversaId: string; numero: string; nome: string; texto: string },
 ) {
@@ -286,6 +291,10 @@ async function abrirLead(
     observacoes: texto ? `Primeira mensagem: "${texto}"` : null,
     ordem: Number(ultima?.ordem ?? 0) + 1000,
     criado_por: 'whatsapp',
+    // O lead é da unidade do número que recebeu: quem escreveu para o
+    // distribuidor aparece no CRM DELE. Vazio (número da empresa), o trigger
+    // da 031 põe na Waterfall.
+    unidade_id: ctx.unidadeId,
   })
 
   if (error) console.error('falha ao abrir lead:', error.message)
@@ -329,20 +338,31 @@ Deno.serve(async (req) => {
       } : undefined,
     }))
 
+    // De qual número veio. Um por usuário desde a migração 034: o mesmo
+    // cliente pode ter uma conversa com cada vendedor, e cada evento cai na do
+    // número que recebeu. Número que o sistema não conhece (criado à mão no
+    // painel da Evolution) é ignorado — sem cadastro, não há a quem mostrar.
+    const instancia = await carregarInstancia(supabase, nomeDaInstanciaDoEvento(evento))
+    if (!instancia?.token) {
+      console.warn(`evento de instância desconhecida: ${nomeDaInstanciaDoEvento(evento)}`)
+      return ok()
+    }
+    const ctx = await contextoDoNumero(supabase, instancia)
+
     // O batimento: a Evolution falou com o sistema agora. É o que o `wa-status`
     // compara com o último envio para descobrir um webhook mudo — o defeito que
     // passou um mês sem ninguém ver.
-    await gravarEstado(supabase, { ultimo_evento_em: new Date().toISOString() })
+    await gravarEstado(supabase, ctx.instancia, { ultimo_evento_em: new Date().toISOString() })
 
     // Recibo de entrega/leitura: é o que mantém o sistema em dia com o celular.
     // O nome do evento varia entre versões; os três já apareceram.
     if (nomeEvento === 'receipt' || nomeEvento === 'read_receipt' || nomeEvento === 'readreceipt') {
-      await tratarRecibo(evento?.data)
+      await tratarRecibo(ctx, evento?.data)
       return ok()
     }
 
     if (['connected', 'pairsuccess', 'loggedout', 'temporaryban', 'connectfailure', 'disconnected'].includes(nomeEvento)) {
-      await tratarConexao(nomeEvento, evento?.data)
+      await tratarConexao(ctx, nomeEvento, evento?.data)
       return ok()
     }
 
@@ -350,12 +370,12 @@ Deno.serve(async (req) => {
     // 500 de propósito: o lote volta, e o que já tinha entrado não duplica.
     if (nomeEvento === 'historysync') {
       try {
-        const { conversas, mensagens } = await importarHistorico(supabase, evento?.data)
+        const { conversas, mensagens } = await importarHistorico(supabase, evento?.data, ctx)
         console.log(`histórico: ${mensagens} mensagens novas em ${conversas} conversas`)
         if (mensagens) {
           const { data: estado } = await supabase
-            .from('whatsapp_estado').select('historico_mensagens').eq('instancia', INSTANCIA).maybeSingle()
-          await gravarEstado(supabase, { historico_mensagens: Number(estado?.historico_mensagens ?? 0) + mensagens })
+            .from('whatsapp_estado').select('historico_mensagens').eq('instancia', ctx.instancia).maybeSingle()
+          await gravarEstado(supabase, ctx.instancia, { historico_mensagens: Number(estado?.historico_mensagens ?? 0) + mensagens })
         }
         return ok()
       } catch (falha) {
@@ -407,16 +427,17 @@ Deno.serve(async (req) => {
       numero = lid
     }
     if (!numero) return ok()
-    if (lid && numero !== lid) await corrigirConversaDoLid(lid, numero)
+    if (lid && numero !== lid) await corrigirConversaDoLid(ctx, lid, numero)
     const texto = textoDaMensagem(mensagemBruta)
     const tipo = tipoDaMensagem(info, mensagemBruta)
     const waId = String(info.ID ?? '')
     const ocorridoEm = info.Timestamp ? new Date(info.Timestamp).toISOString() : new Date().toISOString()
 
-    // 2. A conversa. `upsert` pelo número: é ele a identidade do fio.
+    // 2. A conversa. A identidade do fio é (número seu, telefone do cliente).
     const { data: existente } = await supabase
       .from('conversas')
       .select('id, cliente_id, nao_lidas')
+      .eq('instancia', ctx.instancia)
       .eq('numero', numero)
       .maybeSingle()
 
@@ -425,7 +446,7 @@ Deno.serve(async (req) => {
 
     let conversaNova = false
     if (!conversaId) {
-      clienteId = await acharCliente(numero)
+      clienteId = await acharCliente(ctx, numero)
       const { data: criada, error: erroCriacao } = await supabase
         .from('conversas')
         .insert({
@@ -435,7 +456,7 @@ Deno.serve(async (req) => {
           // pelo celular, fora do sistema — o `PushName` do evento é o SEU nome,
           // e o contato ficaria batizado como "Waterfall Company Brazil".
           nome_whatsapp: daGente ? null : (info.PushName ?? null),
-          instancia: INSTANCIA,
+          instancia: ctx.instancia,
         })
         .select('id')
         .single()
@@ -446,7 +467,7 @@ Deno.serve(async (req) => {
       // esbarra no unique do número — basta reler.
       if (erroCriacao) {
         const { data: relida } = await supabase
-          .from('conversas').select('id').eq('numero', numero).maybeSingle()
+          .from('conversas').select('id').eq('instancia', ctx.instancia).eq('numero', numero).maybeSingle()
         conversaId = relida?.id ?? null
       } else {
         conversaId = criada?.id ?? null
@@ -474,7 +495,7 @@ Deno.serve(async (req) => {
     //   * `!daGente` — conversa que VOCÊ começou não é lead: você já sabe com
     //     quem está falando e por quê.
     if (!clienteId && !daGente && !(await temCartao(conversaId))) {
-      await abrirLead({ conversaId, numero, nome: info.PushName ?? '', texto })
+      await abrirLead(ctx, { conversaId, numero, nome: info.PushName ?? '', texto })
     }
 
     // A foto de perfil do contato, na primeira mensagem dele.
@@ -488,7 +509,7 @@ Deno.serve(async (req) => {
     // Se falhar, ninguém fica sabendo e está tudo bem: a conversa aparece com
     // as iniciais, e a varredura da função `wa-avatar` tenta de novo depois.
     if (conversaNova) {
-      const tarefa = sincronizarAvatar({ id: conversaId, numero })
+      const tarefa = sincronizarAvatar({ id: conversaId, numero }, { token: ctx.token })
       // @ts-ignore — EdgeRuntime existe no Supabase, não nos tipos do Deno.
       if (typeof EdgeRuntime !== 'undefined') EdgeRuntime.waitUntil(tarefa)
     }
@@ -522,7 +543,7 @@ Deno.serve(async (req) => {
     // mensagem de saída, e aparece no sistema igual.
     if (gravada?.id && temMidia(mensagemBruta)) {
       const tarefa = guardarMidiaDaMensagem({
-        mensagemId: gravada.id, conversaId, waId, mensagemBruta,
+        mensagemId: gravada.id, conversaId, waId, mensagemBruta, token: ctx.token,
       })
       // @ts-ignore — EdgeRuntime existe no Supabase, não nos tipos do Deno.
       if (typeof EdgeRuntime !== 'undefined') EdgeRuntime.waitUntil(tarefa)
