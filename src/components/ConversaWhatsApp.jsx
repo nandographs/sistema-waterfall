@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { MODELOS_MENSAGEM, aplicarModelo } from '../data/mensagens.js'
-import { formatHora, rotuloRelativo, diaCurto } from '../lib/datas.js'
+import { rotuloRelativo, diaCurto, diaDoInstante, horaDoInstante } from '../lib/datas.js'
 import { usuarioAtual } from '../lib/auth.js'
 import { Button, inputCls } from './ui.jsx'
 import { AvatarContato } from './Avatar.jsx'
@@ -132,7 +132,7 @@ function Balao({ mensagem }) {
     return (
       <div className={`flex ${saiu ? 'justify-end' : 'justify-start'}`}>
         <p className="rounded-2xl border border-slate-200 px-3.5 py-2 text-xs italic text-slate-500">
-          Mensagem apagada · <span className="tnum">{formatHora(String(mensagem.ocorridoEm).slice(11, 16))}</span>
+          Mensagem apagada · <span className="tnum">{horaDoInstante(mensagem.ocorridoEm)}</span>
         </p>
       </div>
     )
@@ -165,7 +165,7 @@ function Balao({ mensagem }) {
         )}
         <div className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${saiu ? 'opacity-80' : 'text-slate-400'}`}>
           {mensagem.editadaEm && <span>editada ·</span>}
-          <span className="tnum">{formatHora(String(mensagem.ocorridoEm).slice(11, 16))}</span>
+          <span className="tnum">{horaDoInstante(mensagem.ocorridoEm)}</span>
           {saiu && <StatusEntrega status={mensagem.status} />}
         </div>
       </div>
@@ -234,7 +234,7 @@ export default function ConversaWhatsApp({ conversa, onEnviar, aviso }) {
           </p>
         )}
         {mensagens.map((mensagem) => {
-          const dia = String(mensagem.ocorridoEm).slice(0, 10)
+          const dia = diaDoInstante(mensagem.ocorridoEm)
           const novoDia = dia !== ultimoDia
           ultimoDia = dia
           return (

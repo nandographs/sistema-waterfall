@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Page, Badge, Empty, Button, Modal, notificar } from '../components/ui.jsx'
 import { IconMessage, IconAlert } from '../components/icons.jsx'
-import { formatHora, rotuloRelativo, diaCurto } from '../lib/datas.js'
+import { rotuloRelativo, diaCurto, diaDoInstante, horaDoInstante } from '../lib/datas.js'
 import {
   clientes, conversasRecentes, carregarMensagens, mensagensDaConversa,
   marcarConversaLida, enviarMensagemWhatsapp, assinarWhatsapp,
@@ -43,9 +43,9 @@ const acaoDoNumero =
 // Rótulo de quando foi a última mensagem: hora se foi hoje, "Ontem", ou a data.
 function quando(iso) {
   if (!iso) return ''
-  const dia = String(iso).slice(0, 10)
+  const dia = diaDoInstante(iso)
   const relativo = rotuloRelativo(dia)
-  if (relativo === 'Hoje') return formatHora(String(iso).slice(11, 16))
+  if (relativo === 'Hoje') return horaDoInstante(iso)
   return relativo || diaCurto(dia)
 }
 

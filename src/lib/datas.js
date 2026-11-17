@@ -284,6 +284,29 @@ export function formatHora(hora) {
   return /^\d{2}:\d{2}/.test(texto) ? texto.slice(0, 5) : ''
 }
 
+// INSTANTES (colunas `timestamptz`: quando a mensagem chegou, quando a nota
+// foi escrita) vêm do banco em UTC — '2026-11-17T16:58:41+00:00'. Cortar o
+// texto mostraria 16:58 para uma mensagem das 13:58 de Brasília, e jogaria para
+// o dia seguinte tudo o que aconteceu depois das 21h. Estes dois leem o
+// instante no relógio de quem usa o sistema.
+function instante(valor) {
+  if (!valor) return null
+  const data = new Date(valor)
+  return Number.isNaN(data.getTime()) ? null : data
+}
+
+// Instante -> 'AAAA-MM-DD' do dia local.
+export function diaDoInstante(valor) {
+  const data = instante(valor)
+  return data ? paraISO(data) : ''
+}
+
+// Instante -> 'HH:MM' local.
+export function horaDoInstante(valor) {
+  const data = instante(valor)
+  return data ? `${p2(data.getHours())}:${p2(data.getMinutes())}` : ''
+}
+
 // Chave de ordenação de um item de agenda. Quem não tem hora marcada vai para o
 // fim do dia — é um compromisso "quando der", não um às 00:00.
 export function chaveOrdem(item) {

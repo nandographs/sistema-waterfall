@@ -12,6 +12,7 @@ import {
   rotuloMes, diaExtenso, diaCurto, formatHora, chaveOrdem, DIAS_CURTOS,
   intervaloDoPeriodo, dentroDoPeriodo, dataBR,
   intervaloDoRelatorio, andarNoRelatorio, rotuloDoRelatorio, periodoEmCurso,
+  diaDoInstante, horaDoInstante,
 } from '../src/lib/datas.js'
 
 let falhas = 0
@@ -277,6 +278,13 @@ console.log('\n--- dataBR ---')
 eq(dataBR('2026-08-01'), '01/08/2026', 'data por extenso curta')
 eq(dataBR('2026-08-01T10:00:00Z'), '01/08/2026', 'ignora a hora')
 eq(dataBR(''), '', 'vazio devolve vazio (quem mostra decide o traço)')
+
+// Instantes do banco (UTC) lidos no relógio local. Rode com TZ=America/Sao_Paulo.
+eq(horaDoInstante('2026-11-17T16:58:41+00:00'), '13:58', 'mensagem das 16:58 UTC é das 13:58 em Brasília')
+eq(diaDoInstante('2026-11-18T01:30:00+00:00'), '2026-11-17', 'depois das 21h ainda é o mesmo dia')
+eq(horaDoInstante('2026-11-17 16:58:41.3+00'), '13:58', 'formato com espaço do Postgres')
+eq(horaDoInstante(''), '', 'vazio devolve vazio')
+eq(diaDoInstante('lixo'), '', 'inválido devolve vazio')
 
 console.log(`\n${falhas === 0 ? 'TUDO OK' : `${falhas} FALHA(S)`}`)
 process.exit(falhas === 0 ? 0 : 1)

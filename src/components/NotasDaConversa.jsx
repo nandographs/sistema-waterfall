@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { notasDaConversa, anotarNaConversa, apagarNota, formatData } from '../data/repository.js'
-import { formatHora } from '../lib/datas.js'
+import { diaDoInstante, horaDoInstante } from '../lib/datas.js'
 import { notificar } from './ui.jsx'
 import { IconMais, IconTrash } from './icons.jsx'
 
@@ -92,7 +92,7 @@ export default function NotasDaConversa({ conversa, aoMudar }) {
                 <p className="text-sm text-slate-900 whitespace-pre-wrap break-words">{nota.descricao}</p>
                 <p className="mt-0.5 text-[11px] text-slate-500">
                   {nota.criadoPor || 'alguém'}
-                  {nota.criadoEm ? ` · ${formatData(String(nota.criadoEm).slice(0, 10))} ${formatHora(String(nota.criadoEm).slice(11, 16))}` : ''}
+                  {nota.criadoEm ? ` · ${formatData(diaDoInstante(nota.criadoEm))} ${horaDoInstante(nota.criadoEm)}` : ''}
                 </p>
               </div>
               <button
