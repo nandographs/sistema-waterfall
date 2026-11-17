@@ -38,6 +38,7 @@ import { regravarWebhook } from '../_compartilhado/conexao.ts'
 import { jidParaNumero } from '../_compartilhado/telefone.ts'
 import {
   INSTANCIA_EMPRESA, carregarInstancia, instanciaDoUsuario, criarInstanciaDoUsuario, gravarEstado,
+  aplicarConfiguracoes,
   type Instancia,
 } from '../_compartilhado/instancias.ts'
 
@@ -189,6 +190,10 @@ Deno.serve(async (req) => {
         status: ligada.status,
       }, 502)
     }
+    // Grupos e Status desligados — vale para o número criado agora e para o
+    // que existia antes desta regra (ver CONFIGURACOES_DO_NUMERO).
+    await aplicarConfiguracoes(instancia)
+
     // Número novo começa a contagem do histórico do zero.
     await gravarEstado(supabase, nome, { historico_mensagens: 0, motivo: null })
 

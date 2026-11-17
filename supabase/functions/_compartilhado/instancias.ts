@@ -18,6 +18,42 @@ export const INSTANCIA_EMPRESA = Deno.env.get('EVOLUTION_INSTANCIA') ?? 'waterfa
 const TOKEN_EMPRESA = Deno.env.get('EVOLUTION_TOKEN_INSTANCIA') ?? ''
 const CHAVE_GLOBAL = Deno.env.get('EVOLUTION_GLOBAL_KEY') ?? ''
 
+// Como todo número do sistema fica configurado na Evolution.
+//
+// GRUPOS E STATUS DESLIGADOS: o WhatsApp do sistema é atendimento a cliente.
+// Grupo e Status ("stories") não são atendimento — o webhook já os descartava,
+// mas a Evolution continuava processando e despachando cada um. Ligado aqui, ela
+// para antes. (Não impede o WhatsApp de ENVIAR o Status ao aparelho: isso o
+// protocolo não deixa escolher.)
+export const CONFIGURACOES_DO_NUMERO = {
+  alwaysOnline: false,
+  rejectCall: false,
+  msgRejectCall: '',
+  readMessages: false,
+  ignoreGroups: true,
+  ignoreStatus: true,
+}
+
+// O id interno da Evolution, que a rota de configurações pede no caminho. Só a
+// lista geral (chave global) diz qual é a partir do nome.
+async function idNaEvolution(nome: string): Promise<string | null> {
+  if (!CHAVE_GLOBAL) return null
+  const lista = await chamarEvolution('/instance/all', { token: CHAVE_GLOBAL })
+  const todas = lista.corpo?.data ?? lista.corpo ?? []
+  return Array.isArray(todas) ? (todas.find((i: any) => i.name === nome)?.id ?? null) : null
+}
+
+// Garante as configurações acima num número. Silenciosa: falhar aqui não pode
+// impedir a pessoa de conectar — o webhook continua descartando grupo e Status.
+export async function aplicarConfiguracoes(instancia: { instancia: string; token: string }) {
+  const id = await idNaEvolution(instancia.instancia)
+  if (!id) return
+  const feita = await chamarEvolution(`/instance/${id}/advanced-settings`, {
+    metodo: 'PUT', token: instancia.token, corpo: CONFIGURACOES_DO_NUMERO,
+  })
+  if (!feita.ok) console.warn(`${instancia.instancia}: configurações não aplicadas (${feita.status})`)
+}
+
 export type Instancia = {
   instancia: string
   token: string
@@ -114,7 +150,7 @@ export async function criarInstanciaDoUsuario(
   const criada = await chamarEvolution('/instance/create', {
     metodo: 'POST',
     token: CHAVE_GLOBAL,
-    corpo: { name: instancia, token },
+    corpo: { name: instancia, token, advancedSettings: CONFIGURACOES_DO_NUMERO },
   })
   // Já existir na Evolution (uma tentativa anterior que caiu no meio) não é
   // erro: o que falta é o cadastro, e ele vem a seguir com a chave nova.
