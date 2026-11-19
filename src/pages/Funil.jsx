@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import {
-  oportunidadesPorEtapa, resumoDoFunil, contatoDaOportunidade,
+  oportunidadesPorEtapa, resumoDoFunil, resumoDasAbertas, contatoDaOportunidade,
   moverOportunidade, reabrirOportunidade,
-  formatBRL,
-  ETAPAS_FUNIL, ETAPAS_ABERTAS, ETAPAS_FECHADAS,
+  funisOrdenados, funilPrincipal, etapasDoFunil, rotularNegocio,
+  formatBRL, etapaFechada,
 } from '../data/repository.js'
 import { PageTitle, Button, Empty, notificar, CampoBusca, useLembrado } from '../components/ui.jsx'
 import { IconPlus } from '../components/icons.jsx'
@@ -14,7 +14,9 @@ import OportunidadeModal, { FecharOportunidadeModal, oportunidadeNova } from '..
 import ConversaClienteModal from '../components/ConversaClienteModal.jsx'
 import ConverterLeadModal from '../components/ConverterLeadModal.jsx'
 import ConfirmarVendaModal from '../components/ConfirmarVendaModal.jsx'
-import { assinarWhatsapp, assinarDados } from '../data/repository.js'
+import EditarFunisModal from '../components/EditarFunisModal.jsx'
+import { BolinhaFunil } from '../components/EtiquetaFunil.jsx'
+import { assinarWhatsapp, assinarDados, assinarCrm } from '../data/repository.js'
 import { ehGestao } from '../lib/auth.js'
 
 // Onde o cartão vai cair. Uma linha fina entre dois cartões responde a pergunta
@@ -29,12 +31,12 @@ function MarcaDeDestino() {
 
 // Cabeçalho da coluna: o nome da etapa, quantos cartões e quanto dinheiro está
 // parado ali. A soma é o que transforma o quadro em previsão, e não só em lista.
-function CabecalhoColuna({ etapa, quantidade, valor, onNova }) {
+function CabecalhoColuna({ nome, quantidade, valor, onNova }) {
   return (
     <div className="shrink-0 flex items-center justify-between gap-2 px-1 pb-2.5">
       <div className="min-w-0">
         <p className="text-sm font-semibold text-slate-900 truncate">
-          {ETAPAS_FUNIL[etapa]}
+          {nome}
           <span className="ml-1.5 text-xs font-semibold text-slate-400 tnum">{quantidade}</span>
         </p>
         {valor > 0 && <p className="text-[11px] font-semibold text-slate-500 tnum">{formatBRL(valor)}</p>}
@@ -43,7 +45,7 @@ function CabecalhoColuna({ etapa, quantidade, valor, onNova }) {
         <button
           type="button"
           onClick={onNova}
-          aria-label={`Nova negociação em ${ETAPAS_FUNIL[etapa]}`}
+          aria-label={`Nova negociação em ${nome}`}
           className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 cursor-pointer"
         >
           <IconPlus size={16} />
@@ -66,6 +68,16 @@ export default function Funil() {
   // Onde o cartão cairia agora: { etapa, indice }.
   const [alvo, setAlvo] = useState(null)
   const [busca, setBusca] = useLembrado('crm:busca', '')
+  const [editandoFunis, setEditandoFunis] = useState(false)
+
+  // O funil na tela. Lembrado como a busca; se ele sumiu (removido em outro
+  // lugar), volta para o principal.
+  const funis = funisOrdenados()
+  const [funilEscolhido, setFunilEscolhido] = useLembrado('crm:funil', '')
+  const funil = funis.find((f) => f.id === funilEscolhido) ?? funilPrincipal()
+  const funilId = funil?.id ?? ''
+  const etapas = etapasDoFunil(funilId)
+  const nomeDe = (chave) => etapas.find((e) => e.chave === chave)?.nome ?? chave
 
   // O contador de mensagens dos cartões vem das conversas. Assinar aqui é o que
   // faz o número aparecer quando a mensagem chega — e sumir no instante em que
@@ -74,9 +86,12 @@ export default function Funil() {
   // E o que muda por fora (cliente renomeado, negociação salva num modal de
   // outra tela) entra no quadro e na busca na hora.
   useEffect(() => assinarDados(recarregar), [])
+  // E o que outro computador faz no CRM — arrastar um cartão, criar um funil —
+  // aparece aqui sem F5.
+  useEffect(() => assinarCrm(recarregar), [])
 
-  const quadro = oportunidadesPorEtapa()
-  const resumo = resumoDoFunil()
+  const quadro = oportunidadesPorEtapa(funilId)
+  const resumo = resumoDoFunil(funilId)
 
   // A mesma busca das outras listas: cada palavra em qualquer campo, telefone
   // pelos dígitos. Antes era o texto inteiro colado e o telefone só casava se
@@ -98,21 +113,27 @@ export default function Funil() {
     })
   const buscando = !consulta.vazia
 
-  const abertas = ETAPAS_ABERTAS.reduce((soma, etapa) => soma + resumo[etapa].quantidade, 0)
-  const emJogo = ETAPAS_ABERTAS.reduce((soma, etapa) => soma + resumo[etapa].valor, 0)
+  const { quantidade: abertas, valor: emJogo } = resumoDasAbertas(funilId)
+  const totalDeAbertas = resumoDasAbertas().quantidade
 
   // Mover é sempre a mesma decisão, venha do arrasto ou do menu do cartão:
-  // fechar exige uma conversa (motivo / venda), abrir é direto.
-  async function mover(oportunidade, etapa, indice) {
-    if (ETAPAS_FECHADAS.includes(etapa)) {
-      setFechando({ oportunidade, etapa })
+  // fechar exige uma conversa (motivo / venda), abrir é direto. O menu do
+  // cartão também leva para OUTRO funil (`destinoFunil`).
+  async function mover(oportunidade, etapa, indice, destinoFunil = null) {
+    const alvoFunil = destinoFunil || oportunidade.funilId
+    if (etapaFechada(etapa)) {
+      setFechando({ oportunidade, etapa, funilId: alvoFunil })
       return
     }
     try {
-      if (ETAPAS_FECHADAS.includes(oportunidade.etapa)) {
-        await reabrirOportunidade(oportunidade.id, etapa)
+      if (etapaFechada(oportunidade.etapa)) {
+        await reabrirOportunidade(oportunidade.id, etapa, alvoFunil)
       }
-      await moverOportunidade(oportunidade.id, etapa, indice)
+      await moverOportunidade(oportunidade.id, etapa, indice, alvoFunil)
+      if (alvoFunil !== oportunidade.funilId) {
+        const destino = rotularNegocio({ funilId: alvoFunil, etapa })
+        notificar(`Negociação levada para ${destino?.funil} › ${destino?.etapa}.`)
+      }
       recarregar()
     } catch (ex) {
       notificar(ex?.message || String(ex), 'erro')
@@ -172,21 +193,21 @@ export default function Funil() {
   // componente novo a cada render seria um tipo novo para o React, que
   // remontaria as colunas inteiras no meio do arrasto e derrubaria o gesto.
   function coluna(etapa, largura = 'w-[17.5rem]') {
-    const cartoes = filtrar(quadro[etapa])
-    const fechada = ETAPAS_FECHADAS.includes(etapa)
+    const cartoes = filtrar(quadro[etapa] ?? [])
+    const fechada = etapaFechada(etapa)
     const recebendo = arrastando && alvo?.etapa === etapa
 
     return (
       <section key={etapa} className={`${largura} shrink-0 snap-start flex flex-col h-full min-h-0`}>
         <CabecalhoColuna
-          etapa={etapa}
+          nome={nomeDe(etapa)}
           // Com busca, o cabeçalho conta o que ela achou: "12" em cima de dois
           // cartões parecia que a coluna tinha perdido negociações.
-          quantidade={buscando ? cartoes.length : resumo[etapa].quantidade}
+          quantidade={buscando ? cartoes.length : resumo[etapa]?.quantidade ?? 0}
           valor={buscando
             ? cartoes.reduce((soma, o) => soma + Number(o.valorEstimado || 0), 0)
-            : resumo[etapa].valor}
-          onNova={fechada ? null : () => setForm(oportunidadeNova({ etapa }))}
+            : resumo[etapa]?.valor ?? 0}
+          onNova={fechada ? null : () => setForm(oportunidadeNova({ funilId, etapa }))}
         />
 
         {/* A coluna rola sozinha: com o quadro ocupando a tela inteira, é a
@@ -220,7 +241,7 @@ export default function Funil() {
                 }}
                 onDragEnd={limparArrasto}
                 onAbrir={() => setForm(oportunidade)}
-                onMover={(destino) => mover(oportunidade, destino, null)}
+                onMover={(destino, destinoFunil) => mover(oportunidade, destino, null, destinoFunil)}
                 // Sem conversar para quem não é gestão: o WhatsApp é o da Waterfall.
                 onConversar={ehGestao() ? setConversaAberta : undefined}
                 onConverter={setConvertendo}
@@ -258,7 +279,7 @@ export default function Funil() {
                 placeholder="Buscar cliente, telefone ou título…"
                 aria-label="Buscar negociação"
               />
-              <Button onClick={() => setForm(oportunidadeNova())}>
+              <Button onClick={() => setForm(oportunidadeNova({ funilId }))}>
                 <IconPlus size={16} /> Nova negociação
               </Button>
             </div>
@@ -268,7 +289,40 @@ export default function Funil() {
         </PageTitle>
       </div>
 
-      {abertas === 0 && !busca && (
+      {/* As abas dos funis. Cada uma com a bolinha da cor do funil — a mesma
+          que aparece na etiqueta da conversa do WhatsApp. Com um funil só, as
+          abas continuam: é por elas que se descobre que dá para ter outros. */}
+      <div className="shrink-0 mb-4 flex items-center gap-2 min-w-0">
+        <div role="tablist" aria-label="Funis" className="flex min-w-0 items-center gap-1 overflow-x-auto rounded-full bg-slate-100 p-1">
+          {funis.map((f) => {
+            const ativo = f.id === funilId
+            const qtd = resumoDasAbertas(f.id).quantidade
+            return (
+              <button
+                key={f.id}
+                type="button"
+                role="tab"
+                aria-selected={ativo}
+                onClick={() => setFunilEscolhido(f.id)}
+                className={`inline-flex shrink-0 items-center gap-2 rounded-full px-3.5 min-h-9 text-[13px] font-medium whitespace-nowrap cursor-pointer transition-colors border ${
+                  ativo ? 'ui-card bg-white text-slate-900 border-slate-300' : 'border-transparent text-slate-500 hover:text-slate-900'
+                }`}
+              >
+                <BolinhaFunil cor={f.cor} />
+                {f.nome}
+                {qtd > 0 && <span className="text-[11px] text-slate-400 tnum">{qtd}</span>}
+              </button>
+            )
+          })}
+        </div>
+        {ehGestao() && (
+          <Button variant="secondary" className="shrink-0" onClick={() => setEditandoFunis(true)}>
+            Editar funis
+          </Button>
+        )}
+      </div>
+
+      {abertas === 0 && !busca && totalDeAbertas === 0 && (
         <div className="shrink-0">
           <Empty>
             O CRM está vazio. Abra uma negociação quando alguém demonstrar interesse —
@@ -281,8 +335,7 @@ export default function Funil() {
           tela inteira e o polegar passa de uma para a outra; no desktop as seis
           cabem lado a lado. */}
       <div className="flex-1 min-h-0 flex gap-3 overflow-x-auto snap-x snap-mandatory pb-2 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:mx-0 lg:px-0">
-        {ETAPAS_ABERTAS.map((etapa) => coluna(etapa))}
-        {ETAPAS_FECHADAS.map((etapa) => coluna(etapa, 'w-[15rem]'))}
+        {etapas.map((e) => (e.tipo === 'aberta' ? coluna(e.chave) : coluna(e.chave, 'w-[15rem]')))}
       </div>
 
       {form && (
@@ -298,8 +351,17 @@ export default function Funil() {
         <FecharOportunidadeModal
           oportunidade={fechando.oportunidade}
           etapa={fechando.etapa}
+          funilId={fechando.funilId}
           onFechar={() => setFechando(null)}
           onSalvo={recarregar}
+        />
+      )}
+
+      {editandoFunis && (
+        <EditarFunisModal
+          funilInicial={funilId}
+          onFechar={() => setEditandoFunis(false)}
+          onMudou={recarregar}
         />
       )}
 

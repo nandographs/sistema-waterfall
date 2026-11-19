@@ -1,16 +1,18 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   clientes, produtos, salvarOportunidade, excluirOportunidade,
   ganharOportunidade, perderOportunidade,
   formatBRL, formatData, notasDaOportunidade,
-  ETAPAS_FUNIL, ETAPAS_ABERTAS, CANAIS_OPORTUNIDADE, MOTIVOS_PERDA,
+  gruposDeEtapas, funilPrincipal, primeiraEtapaDoFunil, historicoDoNegocio, funis,
+  CANAIS_OPORTUNIDADE, MOTIVOS_PERDA,
 } from '../data/repository.js'
+import { diaDoInstante, horaDoInstante } from '../lib/datas.js'
 import { Modal, Button, Field, inputCls, InputNumero, notificar } from './ui.jsx'
 import ClienteBusca from './ClienteBusca.jsx'
 import ProdutoBusca from './ProdutoBusca.jsx'
 
 const OPORTUNIDADE_VAZIA = {
-  clienteId: '', titulo: '', etapa: 'contato', valorEstimado: '', produtoId: '',
+  clienteId: '', titulo: '', funilId: '', etapa: '', valorEstimado: '', produtoId: '',
   canal: '', dataPrevista: '', observacoes: '',
 }
 
@@ -21,7 +23,13 @@ export function oportunidadeNova(extra = {}) {
 // Cadastro e edição da negociação. O formulário é curto de propósito: o funil
 // só serve se registrar um negócio custar menos que anotar num papel.
 export default function OportunidadeModal({ oportunidade, onFechar, onSalvo }) {
-  const [form, setForm] = useState(() => ({ ...OPORTUNIDADE_VAZIA, ...oportunidade }))
+  // Negócio novo sem funil nem etapa: o principal, na primeira etapa dele.
+  const [form, setForm] = useState(() => {
+    const inicial = { ...OPORTUNIDADE_VAZIA, ...oportunidade }
+    if (!inicial.funilId) inicial.funilId = funilPrincipal()?.id || ''
+    if (!inicial.etapa) inicial.etapa = primeiraEtapaDoFunil(inicial.funilId)
+    return inicial
+  })
   const [salvando, setSalvando] = useState(false)
   const [confirmarExclusao, setConfirmarExclusao] = useState(false)
   const [erro, setErro] = useState('')
@@ -29,6 +37,21 @@ export default function OportunidadeModal({ oportunidade, onFechar, onSalvo }) {
   const editando = !!form.id
   const set = (campo) => (e) => setForm((f) => ({ ...f, [campo]: e.target.value }))
   const notas = notasDaOportunidade(form.id)
+  const grupos = gruposDeEtapas({ soAbertas: true, primeiro: form.funilId })
+  const variosFunis = grupos.length > 1
+  const fechada = form.etapa === 'ganho' || form.etapa === 'perdido'
+
+  // O histórico mora fora do cache (ver historicoDoNegocio): vem quando a
+  // página do negócio abre, e só para negócio que já existe.
+  const [historico, setHistorico] = useState(null)
+  useEffect(() => {
+    if (!form.id) return
+    let ativo = true
+    historicoDoNegocio(form.id)
+      .then((linhas) => { if (ativo) setHistorico(linhas) })
+      .catch(() => { if (ativo) setHistorico([]) })
+    return () => { ativo = false }
+  }, [form.id])
 
   // Escolher o produto já sugere o valor: é o dado que o operador teria que
   // buscar no catálogo para digitar em seguida.
@@ -139,10 +162,37 @@ export default function OportunidadeModal({ oportunidade, onFechar, onSalvo }) {
               ))}
             </select>
           </Field>
-          <Field label="Etapa">
-            <select className={inputCls} value={form.etapa} onChange={set('etapa')}>
-              {ETAPAS_ABERTAS.map((etapa) => (
-                <option key={etapa} value={etapa}>{ETAPAS_FUNIL[etapa]}</option>
+          <Field label={variosFunis ? 'Funil e etapa' : 'Etapa'}>
+            {/* As etapas de TODOS os funis, agrupadas pelo nome do funil: é
+                aqui que um cliente passa de "Vendas" para "Pós-venda". O valor
+                carrega os dois, porque a mesma chave pode existir em dois
+                funis ("novo"). */}
+            <select
+              className={inputCls}
+              value={`${form.funilId}|${form.etapa}`}
+              onChange={(e) => {
+                const [funilId, etapa] = e.target.value.split('|')
+                setForm((f) => ({ ...f, funilId, etapa }))
+              }}
+            >
+              {/* Negócio fechado aparece como está; para reabrir, escolha uma
+                  etapa aberta. */}
+              {fechada && (
+                <option value={`${form.funilId}|${form.etapa}`}>
+                  {funis.get(form.funilId)?.nome ? `${funis.get(form.funilId).nome} › ` : ''}
+                  {form.etapa === 'ganho' ? 'Ganho' : 'Perdido'} (fechado)
+                </option>
+              )}
+              {grupos.map(({ funil, etapas }) => (
+                variosFunis ? (
+                  <optgroup key={funil.id} label={funil.nome}>
+                    {etapas.map((etapa) => (
+                      <option key={etapa.id} value={`${funil.id}|${etapa.chave}`}>{etapa.nome}</option>
+                    ))}
+                  </optgroup>
+                ) : etapas.map((etapa) => (
+                  <option key={etapa.id} value={`${funil.id}|${etapa.chave}`}>{etapa.nome}</option>
+                ))
               ))}
               {/* Ganho e perdido não entram aqui: fechar exige o motivo (ou a
                   decisão sobre a venda), e isso é o modal de fechamento. */}
@@ -188,6 +238,36 @@ export default function OportunidadeModal({ oportunidade, onFechar, onSalvo }) {
           </div>
         )}
 
+        {/* Toda mudança de funil e de etapa, inclusive as feitas em massa ao
+            remover uma etapa ou um funil — com o motivo, quando houver. */}
+        {editando && historico && historico.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-slate-500 mb-1.5">Histórico</p>
+            <ol className="space-y-1.5 max-h-44 overflow-y-auto">
+              {historico.map((h) => (
+                <li key={h.id} className="rounded-lg bg-slate-100 px-2.5 py-2 text-sm text-slate-900">
+                  <p className="break-words">
+                    {h.deEtapa ? (
+                      <>
+                        <span className="text-slate-500">{[h.deFunil, h.deEtapa].filter(Boolean).join(' › ')}</span>
+                        {' → '}
+                      </>
+                    ) : null}
+                    <span className="font-medium">{[h.paraFunil, h.paraEtapa].filter(Boolean).join(' › ')}</span>
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-slate-500">
+                    {[
+                      h.motivo,
+                      h.feitoPor,
+                      h.feitoEm ? `${formatData(diaDoInstante(h.feitoEm))} ${horaDoInstante(h.feitoEm)}` : '',
+                    ].filter(Boolean).join(' · ')}
+                  </p>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+
         {erro && (
           <p className="text-sm text-red-600 bg-slate-100 border border-slate-200 rounded-lg px-3 py-2.5">{erro}</p>
         )}
@@ -224,7 +304,7 @@ export default function OportunidadeModal({ oportunidade, onFechar, onSalvo }) {
 // Fechamento da negociação — ganho ou perdido. É um modal separado porque as
 // duas pontas pedem coisas diferentes: ganhar pergunta se abre a venda, perder
 // exige o motivo.
-export function FecharOportunidadeModal({ oportunidade, etapa, onFechar, onSalvo }) {
+export function FecharOportunidadeModal({ oportunidade, etapa, funilId = null, onFechar, onSalvo }) {
   const ganhou = etapa === 'ganho'
   const [criarVenda, setCriarVenda] = useState(!!oportunidade.produtoId)
   const [motivo, setMotivo] = useState(oportunidade.motivoPerda || '')
@@ -240,14 +320,14 @@ export function FecharOportunidadeModal({ oportunidade, etapa, onFechar, onSalvo
     setSalvando(true)
     try {
       if (ganhou) {
-        await ganharOportunidade(oportunidade.id, { criarVenda })
+        await ganharOportunidade(oportunidade.id, { criarVenda, funilId })
         notificar(
           criarVenda
             ? 'Negócio ganho. A proposta foi criada — use “Confirmar venda” no cartão para gerar o financeiro e a agenda.'
             : 'Negócio ganho.',
         )
       } else {
-        await perderOportunidade(oportunidade.id, { motivo, observacoes: detalhe })
+        await perderOportunidade(oportunidade.id, { motivo, observacoes: detalhe, funilId })
         notificar('Negociação marcada como perdida.')
       }
       onSalvo?.()

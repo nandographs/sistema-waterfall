@@ -20,7 +20,7 @@ const TODOS_OS_LINKS = [
   { to: '/agendamentos', label: 'Serviços', Icon: IconCheckSquare },
   // "CRM" antes de "Vendas" porque é essa a ordem do trabalho: a negociação vem
   // primeiro, o pedido é o desfecho dela. No código e nos comentários a tela
-  // continua sendo o "funil" (Funil.jsx, resumoDoFunil, ETAPAS_FUNIL) — mesma
+  // continua sendo o "funil" (Funil.jsx, resumoDoFunil, tabela `funis`) — mesma
   // separação de "Serviços", cujo arquivo e tabela seguem como agendamentos.
   { to: '/crm', label: 'CRM', Icon: IconFunil },
   // O WhatsApp é o número da Waterfall: só a gestão atende por ele.

@@ -1,9 +1,10 @@
 // Modelos de mensagem do WhatsApp.
 //
-// Constante em JS e não tabela no banco, pela mesma razão das etapas do funil
-// (ver ETAPAS_FUNIL no repositório): com meia dúzia de textos que mudam uma vez
-// por ano, uma tela de edição custaria mais do que entrega. Quando os textos
-// começarem a mudar toda semana, aí vira tabela.
+// Constante em JS e não tabela no banco: com meia dúzia de textos que mudam
+// uma vez por ano, uma tela de edição custaria mais do que entrega. Quando os
+// textos começarem a mudar toda semana, aí vira tabela — foi o que aconteceu
+// com as etapas do funil, que nasceram constante e viraram a tabela
+// `funil_etapas` quando passou a haver mais de um funil (migração 035).
 //
 // As variáveis são resolvidas por `aplicarModelo`. O texto entra no campo de
 // digitação preenchido — e você edita antes de enviar. Modelo nenhum dispara

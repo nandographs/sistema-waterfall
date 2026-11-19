@@ -61,7 +61,7 @@ export default function CapturaRapida({ onRegistrado }) {
       if (criouNegociacao) {
         await salvarOportunidade({
           clienteId: form.clienteId,
-          etapa: 'contato',
+          // Sem funil nem etapa: entra no principal, na primeira etapa dele.
           canal: CANAL_DO_TIPO[form.tipo] || 'outro',
           observacoes: form.descricao,
           origemAtividadeId: atividade.id,

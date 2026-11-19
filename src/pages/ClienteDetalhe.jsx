@@ -11,7 +11,7 @@ import {
   explicarColunaFaltante,
   proximoPasso, linhaDoTempoDoCliente, oportunidadesDoCliente, conversaDoCliente,
   proximaTroca, badgeDoAgendamento, mudarStatusAgendamento, formatBRL, formatData, enderecoCompleto,
-  FORMAS_PAGAMENTO, STATUS_VENDA, RESULTADOS_ATIVIDADE, ETAPAS_FUNIL, ETAPAS_FECHADAS,
+  FORMAS_PAGAMENTO, STATUS_VENDA, RESULTADOS_ATIVIDADE, ETAPAS_FECHADAS, rotularNegocio, funis,
   TIPOS_AGENDAMENTO,
   clienteInativo, textoInativacao, pendenciasDoCliente, clienteTemHistorico, inativarCliente, reativarCliente,
   MOTIVOS_INATIVACAO,
@@ -19,6 +19,7 @@ import {
 } from '../data/repository.js'
 import { hojeISO, formatHora, diaCurto } from '../lib/datas.js'
 import { Card, Page, PageTitle, Button, Field, inputCls, InputNumero, Empty, Modal, Badge, notificar } from '../components/ui.jsx'
+import EtiquetaFunil from '../components/EtiquetaFunil.jsx'
 import { IconPlus, IconFileText, IconChevronLeft, IconUser, IconTrash, IconEye, IconAlert, IconMessage, IconClock, IconCheck } from '../components/icons.jsx'
 import { paraE164, telefonesDoCliente, comTelefonePrincipal } from '../lib/telefone.js'
 import { IconeDoEvento, estiloDoEvento } from '../components/evento.jsx'
@@ -667,11 +668,14 @@ export default function ClienteDetalhe() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Badge color={
-                      o.etapa === 'ganho' ? 'green' : (o.etapa === 'perdido' ? 'red' : 'sky')
-                    }>
-                      {ETAPAS_FUNIL[o.etapa] ?? o.etapa}
-                    </Badge>
+                    {(() => {
+                      // A cor e o nome do funil junto da etapa: o mesmo cliente
+                      // pode ter um negócio em Vendas e outro em Pós-venda.
+                      const rotulo = rotularNegocio(o)
+                      return rotulo
+                        ? <EtiquetaFunil cor={rotulo.cor} funil={funis.list().length > 1 ? rotulo.funil : ''} etapa={rotulo.etapa} />
+                        : <Badge color="slate">{o.etapa}</Badge>
+                    })()}
                     <Button variant="ghost" onClick={() => setOportunidadeForm(o)} title="Abrir negociação">
                       <IconEye size={15} /> Ver
                     </Button>

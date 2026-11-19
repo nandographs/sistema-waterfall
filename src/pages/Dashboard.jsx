@@ -5,7 +5,7 @@ import {
   eventosDoDia, eventosPorDia, pendenciasAtrasadas, assinarDados,
   concluirAtividade, mudarStatusAgendamento,
   proximaTroca, agendamentoEncerrado, formatBRL, formatData, FORMAS_PAGAMENTO, TIPOS_AGENDAMENTO,
-  resumoDoFunil, oportunidadesParadas, ETAPAS_ABERTAS, ETAPAS_FUNIL, clienteInativo,
+  resumoDasAbertas, oportunidadesParadas, rotuloDoNegocio, clienteInativo,
 } from '../data/repository.js'
 import { hojeISO, mesAtual, mesDe, gradeDoMes, diaExtenso } from '../lib/datas.js'
 import { Card, Badge, Empty, Button, Aviso, corpoDoNumero, notificar } from '../components/ui.jsx'
@@ -140,9 +140,8 @@ export default function Dashboard() {
   // ---- Funil ----
   // O número que interessa aqui não é quantas negociações existem, e sim
   // quantas pararam: negócio esquecido não avisa que foi esquecido.
-  const resumoFunil = resumoDoFunil()
-  const funilAbertas = ETAPAS_ABERTAS.reduce((s, etapa) => s + resumoFunil[etapa].quantidade, 0)
-  const funilEmJogo = ETAPAS_ABERTAS.reduce((s, etapa) => s + resumoFunil[etapa].valor, 0)
+  // Somando todos os funis: o que está em jogo é o da empresa, não o de um quadro.
+  const { quantidade: funilAbertas, valor: funilEmJogo } = resumoDasAbertas()
   const funilParadas = oportunidadesParadas(7)
 
   // ---- O dia ----
@@ -409,7 +408,7 @@ export default function Dashboard() {
                             </Link>
                             <p className="text-xs text-slate-500 mt-0.5 truncate">{o.titulo}</p>
                           </div>
-                          <Badge color="slate">{ETAPAS_FUNIL[o.etapa] ?? o.etapa}</Badge>
+                          <Badge color="slate">{rotuloDoNegocio(o)}</Badge>
                         </li>
                       ))}
                     </ul>

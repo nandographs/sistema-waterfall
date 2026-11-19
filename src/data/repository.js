@@ -10,6 +10,11 @@ import { somarDias, chaveOrdem, dataBR } from '../lib/datas.js'
 import { formatarE164, mesmoNumero, clienteTemNumero } from '../lib/telefone.js'
 import { usuarioAtual, definirPerfilAtual } from '../lib/auth.js'
 import {
+  PALETA_FUNIS, ETAPAS_FECHADAS, LIMITE_ETAPAS_ABERTAS, hexDaCor,
+  negocioAberto, etapaFechada, ordenarFunis, ordenarEtapas, escolherPrincipal,
+  etapaEquivalente, etiquetasDosNegocios,
+} from '../lib/funis.js'
+import {
   somarMeses, hojeISO, planoDeParcelas, totaisDaVenda, dividirCentavos,
   normalizarPagamentos, pagamentosDaCondicao, planoDePagamentos,
   resumoDosPagamentos, diferencaDosPagamentos, taxaDe, formatBRL, resolverPagamentos,
@@ -35,7 +40,7 @@ export {
 const TABELAS = [
   'clientes', 'produtos', 'equipamentos', 'agendamentos',
   'oportunidades', 'vendas', 'venda_itens', 'lancamentos', 'atividades',
-  'conversas', 'funcionarios', 'unidades',
+  'conversas', 'funcionarios', 'unidades', 'funis', 'funil_etapas',
 ]
 
 const cache = {
@@ -51,6 +56,8 @@ const cache = {
   conversas: [],
   funcionarios: [],
   unidades: [],
+  funis: [],
+  funil_etapas: [],
 }
 
 // As MENSAGENS ficam fora do cache principal, guardadas por conversa e trazidas
@@ -121,6 +128,8 @@ const MIGRACAO_DA_TABELA = {
   mensagens: 'sql/010_whatsapp.sql',
   funcionarios: 'sql/019_conta_salario.sql',
   unidades: 'sql/030_perfis_e_unidades.sql',
+  funis: 'sql/035_varios_funis.sql',
+  funil_etapas: 'sql/035_varios_funis.sql',
 }
 
 // O PostgREST corta toda resposta num teto de linhas (o `max-rows` do projeto,
@@ -348,7 +357,8 @@ export const nomeCompletoProduto = (produto) =>
 export const equipamentos = makeStore('equipamentos')
 
 // Oportunidade (a negociação — o cartão do funil): { clienteId, titulo,
-//          etapa: 'contato'|'agendado'|'sem_resposta'|'adiado'|'proposta'|'negociacao'|'ganho'|'perdido',
+//          funilId, etapa (a CHAVE da etapa dentro do funil; 'ganho' e
+//          'perdido' são as mesmas em todo funil — ver a migração 035),
 //          valorEstimado, produtoId, canal, responsavel, dataPrevista, observacoes,
 //          ordem (posição na coluna), motivoPerda, fechadaEm,
 //          vendaId (a venda que fechou o negócio),
@@ -356,6 +366,15 @@ export const equipamentos = makeStore('equipamentos')
 // É o elo que faltava entre a atividade e a venda: o período em que o negócio
 // já existe mas ainda não tem pedido montado — ver a migração 009.
 export const oportunidades = makeStore('oportunidades')
+
+// Funil (migração 035): { nome, cor (chave de PALETA_FUNIS), principal, ordem }
+// Cada um é um quadro do CRM. O principal recebe os leads do WhatsApp.
+export const funis = makeStore('funis')
+
+// Etapa de um funil: { funilId, chave, nome, tipo: 'aberta'|'ganho'|'perdido', ordem }
+// A oportunidade aponta para (funilId, chave). Todo funil tem uma etapa
+// 'ganho' e uma 'perdido', que podem ser renomeadas mas não removidas.
+export const funilEtapas = makeStore('funil_etapas')
 
 // Venda (documento comercial): { numero, clienteId, data, validadeDias,
 //          tipo: 'venda'|'orcamento', canal, status: 'proposta'|'confirmada'|'cancelada',
@@ -564,24 +583,11 @@ export const STATUS_VENDA = {
   cancelada: 'Cancelada',
 }
 
-// Etapas do funil. Vocabulário fechado, como TIPOS_ATIVIDADE e STATUS_VENDA:
-// com um funil só, uma tabela de configuração editável cobraria o preço de uma
-// tela inteira sem entregar nada. Se um dia houver mais de um funil, a coluna
-// `etapa` já é texto e a migração é direta.
-export const ETAPAS_FUNIL = {
-  contato: 'Em contato',
-  agendado: 'Agendado',
-  sem_resposta: 'Sem resposta',
-  adiado: 'Adiado',
-  proposta: 'Em proposta',
-  negociacao: 'Em negociação',
-  ganho: 'Venda fechada',
-  perdido: 'Venda perdida',
-}
-
-// `ganho` e `perdido` são terminais: saem do fluxo do quadro e viram histórico.
-export const ETAPAS_ABERTAS = ['contato', 'agendado', 'sem_resposta', 'adiado', 'proposta', 'negociacao']
-export const ETAPAS_FECHADAS = ['ganho', 'perdido']
+// As etapas do funil deixaram de ser uma constante: desde a migração 035 cada
+// funil tem as suas, editáveis (ver "---- Funis ----" mais abaixo). O que
+// continua fixo é o que FECHA um negócio — 'ganho' e 'perdido' —, porque é por
+// essas duas chaves que o resto do sistema sabe que a negociação acabou.
+export { ETAPAS_FECHADAS, PALETA_FUNIS, LIMITE_ETAPAS_ABERTAS, hexDaCor, negocioAberto, etapaFechada, etapaEquivalente }
 
 export const CANAIS_OPORTUNIDADE = {
   indicacao: 'Indicação',
@@ -693,7 +699,7 @@ export function pendenciasDoCliente(clienteId) {
       .sort((a, b) => String(a.data || '').localeCompare(String(b.data || ''))),
     negociacoes: oportunidades
       .list()
-      .filter((o) => o.clienteId === clienteId && ETAPAS_ABERTAS.includes(o.etapa)),
+      .filter((o) => o.clienteId === clienteId && negocioAberto(o)),
     tarefas: atividades
       .list()
       .filter((a) => a.clienteId === clienteId && a.status === 'pendente'),
@@ -1328,12 +1334,12 @@ export async function vincularConversaACliente(conversaId, clienteId) {
 // Prioriza a aberta: o cartão que está sendo trabalhado é o que outro atendente
 // vai abrir. Sem nenhuma aberta, vale a mais recente — melhor a nota aparecer
 // num cartão fechado do que em lugar nenhum.
-function oportunidadeDaConversa(conversaId, clienteId) {
+export function oportunidadeDaConversa(conversaId, clienteId) {
   const daConversa = oportunidades.list().filter((o) => o.conversaId === conversaId)
   const doCliente = clienteId ? oportunidades.list().filter((o) => o.clienteId === clienteId) : []
   const candidatas = [...new Set([...daConversa, ...doCliente])]
   return (
-    candidatas.find((o) => ETAPAS_ABERTAS.includes(o.etapa)) ??
+    candidatas.find(negocioAberto) ??
     candidatas.sort((a, b) => String(b.criadoEm || '').localeCompare(String(a.criadoEm || '')))[0] ??
     null
   )
@@ -1393,7 +1399,7 @@ export async function apagarNota(notaId) {
 // um ato deliberado — você foi atrás da pessoa. Isso é começo de negociação, e
 // merece cartão.
 //
-// A trava é `ETAPAS_ABERTAS`: se já existe negociação em andamento com essa
+// A trava é `negocioAberto`: se já existe negociação em andamento com essa
 // pessoa, a conversa pertence a ela, e um cartão novo só dividiria a história
 // em dois lugares.
 export async function garantirOportunidadeDoCliente(clienteId, conversaId) {
@@ -1401,7 +1407,7 @@ export async function garantirOportunidadeDoCliente(clienteId, conversaId) {
 
   const emAberto = oportunidades
     .list()
-    .find((o) => o.clienteId === clienteId && ETAPAS_ABERTAS.includes(o.etapa))
+    .find((o) => o.clienteId === clienteId && negocioAberto(o))
   if (emAberto) {
     // Cartão que existia antes da conversa passa a conhecê-la — é o que faz o
     // botão de conversar do cartão cair no fio certo.
@@ -1416,7 +1422,8 @@ export async function garantirOportunidadeDoCliente(clienteId, conversaId) {
     clienteId,
     conversaId: conversaId || null,
     titulo: cliente?.nome ? `${cliente.nome} (WhatsApp)` : 'Contato pelo WhatsApp',
-    etapa: 'contato',
+    // Conversa nova entra no principal, como o lead que o webhook abre.
+    funilId: funilPrincipal()?.id || '',
     canal: 'whatsapp',
   })
 }
@@ -1609,6 +1616,235 @@ export function assinarWhatsapp(aoMudar) {
   return () => supabase.removeChannel(canal)
 }
 
+// ---- Funis e etapas (migração 035) ----
+//
+// Cada funil é um quadro com colunas próprias. O que o resto do sistema
+// precisa saber deles passa por aqui: qual é o principal, quais as colunas de
+// cada um, e como se chama a etapa em que um negócio está.
+
+export const funisOrdenados = () => ordenarFunis(funis.list())
+
+// Onde entram os contatos novos do WhatsApp: o marcado como principal, ou o
+// primeiro da lista. A mesma regra de `funil_principal()` no banco.
+export const funilPrincipal = () => escolherPrincipal(funis.list())
+
+export const etapasDoFunil = (funilId) =>
+  ordenarEtapas(funilEtapas.list().filter((e) => e.funilId === funilId))
+
+export const etapasAbertasDoFunil = (funilId) => etapasDoFunil(funilId).filter((e) => e.tipo === 'aberta')
+
+export const primeiraEtapaDoFunil = (funilId) => etapasAbertasDoFunil(funilId)[0]?.chave ?? ''
+
+// A etapa em que o negócio está — a linha de `funil_etapas`, com o nome atual.
+export function etapaDoNegocio(oportunidade) {
+  if (!oportunidade) return null
+  return funilEtapas.list().find((e) => e.funilId === oportunidade.funilId && e.chave === oportunidade.etapa) ?? null
+}
+
+export function nomeDaEtapa(funilId, chave) {
+  const etapa = funilEtapas.list().find((e) => e.funilId === funilId && e.chave === chave)
+  if (etapa) return etapa.nome
+  return chave === 'ganho' ? 'Ganho' : chave === 'perdido' ? 'Perdido' : chave || ''
+}
+
+// "Vendas · Proposta enviada" — o jeito de dizer onde um negócio está.
+// Com um funil só, o nome dele seria ruído: fica só a etapa.
+export function rotuloDoNegocio(oportunidade, { sempreComFunil = false } = {}) {
+  if (!oportunidade) return ''
+  const etapa = nomeDaEtapa(oportunidade.funilId, oportunidade.etapa)
+  const funil = funis.get(oportunidade.funilId)
+  if (!funil || (!sempreComFunil && funis.list().length < 2)) return etapa
+  return `${funil.nome} · ${etapa}`
+}
+
+// O que a etiqueta precisa para se desenhar: nome do funil, da etapa e a cor.
+export function rotularNegocio(oportunidade) {
+  const funil = funis.get(oportunidade?.funilId)
+  if (!funil) return null
+  return {
+    funilId: funil.id,
+    funil: funil.nome,
+    etapa: nomeDaEtapa(funil.id, oportunidade.etapa),
+    cor: funil.cor,
+    hex: hexDaCor(funil.cor),
+  }
+}
+
+// Os negócios de um contato do WhatsApp: os do cliente (se houver cadastro) e
+// os que nasceram da própria conversa (o lead, que ainda não tem cliente).
+export function negociosDaConversa(conversa) {
+  if (!conversa) return []
+  return oportunidades.list().filter((o) =>
+    (conversa.id && o.conversaId === conversa.id) || (conversa.clienteId && o.clienteId === conversa.clienteId))
+}
+
+// As etiquetas "Funil · Etapa" da lista de conversas. A regra (aberto primeiro,
+// senão o último, repetidas viram uma) mora em lib/funis.js, com teste.
+export const etiquetasDaConversa = (conversa) => etiquetasDosNegocios(negociosDaConversa(conversa), rotularNegocio)
+
+// Todos os funis com as etapas de cada um — a lista agrupada da página do
+// negócio, que deixa passar um cliente de "Vendas" para "Pós-venda".
+// `primeiro` põe o funil do negócio no topo: é o mais provável de ser usado.
+export function gruposDeEtapas({ soAbertas = false, primeiro = '' } = {}) {
+  const lista = funisOrdenados()
+  if (primeiro) lista.sort((a, b) => (a.id === primeiro ? -1 : b.id === primeiro ? 1 : 0))
+  return lista.map((funil) => ({
+    funil,
+    etapas: soAbertas ? etapasAbertasDoFunil(funil.id) : etapasDoFunil(funil.id),
+  }))
+}
+
+export const negociosDoFunil = (funilId) => oportunidades.list().filter((o) => o.funilId === funilId)
+export const negociosDaEtapa = (funilId, chave) =>
+  oportunidades.list().filter((o) => o.funilId === funilId && o.etapa === chave)
+
+// O que mudou no banco por uma função (remover etapa/funil, criar funil) não
+// volta na resposta: rebusca o que mudou para a tela ver o mundo novo. Os
+// negócios só quando algum deles mudou de lugar — rebuscar centenas de cartões
+// para criar um funil vazio deixava a tela "Criando…" por segundos.
+const recarregarFunis = (comNegocios = false) =>
+  recarregarTabelas(comNegocios ? ['funis', 'funil_etapas', 'oportunidades'] : ['funis', 'funil_etapas'])
+
+// Erro do RLS em português: só a gestão mexe nos funis.
+function explicarPermissaoDoFunil(erro) {
+  const texto = String(erro?.message || erro || '')
+  if (/row-level security|permission denied/i.test(texto)) {
+    throw new Error('Só a gestão pode mudar os funis e as etapas.')
+  }
+  throw erro
+}
+
+export async function criarFunil(nome) {
+  const limpo = String(nome || '').trim()
+  if (!limpo) throw new Error('Dê um nome ao funil.')
+  const { data, error } = await supabase.rpc('criar_funil', { p_nome: limpo })
+  if (error) explicarPermissaoDoFunil(error)
+  await recarregarFunis()
+  return data ? paraApp(data) : null
+}
+
+export async function salvarFunil(id, { nome, cor }) {
+  const dados = {}
+  if (nome !== undefined) {
+    dados.nome = String(nome || '').trim()
+    if (!dados.nome) throw new Error('O funil precisa de um nome.')
+  }
+  if (cor !== undefined) {
+    if (!PALETA_FUNIS[cor]) throw new Error('Escolha uma cor da paleta.')
+    dados.cor = cor
+  }
+  return funis.update(id, dados).catch(explicarPermissaoDoFunil)
+}
+
+export async function definirFunilPrincipal(id) {
+  const { error } = await supabase.rpc('definir_funil_principal', { p_funil: id })
+  if (error) explicarPermissaoDoFunil(error)
+  await recarregarTabelas(['funis'])
+}
+
+// Remove o funil. Com negócios dentro, `destinoId` (levar para outro funil —
+// cada um para a etapa equivalente) ou `apagar` (saem junto).
+export async function removerFunil(id, { destinoId = null, apagar = false } = {}) {
+  if (funis.list().length <= 1) throw new Error('O último funil não pode ser removido.')
+  const tinhaNegocios = negociosDoFunil(id).length > 0
+  const { error } = await supabase.rpc('remover_funil', {
+    p_funil: id, p_destino: destinoId || null, p_apagar: !!apagar,
+  })
+  if (error) explicarPermissaoDoFunil(error)
+  await recarregarFunis(tinhaNegocios)
+}
+
+// Etapa nova entra no fim das abertas — antes de Ganho e Perdido.
+export async function adicionarEtapa(funilId, nome) {
+  const limpo = String(nome || '').trim()
+  if (!limpo) throw new Error('Dê um nome à etapa.')
+  const abertas = etapasAbertasDoFunil(funilId)
+  if (abertas.length >= LIMITE_ETAPAS_ABERTAS) {
+    throw new Error(`Um funil pode ter no máximo ${LIMITE_ETAPAS_ABERTAS} etapas abertas.`)
+  }
+  const ordem = abertas.reduce((maior, e) => Math.max(maior, Number(e.ordem || 0)), 0) + 1
+  return funilEtapas.create({ funilId, nome: limpo, tipo: 'aberta', ordem }).catch(explicarPermissaoDoFunil)
+}
+
+export async function renomearEtapa(id, nome) {
+  const limpo = String(nome || '').trim()
+  if (!limpo) throw new Error('A etapa precisa de um nome.')
+  return funilEtapas.update(id, { nome: limpo }).catch(explicarPermissaoDoFunil)
+}
+
+// Troca a etapa de lugar com a vizinha (-1 = esquerda, +1 = direita). Só entre
+// as abertas: Ganho e Perdido ficam sempre no fim.
+export async function moverEtapa(id, direcao) {
+  const etapa = funilEtapas.get(id)
+  if (!etapa || etapa.tipo !== 'aberta') return
+  const abertas = etapasAbertasDoFunil(etapa.funilId)
+  const i = abertas.findIndex((e) => e.id === id)
+  const vizinha = abertas[i + direcao]
+  if (!vizinha) return
+  // Renumera a fila inteira com as duas trocadas: ordens repetidas não teriam
+  // o que trocar, e renumerar só grava as linhas que mudaram de fato.
+  const nova = [...abertas]
+  nova[i] = vizinha
+  nova[i + direcao] = etapa
+  for (const [posicao, e] of nova.entries()) {
+    if (Number(e.ordem) !== posicao + 1) {
+      await funilEtapas.update(e.id, { ordem: posicao + 1 }).catch(explicarPermissaoDoFunil)
+    }
+  }
+}
+
+// Remove uma etapa aberta. Os negócios dela vão para `destinoId` (outra etapa
+// aberta do mesmo funil), e o histórico de cada um diz "etapa removida".
+export async function removerEtapa(id, destinoId = null) {
+  const etapa = funilEtapas.get(id)
+  const tinhaNegocios = !!etapa && negociosDaEtapa(etapa.funilId, etapa.chave).length > 0
+  const { error } = await supabase.rpc('remover_etapa', { p_etapa: id, p_destino: destinoId || null })
+  if (error) explicarPermissaoDoFunil(error)
+  await recarregarFunis(tinhaNegocios)
+}
+
+// O histórico de um negócio — de onde veio, para onde foi, por quê. Fora do
+// cache de propósito: só a página do negócio olha para ele.
+export async function historicoDoNegocio(oportunidadeId) {
+  if (!oportunidadeId) return []
+  const { data, error } = await supabase
+    .from('oportunidade_historico')
+    .select('*')
+    .eq('oportunidade_id', oportunidadeId)
+    .order('feito_em', { ascending: false })
+  if (error) throw error
+  return data.map(paraApp)
+}
+
+// O que muda nos negócios e nos funis em OUTRO lugar — outro computador
+// arrastando o cartão, o webhook abrindo um lead — chega por aqui, e as
+// etiquetas da lista de conversas se atualizam sem F5.
+//
+// A linha nova vem inteira no evento: basta trocá-la no cache, sem ir ao banco.
+const TABELAS_DO_CRM = ['oportunidades', 'funis', 'funil_etapas']
+
+export function assinarCrm(aoMudar) {
+  let canal = supabase.channel(`crm-${crypto.randomUUID()}`)
+  for (const tabela of TABELAS_DO_CRM) {
+    canal = canal.on('postgres_changes', { event: '*', schema: 'public', table: tabela }, (evento) => {
+      if (evento.eventType === 'DELETE') {
+        const id = evento.old?.id
+        if (id) cache[tabela] = cache[tabela].filter((i) => i.id !== id)
+      } else if (evento.new?.id) {
+        const item = paraApp(evento.new)
+        const existe = cache[tabela].some((i) => i.id === item.id)
+        cache[tabela] = existe
+          ? cache[tabela].map((i) => (i.id === item.id ? { ...i, ...item } : i))
+          : [...cache[tabela], item]
+      }
+      avisarMudanca()
+      aoMudar?.()
+    })
+  }
+  canal.subscribe()
+  return () => supabase.removeChannel(canal)
+}
+
 // ---- Funil (oportunidades) ----
 
 // Espaço entre cartões vizinhos. Cartão novo entra no fim da coluna com
@@ -1618,20 +1854,20 @@ const PASSO_ORDEM = 1000
 
 const porOrdem = (a, b) => Number(a.ordem || 0) - Number(b.ordem || 0)
 
-// Os cartões de uma etapa, na ordem em que aparecem na coluna.
-export function oportunidadesDaEtapa(etapa) {
-  return oportunidades.list().filter((o) => o.etapa === etapa).sort(porOrdem)
+// Os cartões de uma etapa de um funil, na ordem em que aparecem na coluna.
+export function oportunidadesDaEtapa(funilId, etapa) {
+  return negociosDaEtapa(funilId, etapa).sort(porOrdem)
 }
 
-// O quadro inteiro. As etapas fechadas mostram só o passado recente: manter
-// "ganho" e "perdido" inteiros faria a coluna crescer para sempre e esconder o
-// que ainda dá para trabalhar.
-export function oportunidadesPorEtapa(diasDeFechadas = 30) {
+// O quadro de um funil. As etapas fechadas mostram só o passado recente:
+// manter "ganho" e "perdido" inteiros faria a coluna crescer para sempre e
+// esconder o que ainda dá para trabalhar.
+export function oportunidadesPorEtapa(funilId, diasDeFechadas = 30) {
   const limite = somarDias(hojeISO(), -diasDeFechadas)
   const quadro = {}
-  for (const etapa of Object.keys(ETAPAS_FUNIL)) {
-    const cartoes = oportunidadesDaEtapa(etapa)
-    quadro[etapa] = ETAPAS_FECHADAS.includes(etapa)
+  for (const { chave } of etapasDoFunil(funilId)) {
+    const cartoes = oportunidadesDaEtapa(funilId, chave)
+    quadro[chave] = etapaFechada(chave)
       ? cartoes.filter((o) => !o.fechadaEm || o.fechadaEm >= limite)
       : cartoes
   }
@@ -1646,9 +1882,9 @@ export function oportunidadesDoCliente(clienteId) {
     .sort((a, b) => String(b.criadoEm || '').localeCompare(String(a.criadoEm || '')))
 }
 
-// Contagem e dinheiro em jogo por etapa, para o cabeçalho das colunas.
-export function resumoDoFunil() {
-  const quadro = oportunidadesPorEtapa()
+// Contagem e dinheiro em jogo por etapa de um funil, para o cabeçalho das colunas.
+export function resumoDoFunil(funilId) {
+  const quadro = oportunidadesPorEtapa(funilId)
   const resumo = {}
   for (const [etapa, cartoes] of Object.entries(quadro)) {
     resumo[etapa] = {
@@ -1659,13 +1895,22 @@ export function resumoDoFunil() {
   return resumo
 }
 
+// As negociações abertas — de um funil, ou de todos (o número do dashboard).
+export function resumoDasAbertas(funilId = null) {
+  const abertas = oportunidades.list().filter((o) => negocioAberto(o) && (!funilId || o.funilId === funilId))
+  return {
+    quantidade: abertas.length,
+    valor: abertas.reduce((soma, o) => soma + Number(o.valorEstimado || 0), 0),
+  }
+}
+
 // Negociações abertas paradas há mais de `dias` — o número que importa no
 // dashboard. Uma oportunidade esquecida não avisa que foi esquecida.
 export function oportunidadesParadas(dias = 7) {
   const limite = somarDias(hojeISO(), -dias)
   return oportunidades
     .list()
-    .filter((o) => ETAPAS_ABERTAS.includes(o.etapa))
+    .filter(negocioAberto)
     .filter((o) => String(o.atualizadoEm || o.criadoEm || '').slice(0, 10) < limite)
     .sort((a, b) => String(a.atualizadoEm || '').localeCompare(String(b.atualizadoEm || '')))
 }
@@ -1677,10 +1922,23 @@ function tituloPadraoDaOportunidade(dados) {
   return cliente ? `Negociação — ${cliente.nome}` : 'Nova negociação'
 }
 
+// O fim da fila de uma coluna: onde entra quem chega.
+function fimDaColuna(funilId, etapa, semId = null) {
+  const coluna = oportunidadesDaEtapa(funilId, etapa).filter((o) => o.id !== semId)
+  const ultima = coluna[coluna.length - 1]
+  return ultima ? Number(ultima.ordem || 0) + PASSO_ORDEM : PASSO_ORDEM
+}
+
 export async function salvarOportunidade(form) {
-  const etapa = form.etapa || 'contato'
+  const anterior = form.id ? oportunidades.get(form.id) : null
+  // Sem funil escolhido, o principal; etapa que não existe no funil (ou
+  // nenhuma), a primeira aberta dele.
+  const funilId = form.funilId || anterior?.funilId || funilPrincipal()?.id || ''
+  const existe = etapasDoFunil(funilId).some((e) => e.chave === form.etapa)
+  const etapa = existe ? form.etapa : primeiraEtapaDoFunil(funilId)
   const dados = {
     ...form,
+    funilId,
     etapa,
     titulo: String(form.titulo || '').trim() || tituloPadraoDaOportunidade(form),
     valorEstimado: Number(form.valorEstimado || 0),
@@ -1688,27 +1946,34 @@ export async function salvarOportunidade(form) {
     criadoPor: form.criadoPor || usuarioAtual(),
   }
 
-  // Cartão novo entra no fim da coluna: quem acabou de chegar não fura a fila
-  // do que já estava sendo trabalhado.
-  if (!form.id) {
-    const coluna = oportunidadesDaEtapa(etapa)
-    const ultima = coluna[coluna.length - 1]
-    dados.ordem = ultima ? Number(ultima.ordem || 0) + PASSO_ORDEM : PASSO_ORDEM
+  // Cartão novo — ou que mudou de coluna pela página do negócio — entra no fim
+  // da coluna: quem acabou de chegar não fura a fila do que já estava ali.
+  const mudouDeColuna = anterior && (anterior.funilId !== funilId || anterior.etapa !== etapa)
+  if (!form.id || mudouDeColuna) dados.ordem = fimDaColuna(funilId, etapa, form.id)
+
+  // Negócio fechado que volta para uma etapa aberta pela página do negócio é
+  // uma reabertura: a data de fechamento e o motivo da perda deixam de valer,
+  // como em reabrirOportunidade. A venda vinculada fica — ela existiu.
+  if (anterior && etapaFechada(anterior.etapa) && !etapaFechada(etapa)) {
+    dados.fechadaEm = ''
+    dados.motivoPerda = ''
   }
 
   return form.id ? oportunidades.update(form.id, dados) : oportunidades.create(dados)
 }
 
-// Move o cartão para `etapa`, na posição `indice` daquela coluna.
+// Move o cartão para `etapa` (do funil `funilId`; sem ele, do mesmo funil), na
+// posição `indice` daquela coluna.
 //
 // A nova ordem é a média entre os vizinhos de destino. Com numeric(20,10) dá
 // para dividir o intervalo dezenas de vezes antes de faltar precisão, e uma
 // coluna reordenada à mão tantas vezes assim é hipótese de laboratório.
-export async function moverOportunidade(id, etapa, indice) {
+export async function moverOportunidade(id, etapa, indice, funilId = null) {
   const cartao = oportunidades.get(id)
   if (!cartao) return null
+  const destino = funilId || cartao.funilId
 
-  const coluna = oportunidadesDaEtapa(etapa).filter((o) => o.id !== id)
+  const coluna = oportunidadesDaEtapa(destino, etapa).filter((o) => o.id !== id)
   const posicao = Math.max(0, Math.min(indice ?? coluna.length, coluna.length))
   const anterior = coluna[posicao - 1]
   const proximo = coluna[posicao]
@@ -1719,7 +1984,7 @@ export async function moverOportunidade(id, etapa, indice) {
   else if (!proximo) ordem = Number(anterior.ordem || 0) + PASSO_ORDEM
   else ordem = (Number(anterior.ordem || 0) + Number(proximo.ordem || 0)) / 2
 
-  return oportunidades.update(id, { etapa, ordem })
+  return oportunidades.update(id, { funilId: destino, etapa, ordem })
 }
 
 // O canal da negociação e o canal da venda são vocabulários diferentes (a venda
@@ -1773,15 +2038,18 @@ export async function criarVendaDaOportunidade(oportunidade) {
 
 // Fecha a negociação como ganha. `criarVenda` abre a proposta correspondente e
 // guarda o vínculo nos dois sentidos.
-export async function ganharOportunidade(id, { criarVenda = false } = {}) {
+export async function ganharOportunidade(id, { criarVenda = false, funilId = null } = {}) {
   const cartao = oportunidades.get(id)
   if (!cartao) return null
 
   let venda = null
   if (criarVenda && !cartao.vendaId) venda = await criarVendaDaOportunidade(cartao)
 
+  const destino = funilId || cartao.funilId
   return oportunidades.update(id, {
+    funilId: destino,
     etapa: 'ganho',
+    ordem: fimDaColuna(destino, 'ganho', id),
     fechadaEm: hojeISO(),
     motivoPerda: '',
     vendaId: venda?.id || cartao.vendaId || '',
@@ -1790,7 +2058,7 @@ export async function ganharOportunidade(id, { criarVenda = false } = {}) {
 
 // Fecha como perdida. O motivo é obrigatório pela mesma razão que o resultado
 // "retornar" exige data de volta: o registro só serve se disser alguma coisa.
-export async function perderOportunidade(id, { motivo, observacoes } = {}) {
+export async function perderOportunidade(id, { motivo, observacoes, funilId = null } = {}) {
   if (!motivo) {
     throw new Error(
       'Escolha o motivo da perda: negociação perdida sem motivo não vira ' +
@@ -1800,8 +2068,11 @@ export async function perderOportunidade(id, { motivo, observacoes } = {}) {
   const cartao = oportunidades.get(id)
   if (!cartao) return null
 
+  const destino = funilId || cartao.funilId
   return oportunidades.update(id, {
+    funilId: destino,
     etapa: 'perdido',
+    ordem: fimDaColuna(destino, 'perdido', id),
     fechadaEm: hojeISO(),
     motivoPerda: motivo,
     observacoes: observacoes ?? cartao.observacoes,
@@ -1810,8 +2081,11 @@ export async function perderOportunidade(id, { motivo, observacoes } = {}) {
 
 // Volta uma negociação fechada para o fluxo. A venda já criada continua
 // vinculada — ela existe de fato, e apagar o rastro seria mentir.
-export async function reabrirOportunidade(id, etapa = 'negociacao') {
-  return oportunidades.update(id, { etapa, fechadaEm: '', motivoPerda: '' })
+export async function reabrirOportunidade(id, etapa = '', funilId = null) {
+  const cartao = oportunidades.get(id)
+  const destino = funilId || cartao?.funilId
+  const chave = etapa || primeiraEtapaDoFunil(destino)
+  return oportunidades.update(id, { funilId: destino, etapa: chave, fechadaEm: '', motivoPerda: '' })
 }
 
 export async function excluirOportunidade(id) {
@@ -3146,7 +3420,7 @@ export function linhaDoTempoDoCliente(clienteId) {
       categoria: 'oportunidade',
       titulo: o.titulo || 'Negociação',
       detalhe: [
-        ETAPAS_FUNIL[o.etapa] ?? o.etapa,
+        rotuloDoNegocio(o),
         Number(o.valorEstimado || 0) ? formatBRL(o.valorEstimado) : '',
         o.motivoPerda ? MOTIVOS_PERDA[o.motivoPerda] ?? o.motivoPerda : '',
       ].filter(Boolean).join(' · '),

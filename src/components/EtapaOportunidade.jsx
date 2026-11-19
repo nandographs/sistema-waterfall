@@ -1,14 +1,13 @@
 import { useState } from 'react'
 import {
   oportunidadesDoCliente, moverOportunidade, reabrirOportunidade,
-  ETAPAS_FUNIL, ETAPAS_ABERTAS, ETAPAS_FECHADAS,
+  gruposDeEtapas, rotularNegocio, funis,
+  negocioAberto, etapaFechada,
 } from '../data/repository.js'
-import { Badge, notificar } from './ui.jsx'
+import { notificar } from './ui.jsx'
 import { IconPlus } from './icons.jsx'
+import EtiquetaFunil, { BolinhaFunil } from './EtiquetaFunil.jsx'
 import OportunidadeModal, { FecharOportunidadeModal, oportunidadeNova } from './OportunidadeModal.jsx'
-
-const COR_DA_ETAPA = (etapa) =>
-  etapa === 'ganho' ? 'green' : (etapa === 'perdido' ? 'red' : 'sky')
 
 // A etapa do funil onde este cliente está, editável no lugar em que você
 // estiver.
@@ -17,6 +16,10 @@ const COR_DA_ETAPA = (etapa) =>
 // conversa acabou de descobrir se o negócio andou ou não, e é ali — não depois,
 // em outra tela — que a etapa deveria mudar. Por isso este controle vive fora
 // do quadro e escreve no mesmo lugar que ele.
+//
+// O botão mostra a cor e o nome do funil junto da etapa ("Vendas · Proposta"),
+// e o menu lista as etapas de todos os funis: dá para levar o cliente de um
+// funil para outro daqui mesmo.
 //
 // Fechar (ganho/perdido) continua passando pelo modal de fechamento: a regra do
 // motivo obrigatório e a oferta de abrir a venda valem venha de onde vier.
@@ -29,23 +32,26 @@ export default function EtapaOportunidade({ clienteId, oportunidade: fixa, onMud
   // funil, inclusive quando ela é um lead e não tem cliente para procurar.
   // Sem ela, a negociação que importa é a aberta; sem nenhuma aberta, a última
   // fechada, que ainda conta a história ("perdido em agosto").
-  const oportunidade =
-    fixa ?? doCliente.find((o) => ETAPAS_ABERTAS.includes(o.etapa)) ?? doCliente[0] ?? null
+  const oportunidade = fixa ?? doCliente.find(negocioAberto) ?? doCliente[0] ?? null
+  const rotulo = oportunidade ? rotularNegocio(oportunidade) : null
+  const grupos = gruposDeEtapas({ primeiro: oportunidade?.funilId })
+  const variosFunis = funis.list().length > 1
 
-  async function escolher(etapa, e) {
+  async function escolher(funilId, etapa, e) {
     e.currentTarget.closest('details')?.removeAttribute('open')
-    if (etapa === oportunidade.etapa) return
+    if (funilId === oportunidade.funilId && etapa === oportunidade.etapa) return
 
-    if (ETAPAS_FECHADAS.includes(etapa)) {
-      setFechando({ oportunidade, etapa })
+    if (etapaFechada(etapa)) {
+      setFechando({ oportunidade, etapa, funilId })
       return
     }
     try {
-      if (ETAPAS_FECHADAS.includes(oportunidade.etapa)) {
-        await reabrirOportunidade(oportunidade.id, etapa)
+      if (etapaFechada(oportunidade.etapa)) {
+        await reabrirOportunidade(oportunidade.id, etapa, funilId)
       }
-      await moverOportunidade(oportunidade.id, etapa, null)
-      notificar(`Negociação movida para "${ETAPAS_FUNIL[etapa]}".`)
+      await moverOportunidade(oportunidade.id, etapa, null, funilId)
+      const destino = rotularNegocio({ funilId, etapa })
+      notificar(`Negociação movida para "${variosFunis ? `${destino?.funil} › ` : ''}${destino?.etapa}".`)
       onMudou?.()
     } catch (ex) {
       notificar(ex?.message || String(ex), 'erro')
@@ -60,27 +66,39 @@ export default function EtapaOportunidade({ clienteId, oportunidade: fixa, onMud
       {oportunidade ? (
         <details className="relative">
           <summary
-            title={`Etapa no CRM: ${ETAPAS_FUNIL[oportunidade.etapa]} — clique para mudar`}
+            title={`No CRM: ${rotulo ? `${rotulo.funil} · ${rotulo.etapa}` : oportunidade.etapa} — clique para mudar`}
             className="list-none cursor-pointer [&::-webkit-details-marker]:hidden"
           >
-            <Badge color={COR_DA_ETAPA(oportunidade.etapa)}>
-              {ETAPAS_FUNIL[oportunidade.etapa] ?? oportunidade.etapa} ▾
-            </Badge>
+            {rotulo ? (
+              <EtiquetaFunil cor={rotulo.cor} funil={variosFunis ? rotulo.funil : ''} etapa={rotulo.etapa} className="hover:brightness-95">
+                <span aria-hidden="true" className="opacity-60">▾</span>
+              </EtiquetaFunil>
+            ) : (
+              <span className="text-[12px] font-medium text-slate-500">{oportunidade.etapa} ▾</span>
+            )}
           </summary>
-          <div className="absolute right-0 z-30 mt-1.5 w-56 rounded-2xl superficie-flutuante p-1.5">
-            <p className="px-3 pt-1 pb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              Mover no CRM
-            </p>
-            {[...ETAPAS_ABERTAS, ...ETAPAS_FECHADAS].map((etapa) => (
-              <button
-                key={etapa}
-                type="button"
-                className={`${itemMenu} ${etapa === oportunidade.etapa ? 'text-blue-600' : ''}`}
-                onClick={(e) => escolher(etapa, e)}
-              >
-                {ETAPAS_FUNIL[etapa]}
-                {etapa === oportunidade.etapa && <span className="ml-auto text-xs">atual</span>}
-              </button>
+          <div className="absolute right-0 z-30 mt-1.5 w-60 max-h-[24rem] overflow-y-auto rounded-2xl superficie-flutuante p-1.5">
+            {grupos.map(({ funil, etapas }) => (
+              <div key={funil.id}>
+                <p className="flex items-center gap-1.5 px-3 pt-1.5 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  {variosFunis && <BolinhaFunil cor={funil.cor} tamanho={7} />}
+                  {variosFunis ? funil.nome : 'Mover no CRM'}
+                </p>
+                {etapas.map((etapa) => {
+                  const atual = funil.id === oportunidade.funilId && etapa.chave === oportunidade.etapa
+                  return (
+                    <button
+                      key={etapa.id}
+                      type="button"
+                      className={`${itemMenu} ${atual ? 'text-blue-600' : ''}`}
+                      onClick={(e) => escolher(funil.id, etapa.chave, e)}
+                    >
+                      {etapa.nome}
+                      {atual && <span className="ml-auto text-xs">atual</span>}
+                    </button>
+                  )
+                })}
+              </div>
             ))}
             <button
               type="button"
@@ -118,6 +136,7 @@ export default function EtapaOportunidade({ clienteId, oportunidade: fixa, onMud
         <FecharOportunidadeModal
           oportunidade={fechando.oportunidade}
           etapa={fechando.etapa}
+          funilId={fechando.funilId}
           onFechar={() => setFechando(null)}
           onSalvo={onMudou}
         />

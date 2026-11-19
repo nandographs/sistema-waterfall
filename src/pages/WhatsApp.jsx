@@ -1,18 +1,20 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Page, Badge, Empty, Button, Modal, notificar } from '../components/ui.jsx'
+import { Page, Badge, Empty, Button, Modal, notificar, CampoBusca } from '../components/ui.jsx'
 import { IconMessage, IconAlert } from '../components/icons.jsx'
 import { rotuloRelativo, diaCurto, diaDoInstante, horaDoInstante } from '../lib/datas.js'
 import {
   clientes, conversasRecentes, carregarMensagens, mensagensDaConversa,
   marcarConversaLida, enviarMensagemWhatsapp, assinarWhatsapp,
-  vincularConversaACliente, oportunidadesDoCliente, atualizarAvatares,
+  vincularConversaACliente, atualizarAvatares,
   arquivarConversa, cadastrarClienteDaConversa, conversaDoCliente, conversaDoNumero,
   garantirOportunidadeDoCliente, clienteInativo, textoInativacao,
   numerosWhatsapp, numeroEmUso, usarNumero, desconectarWhatsapp, reiniciarWhatsapp,
-  ETAPAS_FUNIL, ETAPAS_ABERTAS,
+  etiquetasDaConversa, funisOrdenados, assinarCrm, oportunidadeDaConversa,
 } from '../data/repository.js'
-import { formatarE164, paraE164 } from '../lib/telefone.js'
+import { formatarE164, paraE164, telefonesDoCliente } from '../lib/telefone.js'
+import { indexarBusca, prepararBusca, filtrarPorBusca } from '../lib/texto.js'
+import EtiquetaFunil, { BolinhaFunil } from '../components/EtiquetaFunil.jsx'
 import ClienteFormFields from '../components/ClienteFormFields.jsx'
 import ConversaWhatsApp, { CabecalhoConversa, AvatarConversa } from '../components/ConversaWhatsApp.jsx'
 import EtapaOportunidade from '../components/EtapaOportunidade.jsx'
@@ -49,13 +51,17 @@ function quando(iso) {
   return relativo || diaCurto(dia)
 }
 
-// Etapa do funil de um cliente, para mostrar na lista sem poder editar — na
-// lista o que se quer é varrer, não mexer. Editar é no cabeçalho da conversa.
-function etapaDoCliente(clienteId) {
-  if (!clienteId) return null
-  const doCliente = oportunidadesDoCliente(clienteId)
-  const oportunidade = doCliente.find((o) => ETAPAS_ABERTAS.includes(o.etapa)) ?? doCliente[0]
-  return oportunidade?.etapa ?? null
+// O filtro por funil fica lembrado no NAVEGADOR (localStorage), e não só na
+// aba: quem atende o pós-venda abre a caixa de entrada já em "Pós-venda" todo
+// dia. Valores: 'todos', 'sem' (contatos sem nenhum negócio) ou o id do funil.
+const CHAVE_FILTRO_FUNIL = 'waterfall:whatsapp:funil'
+
+function lerFiltroFunil() {
+  try { return localStorage.getItem(CHAVE_FILTRO_FUNIL) || 'todos' } catch { return 'todos' }
+}
+
+function gravarFiltroFunil(valor) {
+  try { localStorage.setItem(CHAVE_FILTRO_FUNIL, valor) } catch { /* modo privado: só não lembra */ }
 }
 
 export default function WhatsApp() {
@@ -102,15 +108,57 @@ export default function WhatsApp() {
   // sumiria da lista e o "Tirar do arquivo" do menu nunca seria alcançável.
   // Por isso o interruptor no cabeçalho da lista.
   const [verArquivadas, setVerArquivadas] = useState(false)
-  const lista = conversasRecentes({ incluirArquivadas: verArquivadas, instancia: numero })
+  const todas = conversasRecentes({ incluirArquivadas: verArquivadas, instancia: numero })
     .filter((c) => (verArquivadas ? c.arquivada : true))
-  const aberta = abertaId ? lista.find((c) => c.id === abertaId) ?? null : null
+  // A conversa aberta é procurada em TODAS, e não na lista filtrada: mudar o
+  // filtro ou a busca não pode fechar a conversa que você está respondendo.
+  const aberta = abertaId ? todas.find((c) => c.id === abertaId) ?? null : null
+
+  // A busca da caixa de entrada: nome, telefone (pelos dígitos) e a última
+  // mensagem. A mesma regra das outras listas do sistema.
+  const [busca, setBusca] = useState('')
+  const consulta = prepararBusca(busca)
+  const achadas = filtrarPorBusca(todas, consulta, (c) => {
+    const cliente = clientes.get(c.clienteId)
+    return indexarBusca({
+      principal: cliente?.nome || c.nomeWhatsapp,
+      outros: [c.nomeWhatsapp, c.ultimaPrevia],
+      numeros: [c.numero, ...(cliente ? telefonesDoCliente(cliente).map((t) => t.numero) : [])],
+    })
+  })
+
+  // As etiquetas de cada conversa, calculadas uma vez por render: servem à
+  // lista, à contagem dos botões do filtro e ao próprio filtro.
+  const etiquetas = new Map(achadas.map((c) => [c.id, etiquetasDaConversa(c)]))
+  const funisDoFiltro = funisOrdenados()
+  const [filtroGuardado, setFiltroGuardado] = useState(lerFiltroFunil)
+  // Funil que foi removido não pode deixar a lista presa num filtro vazio.
+  const filtroFunil = filtroGuardado === 'todos' || filtroGuardado === 'sem' ||
+    funisDoFiltro.some((f) => f.id === filtroGuardado) ? filtroGuardado : 'todos'
+  function escolherFiltroFunil(valor) {
+    setFiltroGuardado(valor)
+    gravarFiltroFunil(valor)
+  }
+  const doFiltro = (valor) => (c) => {
+    const daConversa = etiquetas.get(c.id) ?? []
+    if (valor === 'todos') return true
+    if (valor === 'sem') return daConversa.length === 0
+    return daConversa.some((e) => e.funilId === valor)
+  }
+  // Cada botão conta o que mostraria JUNTO com os outros filtros (ativas ou
+  // arquivadas, e a busca) — "Minhas + Pós-venda", na forma desta tela.
+  const contagem = (valor) => achadas.filter(doFiltro(valor)).length
+  const lista = achadas.filter(doFiltro(filtroFunil))
+  const filtrando = !consulta.vazia || filtroFunil !== 'todos'
   // Conta sempre as ATIVAS, e não a lista que está na tela: o contador precisa
   // querer dizer a mesma coisa em qualquer aba, senão ele deixa de ser um
   // número em que se confia.
   const totalNaoLidas = conversasRecentes({ instancia: numero }).reduce((soma, c) => soma + Number(c.naoLidas || 0), 0)
 
   useEffect(() => assinarWhatsapp(recarregar), [])
+  // As etiquetas "Funil · Etapa" mudam quando alguém move o cartão no CRM — em
+  // outra aba ou em outro computador. Sem isto, só no F5.
+  useEffect(() => assinarCrm(recarregar), [])
 
   // Quais números esta pessoa pode usar, e qual fica em uso. O escolhido da
   // última vez vale enquanto ela ainda puder usá-lo; senão, o próprio número, e
@@ -467,10 +515,63 @@ export default function WhatsApp() {
             )}
           </header>
 
+          {/* Busca e, embaixo dos filtros que já existem (Conversas /
+              Arquivadas), os funis. Cada botão diz quantas conversas mostraria
+              — e conta junto com a busca e com ativas/arquivadas. */}
+          <div className="shrink-0 border-b border-slate-200 px-3 py-2.5 space-y-2">
+            <CampoBusca
+              value={busca}
+              onChange={setBusca}
+              placeholder="Buscar nome, telefone ou mensagem…"
+              aria-label="Buscar conversa"
+              atalho={false}
+            />
+            {/* Quebra em linhas em vez de rolar de lado: a coluna da lista tem
+                20rem, e um botão escondido atrás de uma barra de rolagem é um
+                funil que ninguém descobre que dá para filtrar. */}
+            <div role="group" aria-label="Filtrar por funil" className="flex flex-wrap gap-1">
+              {[
+                { valor: 'todos', rotulo: 'Todos os funis' },
+                ...funisDoFiltro.map((f) => ({ valor: f.id, rotulo: f.nome, cor: f.cor })),
+                { valor: 'sem', rotulo: 'Sem funil' },
+              ].map(({ valor, rotulo, cor }) => {
+                const ativo = filtroFunil === valor
+                return (
+                  <button
+                    key={valor}
+                    type="button"
+                    aria-pressed={ativo}
+                    onClick={() => escolherFiltroFunil(valor)}
+                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 min-h-8 text-[12px] font-medium whitespace-nowrap cursor-pointer transition-colors ${
+                      ativo
+                        ? 'border-slate-300 bg-white text-slate-900 ui-card'
+                        : 'border-transparent bg-slate-100 text-slate-500 hover:text-slate-900'
+                    }`}
+                  >
+                    {cor && <BolinhaFunil cor={cor} tamanho={7} />}
+                    {rotulo}
+                    <span className="text-[11px] text-slate-400 tnum">{contagem(valor)}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
           <ul className="flex-1 min-h-0 overflow-y-auto divide-y divide-slate-100">
             {lista.length === 0 && (
               <Empty>
-                {verArquivadas
+                {filtrando && todas.length > 0 ? (
+                  <>
+                    Nenhuma conversa com {!consulta.vazia ? 'essa busca' : 'esse filtro'}.{' '}
+                    <button
+                      type="button"
+                      className="font-medium text-blue-600 hover:underline cursor-pointer"
+                      onClick={() => { setBusca(''); escolherFiltroFunil('todos') }}
+                    >
+                      Ver todas
+                    </button>
+                  </>
+                ) : verArquivadas
                   ? 'Nenhuma conversa arquivada.'
                   : 'Nenhuma conversa ainda. Elas aparecem sozinhas quando alguém escrever para o número.'}
               </Empty>
@@ -478,7 +579,7 @@ export default function WhatsApp() {
             {lista.map((conversa) => {
               const ativa = conversa.id === abertaId
               const cliente = clientes.get(conversa.clienteId)
-              const etapa = etapaDoCliente(conversa.clienteId)
+              const daConversa = etiquetas.get(conversa.id) ?? []
               const nome = cliente?.nome || conversa.nomeWhatsapp || conversa.numero
               return (
                 <li key={conversa.id}>
@@ -514,14 +615,14 @@ export default function WhatsApp() {
                         )}
                       </div>
                       <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                        {/* A etapa do funil na própria lista: dá para varrer a
-                            caixa de entrada sabendo quem está em proposta e quem
-                            é só suporte. */}
-                        {etapa && (
-                          <Badge color={etapa === 'ganho' ? 'green' : (etapa === 'perdido' ? 'red' : 'sky')}>
-                            {ETAPAS_FUNIL[etapa] ?? etapa}
-                          </Badge>
-                        )}
+                        {/* "Funil · Etapa" na própria lista, na cor do funil: dá
+                            para varrer a caixa de entrada sabendo quem está em
+                            proposta, quem já comprou e quem é só suporte. Um
+                            negócio aberto em cada funil = uma etiqueta para
+                            cada; sem nenhum aberto, a do último negócio. */}
+                        {daConversa.map((e) => (
+                          <EtiquetaFunil key={e.chave} cor={e.cor} funil={e.funil} etapa={e.etapa} />
+                        ))}
                         {!cliente && (
                           <span className="inline-block rounded-md bg-slate-100 border border-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600">
                             sem cadastro
@@ -553,11 +654,20 @@ export default function WhatsApp() {
                 onVincular={aberta ? () => setVincular(aberta) : undefined}
                 onCadastrar={aberta ? () => abrirCadastro(aberta) : undefined}
                 onArquivar={aberta ? () => alternarArquivo(aberta) : undefined}
-                acoes={
-                  conversaAberta.clienteId ? (
-                    <EtapaOportunidade clienteId={conversaAberta.clienteId} onMudou={recarregar} />
-                  ) : null
-                }
+                // O botão que leva ao negócio, com a cor, o funil e a etapa.
+                // Vale também para o LEAD (sem cadastro): o negócio dele é o
+                // que nasceu da conversa.
+                acoes={(() => {
+                  const negocio = aberta ? oportunidadeDaConversa(aberta.id, aberta.clienteId) : null
+                  if (!negocio && !conversaAberta.clienteId) return null
+                  return (
+                    <EtapaOportunidade
+                      clienteId={conversaAberta.clienteId}
+                      oportunidade={negocio ?? undefined}
+                      onMudou={recarregar}
+                    />
+                  )
+                })()}
               />
 
               {/* Os recados internos ficam ENTRE o cabeçalho e as mensagens, e

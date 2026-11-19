@@ -1,9 +1,10 @@
 import { Link } from 'react-router-dom'
 import {
   proximoPasso, formatBRL, formatData, vendas,
-  contatoDaOportunidade, naoLidasDaOportunidade,
-  ETAPAS_FUNIL, ETAPAS_ABERTAS, ETAPAS_FECHADAS, CANAIS_OPORTUNIDADE, MOTIVOS_PERDA,
+  contatoDaOportunidade, naoLidasDaOportunidade, gruposDeEtapas,
+  ETAPAS_FECHADAS, CANAIS_OPORTUNIDADE, MOTIVOS_PERDA,
 } from '../data/repository.js'
+import { BolinhaFunil } from './EtiquetaFunil.jsx'
 import { hojeISO } from '../lib/datas.js'
 import { Badge, Button } from './ui.jsx'
 import { AvatarContato } from './Avatar.jsx'
@@ -24,6 +25,8 @@ export default function OportunidadeCard({
   const passo = proximoPasso(oportunidade.clienteId)
   const naoLidas = naoLidasDaOportunidade(oportunidade)
   const fechada = ETAPAS_FECHADAS.includes(oportunidade.etapa)
+  const grupos = gruposDeEtapas({ primeiro: oportunidade.funilId })
+  const variosFunis = grupos.length > 1
   const valor = Number(oportunidade.valorEstimado || 0)
   // Negócio ganho cria a venda como PROPOSTA. Enquanto ninguém a confirma, o
   // "ganho" ainda não virou dinheiro — o cartão diz isso e oferece o passo.
@@ -100,22 +103,32 @@ export default function OportunidadeCard({
                 no toque, e emular com o polegar num quadro de 6 colunas seria
                 pior que escolher da lista. Este menu é o caminho principal lá,
                 e um atalho no desktop. */}
-            <div className="absolute right-0 z-20 mt-1 w-56 rounded-2xl superficie-flutuante p-1.5">
-              <p className="px-3 pt-1 pb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                Mover para
-              </p>
-              {[...ETAPAS_ABERTAS, ...ETAPAS_FECHADAS]
-                .filter((etapa) => etapa !== oportunidade.etapa)
-                .map((etapa) => (
-                  <button
-                    key={etapa}
-                    type="button"
-                    className={itemMenu}
-                    onClick={(e) => { fecharMenu(e); onMover(etapa) }}
-                  >
-                    {ETAPAS_FUNIL[etapa]}
-                  </button>
-                ))}
+            {/* As etapas de TODOS os funis, o do cartão primeiro: é daqui
+                que um cliente passa de "Vendas" para "Pós-venda" sem abrir a
+                negociação. Com vários funis a lista cresce — por isso rola. */}
+            <div className="absolute right-0 z-20 mt-1 w-60 max-h-[22rem] overflow-y-auto rounded-2xl superficie-flutuante p-1.5">
+              {grupos.map(({ funil, etapas }) => (
+                <div key={funil.id}>
+                  <p className="flex items-center gap-1.5 px-3 pt-1.5 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    {variosFunis && <BolinhaFunil cor={funil.cor} tamanho={7} />}
+                    {variosFunis
+                      ? (funil.id === oportunidade.funilId ? `Mover em ${funil.nome}` : `Levar para ${funil.nome}`)
+                      : 'Mover para'}
+                  </p>
+                  {etapas
+                    .filter((etapa) => !(funil.id === oportunidade.funilId && etapa.chave === oportunidade.etapa))
+                    .map((etapa) => (
+                      <button
+                        key={etapa.id}
+                        type="button"
+                        className={itemMenu}
+                        onClick={(e) => { fecharMenu(e); onMover(etapa.chave, funil.id) }}
+                      >
+                        {etapa.nome}
+                      </button>
+                    ))}
+                </div>
+              ))}
               <button type="button" className={`${itemMenu} border-t border-slate-200 mt-1 pt-1`} onClick={(e) => { fecharMenu(e); onAbrir() }}>
                 Abrir negociação
               </button>
